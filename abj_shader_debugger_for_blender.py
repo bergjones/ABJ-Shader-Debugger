@@ -698,10 +698,11 @@ from datetime import datetime
 from contextlib import contextmanager
 import random
 import numpy as np
-C = bpy.context
-D = bpy.data
 
 class ABJ_Shader_Debugger():
+	C = bpy.context
+	D = bpy.data
+
 	def __init__(self):
 		self.shadingDict_global = {}
 		self.shadingList_perFace = []
