@@ -699,10 +699,8 @@ from contextlib import contextmanager
 import random
 import numpy as np
 
-class ABJ_Shader_Debugger():
-	C = bpy.context
-	D = bpy.data
 
+class ABJ_Shader_Debugger():
 	def __init__(self):
 		self.shadingDict_global = {}
 		self.shadingList_perFace = []
@@ -849,9 +847,9 @@ class ABJ_Shader_Debugger():
 		storedValueUsable_prev = None
 
 		toUse = self.myBreakpointList[idx]
-		combo = 'C.scene.' + toUse
+		combo = 'bpy.context.scene.' + toUse
 
-		items = C.scene.bl_rna.properties[toUse].enum_items
+		items = bpy.context.scene.bl_rna.properties[toUse].enum_items
 		items_id = items[eval(combo)].identifier
 
 		if toUse == 'breakpoint_000_enum_prop' and items_id == '-1':
@@ -869,8 +867,8 @@ class ABJ_Shader_Debugger():
 				for j in self.shadingStages_perFace_stepList:
 
 					if j['idx'] == passedIdx:
-						usableStageCategory_items = C.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-						usableStageCategory_id = usableStageCategory_items[C.scene.shader_stages_enum_prop].identifier
+						usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
+						usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
 						maxRange_usable = None
 
@@ -895,8 +893,8 @@ class ABJ_Shader_Debugger():
 						
 						nextStage = self.myBreakpointList[j['breakpoint_idx']]
 
-						combo_nextStage = 'C.scene.' + nextStage
-						items_nextStage = C.scene.bl_rna.properties[nextStage].enum_items
+						combo_nextStage = 'bpy.context.scene.' + nextStage
+						items_nextStage = bpy.context.scene.bl_rna.properties[nextStage].enum_items
 						items_id_nextStage = items_nextStage[eval(combo_nextStage)].identifier
 
 						usableNextStage = int(items_id_nextStage)
@@ -915,8 +913,8 @@ class ABJ_Shader_Debugger():
 
 		if myNextStage == -1:
 
-			usableStageCategory_items = C.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[C.scene.shader_stages_enum_prop].identifier
+			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
+			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
 			maxRange_usable = None
 
@@ -1300,7 +1298,7 @@ class ABJ_Shader_Debugger():
 		new_obj = src_obj.copy()
 		new_obj.data = src_obj.data.copy()
 		new_obj.animation_data_clear()
-		C.collection.objects.link(new_obj)
+		bpy.context.collection.objects.link(new_obj)
 
 		return new_obj
 
@@ -1473,12 +1471,12 @@ class ABJ_Shader_Debugger():
 		self.shadingStages_selectedFaces.clear()
 
 
-		aov_items = C.scene.bl_rna.properties['aov_enum_prop'].enum_items
-		aov_id = aov_items[C.scene.aov_enum_prop].identifier
+		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 		self.aov_stored = aov_id
 
-		rdotvpow_items = C.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-		rdotvpow_id = rdotvpow_items[C.scene.r_dot_v_pow_enum_prop].identifier
+		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 		self.rdotvpow_stored = rdotvpow_id
 
 		if self.debugStageIterPlusMinus == True:
@@ -1526,8 +1524,8 @@ class ABJ_Shader_Debugger():
 		###################################
 		###### INPUT MESH / XFORM ###########
 		###################################
-		usablePrimitiveType_items = C.scene.bl_rna.properties['primitive_enum_prop'].enum_items
-		usablePrimitiveType_id = usablePrimitiveType_items[C.scene.primitive_enum_prop].identifier
+		usablePrimitiveType_items = bpy.context.scene.bl_rna.properties['primitive_enum_prop'].enum_items
+		usablePrimitiveType_id = usablePrimitiveType_items[bpy.context.scene.primitive_enum_prop].identifier
 
 		if usablePrimitiveType_id == 'cube':
 			bpy.ops.mesh.primitive_cube_add()
@@ -2280,11 +2278,11 @@ class ABJ_Shader_Debugger():
 
 		myInputMesh_dupeForRaycast.hide_set(0)
 
-		aov_items = C.scene.bl_rna.properties['aov_enum_prop'].enum_items
-		aov_id = aov_items[C.scene.aov_enum_prop].identifier
+		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
-		rdotvpow_items = C.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-		rdotvpow_id = rdotvpow_items[C.scene.r_dot_v_pow_enum_prop].identifier
+		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 
 		###print once variables
 		printOnce_stage_000 = False
@@ -2351,8 +2349,8 @@ class ABJ_Shader_Debugger():
 
 			spec = 0
 
-			usableRdotVPow_items = C.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-			usableRdotVPow_id = usableRdotVPow_items[C.scene.r_dot_v_pow_enum_prop].identifier
+			usableRdotVPow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+			usableRdotVPow_id = usableRdotVPow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 
 			if usableRdotVPow_id == 'pow1':
 				spec = pow(R_dot_V, 1) ##
@@ -2381,7 +2379,7 @@ class ABJ_Shader_Debugger():
 			'''
 
 			##############
-			## CS #####
+			#######
 			###########
 			#debug
 			# self.shadingStages_selectedFaces.clear()
@@ -2446,8 +2444,8 @@ class ABJ_Shader_Debugger():
 			##################
 			maxRange_usable = None
 
-			usableStageCategory_items = C.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[C.scene.shader_stages_enum_prop].identifier
+			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
+			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
 			if usableStageCategory_id == 'spec_with_arrow':
 				maxRange_usable = 7
@@ -2474,19 +2472,19 @@ class ABJ_Shader_Debugger():
 					elif j['idx'] in self.shadingStages_selectedFaces:
 						currentStage = self.myBreakpointList[j['breakpoint_idx']]
 
-						combo_currentStage = 'C.scene.' + currentStage
-						items_currentStage = C.scene.bl_rna.properties[currentStage].enum_items
+						combo_currentStage = 'bpy.context.scene.' + currentStage
+						items_currentStage = bpy.context.scene.bl_rna.properties[currentStage].enum_items
 						items_id_currentStage = items_currentStage[eval(combo_currentStage)].identifier
 						items_id_currentStage = int(items_id_currentStage)
 
 			####################################
 			#variables
 			####################################
-			usableStageCategory_items = C.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[C.scene.shader_stages_enum_prop].identifier
+			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
+			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
-			aov_items = C.scene.bl_rna.properties['aov_enum_prop'].enum_items
-			aov_id = aov_items[C.scene.aov_enum_prop].identifier
+			aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+			aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
 			###############
 			### spec_with_arrow
@@ -2641,8 +2639,8 @@ class ABJ_Shader_Debugger():
 
 
 	def raycast_abj(self, meshToCheck, point, direction, debugidx):
-		C.view_layer.update()
-		myDepsgraph = C.view_layer.depsgraph
+		bpy.context.view_layer.update()
+		myDepsgraph = bpy.context.view_layer.depsgraph
 
 		hit, loc, norm, poly_index = meshToCheck.ray_cast(point, direction, distance = 1.70141e+38, depsgraph = myDepsgraph)
 
@@ -2666,9 +2664,6 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	bl_context = "scene"
 
 	def draw(self, context):
-		C = bpy.context
-		D = bpy.data
-
 		layout = self.layout
 
 		######################################
@@ -2698,7 +2693,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='STAGE IDX')
 		row = layout.row()
 		row.scale_y = 1.0 ###
-		row.prop(C.scene, 'shader_stages_enum_prop', text="")
+		row.prop(bpy.context.scene, 'shader_stages_enum_prop', text="")
 
 		row = layout.row()
 		row.scale_y = 2.0 ###
@@ -2721,7 +2716,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='R.V POW:')
 		row = layout.row()
 		row.scale_y = 1.0 ###
-		row.prop(C.scene, 'r_dot_v_pow_enum_prop', text="")
+		row.prop(bpy.context.scene, 'r_dot_v_pow_enum_prop', text="")
 
 		layout.label(text='camera')
 		row = layout.row()
@@ -2733,7 +2728,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='AOV')
 		row = layout.row()
 		row.scale_y = 1.0 ###
-		row.prop(C.scene, 'aov_enum_prop', text="")
+		row.prop(bpy.context.scene, 'aov_enum_prop', text="")
 
 		######################################
 		###### INPUT MESH SELECT
@@ -2741,7 +2736,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='INPUT MESH')
 		row = layout.row()
 		row.scale_y = 1.0 ###
-		row.prop(C.scene, 'primitive_enum_prop', text="")
+		row.prop(bpy.context.scene, 'primitive_enum_prop', text="")
 		# row = layout.row()
 		
 		#show / hide arrows
@@ -2765,57 +2760,57 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='BREAKPOINTS')
 		row = layout.row()
 		# row.scale_y = 1.0 ###
-		row.prop(C.scene, 'breakpoint_000_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_000_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_001_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_001_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_002_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_002_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_003_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_003_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_004_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_004_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_005_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_005_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_006_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_006_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_007_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_007_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_008_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_008_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_009_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_009_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_010_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_010_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_011_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_011_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_012_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_012_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_013_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_013_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_014_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_014_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_015_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_015_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_016_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_016_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_017_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_017_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_018_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_018_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_019_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_019_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_020_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_020_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_021_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_021_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_022_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_022_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_023_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_023_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_024_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_024_enum_prop', text="")
 		row = layout.row()
-		row.prop(C.scene, 'breakpoint_025_enum_prop', text="")
+		row.prop(bpy.context.scene, 'breakpoint_025_enum_prop', text="")
 
 		######################################
 		###### COLOR PRESETS
