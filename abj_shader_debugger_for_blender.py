@@ -2666,6 +2666,9 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	bl_context = "scene"
 
 	def draw(self, context):
+		C = bpy.context
+		D = bpy.data
+
 		layout = self.layout
 
 		######################################
