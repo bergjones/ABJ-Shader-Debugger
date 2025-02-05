@@ -692,8 +692,6 @@ import bpy
 import bmesh
 import math
 import mathutils
-from mathutils.bvhtree import BVHTree
-from mathutils.interpolate import poly_3d_calc
 from datetime import datetime
 from contextlib import contextmanager
 import random
@@ -3043,9 +3041,9 @@ def register():
 		name='r_dot_v_pow',
 		description="r_dot_v_pow",
 		items=r_dot_v_pow_enum_items,
-		# default='pow8',
+		default='pow8',
 		# default='pow2',
-		default='pow4',
+		# default='pow4',
 	)
 
 	primitive_select_enum_items = (
@@ -3128,7 +3126,7 @@ def register():
 		description="breakpoint_000",
 		items=breakpoint_enum_items,
 		# default='002',
-		default='-1',
+		default='000',
 	)
 
 	bpy.types.Scene.breakpoint_001_enum_prop = bpy.props.EnumProperty(
