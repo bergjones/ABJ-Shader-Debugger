@@ -2526,8 +2526,12 @@ class ABJ_Shader_Debugger():
 
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
 
-				if N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
-					if items_id_currentStage == 3:
+				elif items_id_currentStage == 3:
+					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
+						self.print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+
+					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
 						if printOnce_stage_003 == False:
 							self.print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
 							self.print("'stage_003' : 'raycast from faceCenter to V'")
@@ -2555,14 +2559,18 @@ class ABJ_Shader_Debugger():
 
 						self.objScaling_toMatchPosition_localSolve2(myFaceCenter_to_V_instance, self.myCubeCam.name, faceCenter, 1, 1, mWorld_temp)
 
-						self.updateScene() ####### new
+						# self.updateScene() ####### new
 
 						self.objectsToToggleOnOffLater.append(myFaceCenter_to_V_instance)
 
 						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
 
-					if faceCenter_to_V_rayCast == True or override == True:
-						if items_id_currentStage == 4:
+				elif items_id_currentStage == 4:
+					if faceCenter_to_V_rayCast == False: ####
+						self.print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
+						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+
+					elif faceCenter_to_V_rayCast == True or override == True:
 							if printOnce_stage_004 == False:
 								self.print('faceCenter_to_V_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
 								self.print("'stage_004' : 'raycast from faceCenter to L'")
@@ -2573,74 +2581,79 @@ class ABJ_Shader_Debugger():
 
 							self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
 
-						if faceCenter_to_L_rayCast == True or override == True:
-							if items_id_currentStage == 5:
-								if printOnce_stage_005 == False:
-									self.print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
-									self.print("'stage_005' : 'show arrows (N, L)'")
-									printOnce_stage_005 = True
+				elif items_id_currentStage == 5:
+					if faceCenter_to_L_rayCast == False: ####
+						self.print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
+						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
-								myCube1_instance = self.copyAndSetCube1(mySplitFaceIndexUsable, myCube1_M)
-								self.objectsToToggleOnOffLater.append(myCube1_instance)
+					elif faceCenter_to_L_rayCast == True or override == True:
+						if printOnce_stage_005 == False:
+							self.print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
+							self.print("'stage_005' : 'show arrows (N, L)'")
+							printOnce_stage_005 = True
 
-								myCubeLight_instance = self.copyAndSetCubeLight(mySplitFaceIndexUsable, myCubeLight_M)
-								self.objectsToToggleOnOffLater.append(myCubeLight_instance)
+						myCube1_instance = self.copyAndSetCube1(mySplitFaceIndexUsable, myCube1_M)
+						self.objectsToToggleOnOffLater.append(myCube1_instance)
 
-								self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
+						myCubeLight_instance = self.copyAndSetCubeLight(mySplitFaceIndexUsable, myCubeLight_M)
+						self.objectsToToggleOnOffLater.append(myCubeLight_instance)
 
-							elif items_id_currentStage == 6:
-								if printOnce_stage_006 == False:
-									self.print("'stage_006' : 'R.....show R arrow (cube2) along with N and L'")
-									printOnce_stage_006 = True
+						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
 
-								myCubeLight_instance = self.copyAndSetCubeLight(mySplitFaceIndexUsable, myCubeLight_M)
-								myCube1_instance = self.copyAndSetCube1(mySplitFaceIndexUsable, myCube1_M)
-								myCube2_instance = self.copyAndSetCube2(mySplitFaceIndexUsable, myCube2_M)
+				elif items_id_currentStage == 6:
+					if faceCenter_to_L_rayCast == True or override == True:
+						if printOnce_stage_006 == False:
+							self.print("'stage_006' : 'R.....show R arrow (cube2) along with N and L'")
+							printOnce_stage_006 = True
 
-								self.objectsToToggleOnOffLater.append(myCubeLight_instance)
-								self.objectsToToggleOnOffLater.append(myCube1_instance)
-								self.objectsToToggleOnOffLater.append(myCube2_instance)
+						myCubeLight_instance = self.copyAndSetCubeLight(mySplitFaceIndexUsable, myCubeLight_M)
+						myCube1_instance = self.copyAndSetCube1(mySplitFaceIndexUsable, myCube1_M)
+						myCube2_instance = self.copyAndSetCube2(mySplitFaceIndexUsable, myCube2_M)
 
-								self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
+						self.objectsToToggleOnOffLater.append(myCubeLight_instance)
+						self.objectsToToggleOnOffLater.append(myCube1_instance)
+						self.objectsToToggleOnOffLater.append(myCube2_instance)
 
-							elif items_id_currentStage == 7:
-								if printOnce_stage_007 == False:
-									self.print('stage_007 output AOV = ', aov_id)
-									printOnce_stage_007 = True
+						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
 
-								############################################
-								####### OUTPUT AOV
-								############################################
-								attenuation = 1.0 #temp, outside sunlight
+				elif items_id_currentStage == 7:
+					if printOnce_stage_007 == False:
+						self.print('stage_007 output AOV = ', aov_id)
+						printOnce_stage_007 = True
 
-								Ks = 10
-								Kl = 1
-								finalDiff = N_dot_L
-								finalSpec = spec * Ks
-
-								if aov_id == 'spec':
-									Ci = ((finalSpec) * attenuation * Kl) ###
-								elif aov_id == 'diffuse':
-									Ci = ((finalDiff) * attenuation * Kl) ###
-								elif aov_id == 'Ci':
-									Ci = ((finalDiff + finalSpec) * attenuation * Kl) ###
-
-								Ci = pow(Ci, (1.0 / 2.2))
-
-								if self.specTesterMatToggle == -1:
-									for j in bpy.context.scene.objects:
-										if j.name == shadingPlane:
-											bpy.context.view_layer.objects.active = j
-
-									mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci, Ci, Ci)
-									bpy.context.active_object.data.materials.clear()
-									bpy.context.active_object.data.materials.append(mat1)
+					self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
 		myInputMesh_dupeForRaycast.hide_set(1)
 
 		# self.print('TIME TO COMPLETE stage 2 (render) = ' + str(datetime.now() - startTime))
 		self.print(' ')
 
+	def aov_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation):
+		# self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+		attenuation = 1.0 #temporary, outside sunlight
+
+		Ks = 10
+		Kl = 1
+		finalDiff = N_dot_L
+		finalSpec = spec * Ks
+
+		if aov_id == 'spec':
+			Ci = ((finalSpec) * attenuation * Kl) ###
+		elif aov_id == 'diffuse':
+			Ci = ((finalDiff) * attenuation * Kl) ###
+		elif aov_id == 'Ci':
+			Ci = ((finalDiff + finalSpec) * attenuation * Kl) ###
+
+		Ci = pow(Ci, (1.0 / 2.2))
+
+		if self.specTesterMatToggle == -1:
+			for j in bpy.context.scene.objects:
+				if j.name == shadingPlane:
+					bpy.context.view_layer.objects.active = j
+
+			mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci, Ci, Ci)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
 
 	def raycast_abj(self, meshToCheck, point, direction, debugidx):
 		bpy.context.view_layer.update()
