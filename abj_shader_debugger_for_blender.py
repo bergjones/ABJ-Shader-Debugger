@@ -692,6 +692,8 @@ import bpy
 import bmesh
 import math
 import mathutils
+from mathutils.bvhtree import BVHTree
+from mathutils.interpolate import poly_3d_calc
 from datetime import datetime
 from contextlib import contextmanager
 import random
@@ -710,6 +712,7 @@ class ABJ_Shader_Debugger():
 		self.debugStageIterPlusMinus = False
 		self.aov_stored = None
 		self.rdotvpow_stored = None
+		self.breakpointsOverrideToggle = False
 
 		self.world_mat_cam_stored_np = None
 		self.shadingPlane = None
@@ -850,67 +853,64 @@ class ABJ_Shader_Debugger():
 		items = bpy.context.scene.bl_rna.properties[toUse].enum_items
 		items_id = items[eval(combo)].identifier
 
-		if toUse == 'breakpoint_000_enum_prop' and items_id == '-1':
-			self.print('run full regular stage iter')
-			self.print(' ')
-			return -1
+		usableNextStage = None
 
-		else:
-			if items_id == '-1':
-				return 0
+		for j in self.shadingStages_perFace_stepList:
 
-			else:
-				usableNextStage = None
+			if j['idx'] == passedIdx:
+				usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
+				usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
-				for j in self.shadingStages_perFace_stepList:
+				maxRange_usable = None
 
-					if j['idx'] == passedIdx:
-						usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-						usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
+				if usableStageCategory_id == 'spec_with_arrow':
+					maxRange_usable = 7
 
-						maxRange_usable = None
+				elif usableStageCategory_id == 'spec_no_arrow':
+					maxRange_usable = 4
 
-						if usableStageCategory_id == 'spec_with_arrow':
-							maxRange_usable = 7
+				elif usableStageCategory_id == 'diffuse':
+					maxRange_usable = 2
 
-						elif usableStageCategory_id == 'spec_no_arrow':
-							maxRange_usable = 4
+				elif usableStageCategory_id == 'cs':
+					maxRange_usable = 5
 
-						elif usableStageCategory_id == 'diffuse':
-							maxRange_usable = 2
+				######################################################
+				#get the breakpoint
+				#get the enum value chosen for that breakpoint
+				#use that to get the current stage
 
-						elif usableStageCategory_id == 'cs':
-							maxRange_usable = 5
+				j["breakpoint_idx"] = self.clamp(j["breakpoint_idx"] + step, 0, breakpointLimit + 1)
+				
+				nextStage = self.myBreakpointList[j['breakpoint_idx']]
 
-						######################################################
-						#get the breakpoint
-						#get the enum value chosen for that breakpoint
-						#use that to get the current stage
+				combo_nextStage = 'bpy.context.scene.' + nextStage
+				items_nextStage = bpy.context.scene.bl_rna.properties[nextStage].enum_items
+				items_id_nextStage = items_nextStage[eval(combo_nextStage)].identifier
 
-						j["breakpoint_idx"] = self.clamp(j["breakpoint_idx"] + step, 0, breakpointLimit + 1)
-						
-						nextStage = self.myBreakpointList[j['breakpoint_idx']]
+				usableNextStage = int(items_id_nextStage)
+				usableNextStageClamped = self.clamp(usableNextStage, 0, maxRange_usable)
+				j["stage"] = usableNextStageClamped
+				break
 
-						combo_nextStage = 'bpy.context.scene.' + nextStage
-						items_nextStage = bpy.context.scene.bl_rna.properties[nextStage].enum_items
-						items_id_nextStage = items_nextStage[eval(combo_nextStage)].identifier
-
-						usableNextStage = int(items_id_nextStage)
-						usableNextStageClamped = self.clamp(usableNextStage, 0, maxRange_usable)
-						j["stage"] = usableNextStageClamped
-						break
-
-				return usableNextStage
+		return usableNextStage
 
 	def stageIdx_plusMinus_UI(self, step):
+		usableBreakpointOverride_items = bpy.context.scene.bl_rna.properties['breakpoint_override_enum_prop'].enum_items
+		usableBreakpointOverride_id = usableBreakpointOverride_items[bpy.context.scene.breakpoint_override_enum_prop].identifier
 
-		for i in self.shadingStages_selectedFaces:
-			for j in self.shadingStages_perFace_stepList:	
-				if j["idx"] == i: #mySplitFaceIndexUsable:
-					myNextStage = self.batchIdentifyBreakpointValue(j["breakpoint_idx"], step, i)
+		if usableBreakpointOverride_id == 'regular':
 
-		if myNextStage == -1:
+			for i in self.shadingStages_selectedFaces:
+				for j in self.shadingStages_perFace_stepList:	
+					if j["idx"] == i: #mySplitFaceIndexUsable:
+						myNextStage = self.batchIdentifyBreakpointValue(j["breakpoint_idx"], step, i)
 
+		elif usableBreakpointOverride_id == 'override':
+			pass
+			# iterate by 1 without having to change order
+
+			'''
 			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
 			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
 
@@ -942,6 +942,7 @@ class ABJ_Shader_Debugger():
 						if j["idx"] == i: #mySplitFaceIndexUsable:
 							j["stage"] = self.clamp(j["stage"] + step, 0, maxRange_usable)
 
+			'''
 		if self.debugStageIterPlusMinus == False:
 			self.refreshPart2_UI()
 
@@ -2754,8 +2755,12 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		######################################
 		###### BREAKPOINTS
 		######################################
-		# layout.label(text='Breakpoints')
 		layout.label(text='BREAKPOINTS')
+
+		row = layout.row()
+		row.scale_y = 1.0 ###
+		row.prop(bpy.context.scene, 'breakpoint_override_enum_prop', text="")
+
 		row = layout.row()
 		# row.scale_y = 1.0 ###
 		row.prop(bpy.context.scene, 'breakpoint_000_enum_prop', text="")
@@ -3121,11 +3126,22 @@ def register():
 		default='Ci',
 	)
 
+	breakpoint_override_items = (
+		('regular', 'regular', 'regular'),
+		('override', 'override', 'override'),
+	)
+
+	bpy.types.Scene.breakpoint_override_enum_prop = bpy.props.EnumProperty(
+		name='breakpoint_override',
+		description="breakpoint_override",
+		items=breakpoint_override_items,
+		default='regular',
+	)
+
 	bpy.types.Scene.breakpoint_000_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_000',
 		description="breakpoint_000",
 		items=breakpoint_enum_items,
-		# default='002',
 		default='000',
 	)
 
