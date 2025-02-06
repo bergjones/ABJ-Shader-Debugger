@@ -710,6 +710,7 @@ class ABJ_Shader_Debugger():
 		self.specTesterMatToggle = -1
 		self.objectsToToggleOnOffLater = []
 		self.debugStageIterPlusMinus = False
+		self.recently_cleared_selFaces = False
 		self.aov_stored = None
 		self.rdotvpow_stored = None
 		self.breakpointsOverrideToggle = False
@@ -967,8 +968,9 @@ class ABJ_Shader_Debugger():
 					j["breakpoint_idx"] = 0
 					j["stage"] = 0
 
-
 		self.shadingStages_selectedFaces.clear()
+
+		self.recently_cleared_selFaces = True
 
 		self.refreshPart2_UI()
 	
@@ -2302,7 +2304,10 @@ class ABJ_Shader_Debugger():
 		if self.rdotvpow_stored != rdotvpow_id:
 			self.rdotvpow_stored = rdotvpow_id
 			skip_refresh_override = True
-		
+
+		if self.recently_cleared_selFaces == True:
+			skip_refresh_override = True
+			self.recently_cleared_selFaces = False
 
 		for i in self.shadingList_perFace:
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
