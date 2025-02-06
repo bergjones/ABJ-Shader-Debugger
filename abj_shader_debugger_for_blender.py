@@ -3325,9 +3325,38 @@ def unregister():
 	for c in classes:
 		bpy.utils.unregister_class(c)
 
-	del bpy.types.Scene.enum_prop
 	del bpy.types.Scene.r_dot_v_pow_enum_prop
 	del bpy.types.Scene.primitive_enum_prop
+
+	del bpy.types.Scene.breakpoint_override_enum_prop
+
+	del bpy.types.Scene.breakpoint_000_enum_prop
+	del bpy.types.Scene.breakpoint_001_enum_prop
+	del bpy.types.Scene.breakpoint_002_enum_prop
+	del bpy.types.Scene.breakpoint_003_enum_prop
+	del bpy.types.Scene.breakpoint_004_enum_prop
+	del bpy.types.Scene.breakpoint_005_enum_prop
+	del bpy.types.Scene.breakpoint_006_enum_prop
+	del bpy.types.Scene.breakpoint_007_enum_prop
+	del bpy.types.Scene.breakpoint_008_enum_prop
+	del bpy.types.Scene.breakpoint_009_enum_prop
+	del bpy.types.Scene.breakpoint_010_enum_prop
+	del bpy.types.Scene.breakpoint_011_enum_prop
+	del bpy.types.Scene.breakpoint_012_enum_prop
+	del bpy.types.Scene.breakpoint_013_enum_prop
+	del bpy.types.Scene.breakpoint_014_enum_prop
+	del bpy.types.Scene.breakpoint_015_enum_prop
+	del bpy.types.Scene.breakpoint_016_enum_prop
+	del bpy.types.Scene.breakpoint_017_enum_prop
+	del bpy.types.Scene.breakpoint_018_enum_prop
+	del bpy.types.Scene.breakpoint_019_enum_prop
+	del bpy.types.Scene.breakpoint_020_enum_prop
+	del bpy.types.Scene.breakpoint_021_enum_prop
+	del bpy.types.Scene.breakpoint_022_enum_prop
+	del bpy.types.Scene.breakpoint_023_enum_prop
+	del bpy.types.Scene.breakpoint_024_enum_prop
+	del bpy.types.Scene.breakpoint_025_enum_prop
+
 
 myABJ_SD_B = ABJ_Shader_Debugger()
 
@@ -3374,3 +3403,4 @@ To: X min 0.5 / X max 2
 	- cube L is the light
 	- cube Cam is the eye
 '''
+
