@@ -758,6 +758,104 @@ class ABJ_Shader_Debugger():
 		self.startTime_stage1 = None
 		self.startTime_stage2 = None
 
+		#############
+		##### PROFILE
+		#############
+		self.profileCode_part1 = True
+		
+		self.profile_stage1_00_a = None
+		self.profile_stage1_00_b = None
+		self.profile_stage1_00_final = None
+
+		self.profile_stage1_01_a = None
+		self.profile_stage1_01_b = None
+		self.profile_stage1_01_final = None
+
+		self.profile_stage1_02_a = None
+		self.profile_stage1_02_b = None
+		self.profile_stage1_02_final = None
+
+		self.profile_stage1_03_a = None
+		self.profile_stage1_03_b = None
+		self.profile_stage1_03_final = None
+
+		self.profile_stage1_04_a = None
+		self.profile_stage1_04_b = None
+		self.profile_stage1_04_final = None
+
+		self.profile_stage1_05_a = None
+		self.profile_stage1_05_b = None
+		self.profile_stage1_05_final = None
+
+		self.profile_stage1_06_a = None
+		self.profile_stage1_06_b = None
+		self.profile_stage1_06_final = None
+
+		self.profile_stage1_07_a = None
+		self.profile_stage1_07_b = None
+		self.profile_stage1_07_final = None
+
+		self.profile_stage1_08_a = None
+		self.profile_stage1_08_b = None
+		self.profile_stage1_08_final = None
+
+		self.profile_stage1_09_a = None
+		self.profile_stage1_09_b = None
+		self.profile_stage1_09_final = None
+
+		self.profile_stage1_10_a = None
+		self.profile_stage1_10_b = None
+		self.profile_stage1_10_final = None
+
+		##########
+		self.profileCode_part2 = True
+
+		self.profile_stage2_00_a = None
+		self.profile_stage2_00_b = None
+		self.profile_stage2_00_final = None
+
+		self.profile_stage2_01_a = None
+		self.profile_stage2_01_b = None
+		self.profile_stage2_01_final = None
+
+		self.profile_stage2_02_a = None
+		self.profile_stage2_02_b = None
+		self.profile_stage2_02_final = None
+
+		self.profile_stage2_03_a = None
+		self.profile_stage2_03_b = None
+		self.profile_stage2_03_final = None
+
+		self.profile_stage2_04_a = None
+		self.profile_stage2_04_b = None
+		self.profile_stage2_04_final = None
+
+		self.profile_stage2_05_a = None
+		self.profile_stage2_05_b = None
+		self.profile_stage2_05_final = None
+
+		self.profile_stage2_06_a = None
+		self.profile_stage2_06_b = None
+		self.profile_stage2_06_final = None
+
+		self.profile_stage2_07_a = None
+		self.profile_stage2_07_b = None
+		self.profile_stage2_07_final = None
+
+		self.profile_stage2_08_a = None
+		self.profile_stage2_08_b = None
+		self.profile_stage2_08_final = None
+
+		self.profile_stage2_09_a = None
+		self.profile_stage2_09_b = None
+		self.profile_stage2_09_final = None
+
+		self.profile_stage2_10_a = None
+		self.profile_stage2_10_b = None
+		self.profile_stage2_10_final = None
+
+
+
 		self.text_extrude_amt = 0.05
 
 		self.printDetailedInfo = False
@@ -1461,6 +1559,20 @@ class ABJ_Shader_Debugger():
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
 
+		self.profile_stage1_02_final = self.startTime_stage1 - self.startTime_stage1
+		self.profile_stage1_03_final = self.startTime_stage1 - self.startTime_stage1
+		self.profile_stage1_04_final = self.startTime_stage1 - self.startTime_stage1
+		self.profile_stage1_05_final = self.startTime_stage1 - self.startTime_stage1
+		self.profile_stage1_06_final = self.startTime_stage1 - self.startTime_stage1
+		self.profile_stage1_07_final = self.startTime_stage1 - self.startTime_stage1
+		# self.profile_stage1_08_final = self.startTime_stage1 - self.startTime_stage1
+		# self.profile_stage1_09_final = self.startTime_stage1 - self.startTime_stage1
+		# self.profile_stage1_10_final = self.startTime_stage1 - self.startTime_stage1
+		# self.print('should be zero... ', self.profile_stage1_02_final)
+
+
+		self.profile_stage1_06_a = datetime.now() ################
+
 		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
 		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
 
@@ -1553,9 +1665,18 @@ class ABJ_Shader_Debugger():
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
 
+		# bpy.context.view_layer.objects.active = myInputMesh
+
 		#TRIANGULATE
 		# bpy.ops.object.modifier_add(type='TRIANGULATE')
 		# bpy.ops.object.modifier_apply(modifier="Triangulate")
+
+		#SUBDIVIDE
+		# bpy.ops.object.modifier_add(type='SUBSURF')
+		# myObj = bpy.context.active_object
+		# myObj.modifiers["Subdivision"].levels = 1
+		# bpy.ops.object.modifier_apply(modifier="Subdivision")
+
 		
 		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
 		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
@@ -1564,9 +1685,15 @@ class ABJ_Shader_Debugger():
 
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 
+		self.profile_stage1_06_b = str(datetime.now() - self.profile_stage1_06_a)
+		if self.profileCode_part1 == True:
+			self.print('~~~~~~~~~ self.profile_stage1_06_b = ', self.profile_stage1_06_b)
+
 		########
 		#Dupe for raycasting
 		########
+		self.profile_stage1_00_a = datetime.now() ################
+
 		myInputMesh_dupeForRaycast = self.copyObject()
 		myInputMesh_dupeForRaycast.name = 'myInputMesh_dupeForRaycast'
 		myInputMesh_dupeForRaycast.hide_set(1)
@@ -1577,9 +1704,14 @@ class ABJ_Shader_Debugger():
 		usableSplitMesh = self.splitObjectIntoFacesFunc0(myInputMesh)
 		self.shadingList_perFace = []
 
+		self.profile_stage1_00_b = str(datetime.now() - self.profile_stage1_00_a)
+		if self.profileCode_part1 == True:
+			self.print('~~~~~~~~~ self.profile_stage1_00_b = ', self.profile_stage1_00_b)
+
 		#############################################################################################
 		######################## CREATE ORIGINALS #######################################
 		#############################################################################################
+		self.profile_stage1_01_a = datetime.now() ################
 
 		###############################
 		######### CUBE CAM ############
@@ -1665,12 +1797,18 @@ class ABJ_Shader_Debugger():
 			'V' : self.myV,
 		}
 
+		self.profile_stage1_01_b = str(datetime.now() - self.profile_stage1_01_a)
+		if self.profileCode_part1 == True:
+			self.print('~~~~~~~~~ self.profile_stage1_01_b = ', self.profile_stage1_01_b)
+
 		#############################################################################################
 		######################################## FACE DEPENDANT #####################################
 		#############################################################################################
 		self.deselectAll()
 
 		for i in usableSplitMesh:
+			self.profile_stage1_04_a = datetime.now() ################
+
 			self.shadingPlane = None
 
 			for j in bpy.context.scene.objects:
@@ -1680,13 +1818,20 @@ class ABJ_Shader_Debugger():
 					bpy.context.view_layer.objects.active = j
 					self.shadingPlane = bpy.context.active_object
 			
+			
 			if self.shadingPlane == None:
 				self.print('ERROR: Could not find shading plane for : ',  i)
 				return
+				
 
-			bpy.ops.object.mode_set(mode="OBJECT")
+			# bpy.ops.object.mode_set(mode="OBJECT")
 
-			self.deselectAll()
+			self.profile_stage1_04_b = datetime.now() - self.profile_stage1_04_a
+			self.profile_stage1_04_final += self.profile_stage1_04_b
+
+			self.profile_stage1_07_a = datetime.now() ################
+
+			# self.deselectAll()
 
 			#############
 			### DEBUG ONLY SELECTED IDX
@@ -1708,9 +1853,14 @@ class ABJ_Shader_Debugger():
 			self.myCube1_dupe.matrix_world = self.myCube1_og_Matrix
 			self.myCube2_dupe.matrix_world = self.myCube2_og_Matrix
 
+			self.profile_stage1_07_b = datetime.now() - self.profile_stage1_07_a
+			self.profile_stage1_07_final += self.profile_stage1_07_b
+
 			###############################
 			######### INFO (PER FACE) ############
 			###############################
+			self.profile_stage1_02_a = datetime.now() ################
+
 			faceCenter = self.shadingPlane.location
 			pos = self.shadingPlane.location
 
@@ -1721,11 +1871,17 @@ class ABJ_Shader_Debugger():
 			##################################################################################
 			###################################### STORE SHADE PARAMS #####################################
 			##################################################################################
-			bpy.context.view_layer.objects.active = self.shadingPlane
-			facesToSelect = [0]
-			self.selectMultipleFace(facesToSelect)
 			
+
+			bpy.context.view_layer.objects.active = self.shadingPlane
+	
 			normalDir = self.getFaceNormal()
+
+			self.profile_stage1_02_b = datetime.now() - self.profile_stage1_02_a
+			self.profile_stage1_02_final += self.profile_stage1_02_b
+
+			self.profile_stage1_03_a = datetime.now() ################
+
 			myN = normalDir.normalized()
 		
 			myReflectVec_cube2 = -myL.reflect(myN)
@@ -1745,6 +1901,9 @@ class ABJ_Shader_Debugger():
 
 			distance = (pos_light_global_v - pos).length
 			attenuation = 1.0 / (distance * distance)
+
+			self.profile_stage1_03_b = datetime.now() - self.profile_stage1_03_a
+			self.profile_stage1_03_final += self.profile_stage1_03_b
 
 			shadingDict_perFace = {
 				'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
@@ -1767,15 +1926,24 @@ class ABJ_Shader_Debugger():
 				'breakpoint_idx' : 0,
 			}
 
+
 			self.shadingList_perFace.append(shadingDict_perFace)
 
 			self.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
 
 
+		if self.profileCode_part1 == True:
+			self.print('~~~~~~~~~ self.profile_stage1_02_final = ', self.profile_stage1_02_final)
+			self.print('~~~~~~~~~ self.profile_stage1_03_final = ', self.profile_stage1_03_final)
+			self.print('~~~~~~~~~ self.profile_stage1_04_final = ', self.profile_stage1_04_final)
+			self.print('~~~~~~~~~ self.profile_stage1_07_final = ', self.profile_stage1_07_final)
+
 		#gotcha
 		# for i in self.shadingStages_perFace_stepList:	
 		# 	for key, value in i.items():
 		# 		self.print(f"{key}: {value}")
+
+		# self.profile_stage1_05_a = datetime.now() ################
 
 		self.updateScene()
 
@@ -1789,7 +1957,15 @@ class ABJ_Shader_Debugger():
 		self.myCube1_dupe.hide_set(1)
 		self.myCube2_dupe.hide_set(1)
 
+		# self.profile_stage1_05_b = datetime.now() - self.profile_stage1_05_a
+		# if self.profileCode_part1 == True:
+		# 	self.print('~~~~~~~~~ self.profile_stage1_05_b = ', self.profile_stage1_05_b)
+
+		# self.profile_stage1_04_final += self.profile_stage1_05_b
+
 		self.print('TIME TO COMPLETE stage 1 (preprocess) = ' + str(datetime.now() - self.startTime_stage1))
+		self.print(' ')
+
 
 		self.updateScene()
 
@@ -1897,17 +2073,42 @@ class ABJ_Shader_Debugger():
 		bm = bmesh.new()   # create an empty BMesh
 		bm.from_mesh(me)   # fill it in from a Mesh
 
-		selected_faces = [ f for f in bm.faces if f.select ]
-
-		for j in selected_faces:
-			normalDir = j.normal
-
-		# self.print('normalDir = ', normalDir)
-
-		for j in selected_faces:
-			j.select = False
+		for f in bm.faces:
+			normalDir = f.normal
 
 		return normalDir
+
+	def selectMultipleFace0(self, myArray):
+		# Get the active mesh
+		me = bpy.context.active_object.data
+
+		# Get a BMesh representation
+		bm = bmesh.new()   # create an empty BMesh
+		bm.from_mesh(me)   # fill it in from a Mesh
+	
+		bm.faces.ensure_lookup_table()
+
+		for f in bm.faces:
+			# f.select = False
+			f.select = True
+
+		# for i in myArray:
+		# 	for j in bm.faces:
+		# 		# self.print('i.index = ', i.index)
+		# 		if j.index == i:
+		# 			j.select = True
+
+		bm.select_flush_mode()
+		bpy.context.active_object.data.update()
+
+		bpy.ops.object.mode_set(mode="OBJECT")
+		# Finish up, write the bmesh back to the mesh
+
+		bm.to_mesh(me)
+		bm.free()  # free and prevent further access
+
+		bpy.ops.object.mode_set(mode="EDIT")
+		bpy.ops.mesh.select_mode(type="FACE")
 
 	def selectMultipleFace(self, myArray):
 		# Get the active mesh
@@ -1938,7 +2139,7 @@ class ABJ_Shader_Debugger():
 		bm.free()  # free and prevent further access
 
 		bpy.ops.object.mode_set(mode="EDIT")
-		bpy.ops.mesh.select_mode(type="FACE")	
+		bpy.ops.mesh.select_mode(type="FACE")
 
 	def selectMultipleEdge(self, myArray):
 		# Get the active mesh
@@ -2154,12 +2355,33 @@ class ABJ_Shader_Debugger():
 		return arrow_instance
 
 	def show_arrow_N(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
+
+		# self.profile_stage2_07_a = datetime.now() ################
+
 		self.myCube1_dupe.hide_set(0)
+
+		# self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
+		# self.profile_stage2_07_final += self.profile_stage2_07_b
+
+		self.profile_stage2_06_a = datetime.now() ################
 		myCube1_instance_M = self.dynamic_cube1_creation(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 		self.updateScene()
+
+		self.profile_stage2_06_b = datetime.now() - self.profile_stage2_06_a
+		self.profile_stage2_06_final += self.profile_stage2_06_b
+
+		# self.profile_stage2_07_a = datetime.now() ################
+		# self.profile_stage2_08_a = datetime.now() ################
+
 		myCube1_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, myCube1_instance_M, 'cube1_instance_', 'N')
 		self.objectsToToggleOnOffLater.append(myCube1_instance)
 		self.myCube1_dupe.hide_set(1)
+
+		# self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
+		# self.profile_stage2_07_final += self.profile_stage2_07_b
+
+		# self.profile_stage2_08_b = datetime.now() - self.profile_stage2_08_a
+		# self.profile_stage2_08_final += self.profile_stage2_08_b
 
 	def show_arrow_L_to_faceCenter(self, faceCenter, mySplitFaceIndexUsable, pos_light_global_v):
 		self.myCubeLight_dupe.hide_set(0)
@@ -2191,6 +2413,20 @@ class ABJ_Shader_Debugger():
 
 	def doIt_part2_render(self):
 		startTime = datetime.now()
+
+		self.profile_stage2_00_final = startTime - startTime
+		self.profile_stage2_01_final = startTime - startTime
+		self.profile_stage2_02_final = startTime - startTime
+		self.profile_stage2_03_final = startTime - startTime
+		self.profile_stage2_04_final = startTime - startTime
+		self.profile_stage2_05_final = startTime - startTime
+		self.profile_stage2_06_final = startTime - startTime
+		self.profile_stage2_07_final = startTime - startTime
+		self.profile_stage2_08_final = startTime - startTime
+		self.profile_stage2_09_final = startTime - startTime
+		self.profile_stage2_10_final = startTime - startTime
+
+		self.profile_stage2_00_a = datetime.now() ################
 
 		for i in self.objectsToToggleOnOffLater:
 			try:
@@ -2238,7 +2474,13 @@ class ABJ_Shader_Debugger():
 			skip_refresh_override = True
 			self.recently_cleared_selFaces = False
 
+		self.profile_stage2_00_b = str(datetime.now() - self.profile_stage2_00_a)
+		if self.profileCode_part2 == True:
+			self.print('~~~~~~~~~ self.profile_stage2_00_b = ', self.profile_stage2_00_b)
+
 		for i in self.shadingList_perFace:
+			self.profile_stage2_01_a = datetime.now() ################
+
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
 
 			#################################################
@@ -2315,6 +2557,14 @@ class ABJ_Shader_Debugger():
 			#visualize arrows if spec > cutoff
 			cutoff = self.spec_cutoff
 
+
+			self.profile_stage2_01_b = datetime.now() - self.profile_stage2_01_a
+			self.profile_stage2_01_final += self.profile_stage2_01_b
+
+
+			self.profile_stage2_04_a = datetime.now() ################
+			
+
 			N_dot_V_over_threshold_with_ortho_compensateTrick = None
 			# if (N_dot_V <= 0):
 			if (N_dot_V <= 0.1):
@@ -2360,7 +2610,17 @@ class ABJ_Shader_Debugger():
 						spec = 0
 							
 				elif faceCenter_to_V_rayCast == False:
-					spec = 0						
+					spec = 0
+
+
+			self.profile_stage2_04_b = datetime.now() - self.profile_stage2_04_a
+			self.profile_stage2_04_final += self.profile_stage2_04_b
+
+
+
+
+
+			self.profile_stage2_02_a = datetime.now() ################
 
 			##################
 			#STEPS FOR ALL
@@ -2409,20 +2669,49 @@ class ABJ_Shader_Debugger():
 			aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
 			aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
+			self.profile_stage2_02_b = datetime.now() - self.profile_stage2_02_a
+			self.profile_stage2_02_final += self.profile_stage2_02_b
+			# if self.profileCode_part2 == True:
+				# self.print('~~~~~~~~~ self.profile_stage2_02_b = ', self.profile_stage2_02_b)
+
+
+			self.profile_stage2_03_a = datetime.now() ################
+
 			###############
 			### spec_with_arrow
 			##############
+
 			if usableStageCategory_id == 'spec_with_arrow':
 				if items_id_currentStage == 0:
 					if printOnce_stage_000 == False:
 						self.print("'stage_000' : 'N....show N arrow (cube1)'")
 						printOnce_stage_000 = True
 
+					self.profile_stage2_05_a = datetime.now() ################
+
 					self.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+					self.profile_stage2_05_b = datetime.now() - self.profile_stage2_05_a
+					self.profile_stage2_05_final += self.profile_stage2_05_b
+
+
+					# self.profile_stage2_06_a = datetime.now() ################
 
 					self.myCubeCam.hide_set(1)
 
+					# self.profile_stage2_06_b = datetime.now() - self.profile_stage2_06_a
+					# self.profile_stage2_06_final += self.profile_stage2_06_b
+
+					# self.profile_stage2_07_a = datetime.now() ################
+
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, 1, 0, 0)
+
+					
+					# self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
+					# self.profile_stage2_07_final += self.profile_stage2_07_b
+
+
+
 
 				elif items_id_currentStage == 1:
 					if printOnce_stage_001 == False:
@@ -2542,6 +2831,31 @@ class ABJ_Shader_Debugger():
 
 					self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
+
+			self.profile_stage2_03_b = datetime.now() - self.profile_stage2_03_a
+			self.profile_stage2_03_final += self.profile_stage2_03_b
+			# if self.profileCode_part2 == True:
+				# self.print('~~~~~~~~~ self.profile_stage2_03_b = ', self.profile_stage2_03_b)
+
+		if self.profileCode_part2 == True:
+			# self.print('~~~~~~~~~ self.profile_stage2_00_final = ', self.profile_stage2_00_final)
+			# self.print('~~~~~~~~~ self.profile_stage2_01_final = ', self.profile_stage2_01_final)
+			self.print('~~~~~~~~~ self.profile_stage2_02_final - raycast = ', self.profile_stage2_02_final)
+			
+			self.print('~~~~~~~~~ self.profile_stage2_03_final = ', self.profile_stage2_03_final)
+			self.print('~~~~~~~~~ self.profile_stage2_04_final = ', self.profile_stage2_04_final)
+			self.print('~~~~~~~~~ self.profile_stage2_05_final - stage1 = ', self.profile_stage2_05_final)
+
+			self.print('~~~~~~~~~ self.profile_stage2_06_final - stage1 = ', self.profile_stage2_06_final)
+			self.print('~~~~~~~~~ self.profile_stage2_07_final - stage1 = ', self.profile_stage2_07_final)
+			self.print('~~~~~~~~~ self.profile_stage2_08_final = ', self.profile_stage2_08_final)
+			# self.print('~~~~~~~~~ self.profile_stage2_09_final = ', self.profile_stage2_09_final)
+			# self.print('~~~~~~~~~ self.profile_stage2_10_final = ', self.profile_stage2_10_final)
+
+
+
+
+
 		myInputMesh_dupeForRaycast.hide_set(1)
 
 		self.print('TIME TO COMPLETE stage 2 (render) = ' + str(datetime.now() - startTime))
@@ -2550,7 +2864,7 @@ class ABJ_Shader_Debugger():
 	def dynamic_cube2_creation(self, faceCenter, mySplitFaceIndexUsable, defaultMatrix, L, N):
 		self.myCube2_dupe.matrix_world = defaultMatrix
 
-		self.deselectAll()
+		# self.deselectAll()
 
 		bpy.context.view_layer.objects.active = self.myCube2_dupe
 
@@ -2565,17 +2879,24 @@ class ABJ_Shader_Debugger():
 		return dynamicM
 
 	def dynamic_cube1_creation(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
+		self.profile_stage2_07_a = datetime.now() ################
+
 		self.myCube1_dupe.matrix_world = self.myCube1_og_Matrix
 
 		for j in bpy.context.scene.objects:
 			if j.name == shadingPlane:
 				bpy.context.view_layer.objects.active = j
 
-		facesToSelect = [0]
-		self.selectMultipleFace(facesToSelect)
+		# facesToSelect = [0]
+		# self.selectMultipleFace(facesToSelect)
 		
 		normalDir = self.getFaceNormal()
 		# myN = normalDir.normalized()
+
+		self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
+		self.profile_stage2_07_final += self.profile_stage2_07_b
+
+		self.profile_stage2_08_a = datetime.now() ################
 
 		bpy.context.view_layer.objects.active = self.myCube1_dupe
 		bpy.context.active_object.rotation_mode = 'QUATERNION'
@@ -2586,13 +2907,16 @@ class ABJ_Shader_Debugger():
 		#use x axis
 		dynamicM = self.myCube1_dupe.matrix_world
 
+		self.profile_stage2_08_b = datetime.now() - self.profile_stage2_08_a
+		self.profile_stage2_08_final += self.profile_stage2_08_b
+
 		return dynamicM
 
 	def dynamic_cubeLight_creation(self, faceCenter, mySplitFaceIndexUsable, pos_light_global_v, mySun):
 		self.myCubeLight_dupe.matrix_world = self.myCubeLight_og_Matrix
 		
-		self.deselectAll()
-		self.updateScene()
+		# self.deselectAll()
+		# self.updateScene()
 
 		bpy.context.view_layer.objects.active = self.myCubeLight_dupe
 		self.myCubeLight_dupe.location = faceCenter
@@ -2641,7 +2965,7 @@ class ABJ_Shader_Debugger():
 			bpy.context.active_object.data.materials.append(mat1)
 
 	def raycast_abj(self, meshToCheck, point, direction, debugidx):
-		bpy.context.view_layer.update()
+		# bpy.context.view_layer.update()
 		myDepsgraph = bpy.context.view_layer.depsgraph
 
 		hit, loc, norm, poly_index = meshToCheck.ray_cast(point, direction, distance = 1.70141e+38, depsgraph = myDepsgraph)
