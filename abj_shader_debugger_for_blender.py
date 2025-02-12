@@ -2436,8 +2436,7 @@ class ABJ_Shader_Debugger():
 
 		self.objectsToToggleOnOffLater.append(myCubeV_instance)
 
-		# outputMatrix = restored_V_M_np.to_quaternion() @ mathutils.Vector((-1.0, 0.0, 0.0))
-
+		# outputMatrix = restored_V_M_np.to_quaternion() @ mathutils.Vector((-1.0, 0.0, 0.0)) #####
 		# outputMatrix = restored_V_M_np.to_translation()
 		# return outputMatrix
 
@@ -2751,39 +2750,7 @@ class ABJ_Shader_Debugger():
 				# This line subtracts the coordinates of point_a from point_b, resulting in a vector pointing from point_a to point_b.
 				V_toFace = mathutils.Vector(faceCenter - self.pos_camera_global_v).normalized()
 
-				for j in self.allNamesToToggleDuringRaycast:
-					j.hide_set(1)
-
-				objectsToToggleOnOffLater_stored = []
-				for j in self.objectsToToggleOnOffLater:
-					if j.hide_get() == 0:
-						objectsToToggleOnOffLater_stored.append(j)
-
-				for j in objectsToToggleOnOffLater_stored:
-					j.hide_set(1)
-
-				storedCubeCamState = 1
-				if self.myCubeCam.hide_get() == 0:
-					storedCubeCamState = 0
-					self.myCubeCam.hide_set(1)
-
-
-
 				myRay_faceCenter_to_V = self.raycast_abj_scene(shadingPlane, self.pos_camera_global_v, V_toFace, mySplitFaceIndexUsable) ########## good
-
-
-
-				for j in self.allNamesToToggleDuringRaycast:
-					j.hide_set(0)
-
-				if storedCubeCamState == 0:
-					self.myCubeCam.hide_set(0)
-
-				for j in objectsToToggleOnOffLater_stored:
-					j.hide_set(0)
-
-
-				# myRay_faceCenter_to_V = self.raycast_abj_scene(shadingPlane, faceCenter, myV_usable, mySplitFaceIndexUsable) ########## good
 
 				if myRay_faceCenter_to_V == True:
 					faceCenter_to_V_rayCast = True
@@ -2797,31 +2764,7 @@ class ABJ_Shader_Debugger():
 					#######################
 					#RAYCAST AGAINST L
 					#######################
-					for j in objectsToToggleOnOffLater_stored:
-						j.hide_set(1)
-
-					for j in self.allNamesToToggleDuringRaycast:
-						j.hide_set(1)
-
-					storedCubeCamState = 1
-					if self.myCubeCam.hide_get() == 0:
-						storedCubeCamState = 0
-						self.myCubeCam.hide_set(1)
-
-
 					myRay_faceCenter_to_L = self.raycast_abj_scene(myInputMesh_dupeForRaycast.name, self.pos_light_global_v, -L, mySplitFaceIndexUsable) ########## good
-
-
-
-
-					for j in self.allNamesToToggleDuringRaycast:
-						j.hide_set(0)
-
-					for j in objectsToToggleOnOffLater_stored:
-						j.hide_set(0)
-
-					if storedCubeCamState == 0:
-						self.myCubeCam.hide_set(0)
 
 					if myRay_faceCenter_to_L == True:
 						faceCenter_to_L_rayCast = True
@@ -2961,7 +2904,7 @@ class ABJ_Shader_Debugger():
 						self.profile_stage2_03_b = datetime.now() - self.profile_stage2_03_a
 						self.profile_stage2_03_final += self.profile_stage2_03_b
 
-						# self.myCubeCam.hide_set(1)
+						self.myCubeCam.hide_set(1)
 
 				elif items_id_currentStage == 4:
 					if faceCenter_to_V_rayCast == False: ####
@@ -2976,6 +2919,8 @@ class ABJ_Shader_Debugger():
 								printOnce_stage_004 = True
 
 							self.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+							self.myCubeCam.hide_set(1)
 
 							self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
@@ -3004,6 +2949,8 @@ class ABJ_Shader_Debugger():
 
 						self.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
+						self.myCubeCam.hide_set(1)
+
 						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
 				elif items_id_currentStage == 6:
@@ -3016,6 +2963,8 @@ class ABJ_Shader_Debugger():
 						self.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 						self.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
 
+						self.myCubeCam.hide_set(1)
+
 						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
 				elif items_id_currentStage == 7:
@@ -3023,9 +2972,9 @@ class ABJ_Shader_Debugger():
 						self.print('stage_007 output AOV = ', aov_id)
 						printOnce_stage_007 = True
 
+					self.myCubeCam.hide_set(1)
+
 					self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
-
-
 
 			# if self.profileCode_part2 == True:
 				# self.print('~~~~~~~~~ self.profile_stage2_03_b = ', self.profile_stage2_03_b)
@@ -3048,14 +2997,10 @@ class ABJ_Shader_Debugger():
 			# self.print('~~~~~~~~~ self.profile_stage2_08_b = ', self.profile_stage2_08_b)
 
 
-
-
-
-
 		myInputMesh_dupeForRaycast.hide_set(1)
 		# self.myCubeCam.hide_set(1)
 
-		self.print('TIME TO COMPLETE stage 2 (render) = ' + str(datetime.now() - startTime))
+		self.print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		self.print(' ')
 
 	def dynamic_cube2_creation(self, faceCenter, mySplitFaceIndexUsable, defaultMatrix, R):
@@ -3170,35 +3115,21 @@ class ABJ_Shader_Debugger():
 			bpy.context.active_object.data.materials.append(mat1)
 
 	def raycast_abj_scene(self, meshToCheck, origin, direction, debugidx):
-		# allNamesToToggleDuringRaycast = []
+		for j in self.allNamesToToggleDuringRaycast:
+			j.hide_set(1)
 
-		# allNames = []
-		# for i in self.shadingList_perFace:
-		# 	allNames.append(i['shadingPlane'])
-
-		# for j in self.allNamesToToggleDuringRaycast:
-		# 	j.hide_set(1)
-
-		# objectsToToggleOnOffLater_stored = []
-		# for j in self.objectsToToggleOnOffLater:
-		# 	if j.hide_get() == 0:
-		# 		objectsToToggleOnOffLater_stored.append(j)
+		objectsToToggleOnOffLater_stored = []
+		for j in self.objectsToToggleOnOffLater:
+			if j.hide_get() == 0:
+				objectsToToggleOnOffLater_stored.append(j)
 				
-		# for j in objectsToToggleOnOffLater_stored:
-		# 	j.hide_set(1)
+		for j in objectsToToggleOnOffLater_stored:
+			j.hide_set(1)
 
-		# storedCubeCamState = 1
-		# if self.myCubeCam.hide_get() == 0:
-		# 	storedCubeCamState = 0
-		# 	self.myCubeCam.hide_set(1)
-
-
-
-
-
-
-
-
+		storedCubeCamState = 1
+		if self.myCubeCam.hide_get() == 0:
+			storedCubeCamState = 0
+			self.myCubeCam.hide_set(1)
 
 		usableMesh = None
 		for i in bpy.context.scene.objects:
@@ -3240,14 +3171,21 @@ class ABJ_Shader_Debugger():
 				self.print('ray miss for debugIdx, obj : ', debugidx)
 
 
-		# for j in objectsToToggleOnOffLater_stored:
-		# 	j.hide_set(0)
 
-		# if storedCubeCamState == 0:
-		# 	self.myCubeCam.hide_set(0)
 
-		# for j in self.allNamesToToggleDuringRaycast:
-		# 	j.hide_set(0)
+
+
+
+
+
+		for j in objectsToToggleOnOffLater_stored:
+			j.hide_set(0)
+
+		if storedCubeCamState == 0:
+			self.myCubeCam.hide_set(0)
+
+		for j in self.allNamesToToggleDuringRaycast:
+			j.hide_set(0)
 
 		return toReturn		
 
