@@ -698,10 +698,39 @@ from datetime import datetime
 from contextlib import contextmanager
 import random
 import numpy as np
+import importlib
+import sys
 
+# devSysPath = 'C:/Users/aleks/PycharmProjects/abjMaya2023_py/'
+# if devSysPath not in sys.path:
+# 	sys.path.append(devSysPath)
+
+# import GGX_hable_abj
+# importlib.reload(GGX_hable_abj)
+# from GGX_hable_abj import myTest  ###########
+
+# myPrint2 = myTest()
+
+# import GGX_hable_abj
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
+
+		# self.print('~~~~~~~~~~~~~~~~')
+		# # self.print('sys.path = ', sys.path)
+		# # self.print('sys.modules = ', sys.modules)
+
+		# # myPrint2 = myTest()
+		# # myTestPrinting = myPrint2.testPrint()
+		
+		# # self.print(myTestPrinting)
+
+		# self.print(myPrint2.testPrint())
+
+		# self.print('~~~~~~~~~~~~~~~~')
+
+		# return
+
 		self.debugV_223 = None
 		self.myDebugFaces = []
 		self.allNamesToToggleDuringRaycast = []
@@ -3907,6 +3936,11 @@ def unregister():
 	del bpy.types.Scene.breakpoint_025_enum_prop
 
 
+# importlib.reload(splitABC)
+# importlib.reload(GGX_hable_abj)
+# # myGGX_hable_abj = GGX_hable_abj()
+# myGGX_hable_abj = GGX_hable_abj.testPrint()
+
 myABJ_SD_B = ABJ_Shader_Debugger()
 
 if __name__ == "__main__":
@@ -3920,6 +3954,9 @@ if __name__ == "__main__":
 - Multiple lights
 - light types
 - additional shading models (ggx, oren, principled, new metallic)
+
+
+
 	
 ##########
 # DONE
@@ -3952,4 +3989,8 @@ To: X min 0.5 / X max 2
 	- cube L is the light
 	- cube Cam is the eye
 '''
+
+#blender\intern\cycles\kernel\closure\bsdf.h
+#blender\intern\cycles\kernel\integrator\subsurface_random_walk.h
+
 
