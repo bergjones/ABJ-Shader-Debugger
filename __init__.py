@@ -16,7 +16,7 @@ along with this program; if not, see <https://www.gnu.org/licenses>.
 ''' 
 
 bl_info = {
-	"name": "ABJ Shader Debugger for Blender Working",
+	"name": "ABJ Shader Debugger for Blender",
 	"author" : "Aleksander Berg-Jones",
 	"version" : (1, 0),
 	"blender": (4, 3, 2),
