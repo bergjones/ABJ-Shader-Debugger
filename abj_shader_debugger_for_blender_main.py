@@ -647,7 +647,8 @@ class ABJ_Shader_Debugger():
 		posNegZ_1 = posNegZ_1 * random.randint(0, 10)
 
 		self.pos_light_global = (posNegX_1, posNegY_1, posNegZ_1)
-
+		self.pos_light_global_v = mathutils.Vector((self.pos_light_global[0], self.pos_light_global[1], self.pos_light_global[2]))
+		
 		#always positive Z value for now
 
 		# print('self.pos_light_global NEW = ', self.pos_light_global)
@@ -1086,7 +1087,7 @@ class ABJ_Shader_Debugger():
 		#####################
 		## SUN LIGHT FOR TEST
 		#####################
-		bpy.ops.object.light_add(type='SUN', radius=1, align='WORLD', location=(self.pos_light_global), scale=(1, 1, 1))
+		bpy.ops.object.light_add(type='SUN', radius=1, align='WORLD', location=(self.pos_light_global_v), scale=(1, 1, 1))
 		self.mySun = bpy.context.active_object
 		self.mySun.name = "self.mySun"
 		# self.mySun.hide_set(1)
