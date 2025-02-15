@@ -474,8 +474,8 @@ class ABJ_Shader_Debugger():
 
 		# return
 
-		for area in bpy.data.screens["Scripting"].areas:
-		# for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens["Scripting"].areas:
+		for area in bpy.data.screens["Layout"].areas:
 		# for area in bpy.data.screens[bpy.context.window.screen].areas:
 			if area.type == 'VIEW_3D':
 				for space in area.spaces:
