@@ -24,6 +24,7 @@ import random
 import numpy as np
 import importlib
 import sys
+import copy
 
 
 from . import simple_spec_abj
@@ -77,6 +78,8 @@ class ABJ_Shader_Debugger():
 
 		# return
 
+		self.runOnce_part2_preProcess = False
+		self.hideUnHideInitialNdotV = False
 		self.debugV_223 = None
 		self.myDebugFaces = []
 		self.allNamesToToggleDuringRaycast = []
@@ -191,7 +194,7 @@ class ABJ_Shader_Debugger():
 		self.profile_stage1_10_final = None
 
 		##########
-		self.profileCode_part2 = False
+		self.profileCode_part2 = True
 
 		self.profile_stage2_00_a = None
 		self.profile_stage2_00_b = None
@@ -295,6 +298,17 @@ class ABJ_Shader_Debugger():
 	def refreshPart2_UI(self):
 		self.doIt_part2_render()
 		bpy.ops.object.mode_set(mode="OBJECT")
+
+		if self.hideUnHideInitialNdotV == True:
+			#Hide for potential raycast speed up
+			for i in self.shadingList_perFace:
+				for j in bpy.context.scene.objects:
+					if j.name == i['shadingPlane']:
+						j.hide_set(0)
+
+
+
+
 	
 	##STAGES
 	def clamp(self, value, minimum, maximum):
@@ -950,6 +964,8 @@ class ABJ_Shader_Debugger():
 		self.objectsToToggleOnOffLater.clear()
 
 		self.myDebugFaces.clear()
+
+		self.runOnce_part2_preProcess = False
 
 
 		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
@@ -1773,6 +1789,280 @@ class ABJ_Shader_Debugger():
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
+	def doIt_part2_preProcess(self):
+		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
+
+		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
+
+		skip_refresh_override = False
+
+		if self.aov_stored != aov_id:
+			self.aov_stored = aov_id
+			skip_refresh_override = True
+
+		if self.rdotvpow_stored != rdotvpow_id:
+			self.rdotvpow_stored = rdotvpow_id
+			skip_refresh_override = True
+
+		if self.recently_cleared_selFaces == True:
+			skip_refresh_override = True
+			self.recently_cleared_selFaces = False
+
+		self.profile_stage2_00_b = str(datetime.now() - self.profile_stage2_00_a)
+		if self.profileCode_part2 == True:
+			print('~~~~~~~~~ self.profile_stage2_00_b = ', self.profile_stage2_00_b)
+
+		################
+
+		self.updateScene()
+
+		self.deselectAll()
+
+		############################################################
+		allNames = []
+		self.allNamesToToggleDuringRaycast = []
+		for i in self.shadingList_perFace:
+			allNames.append(i['shadingPlane'])
+
+		for i in bpy.context.scene.objects:
+			if i.name not in allNames:
+				if i.hide_get() == 0:
+					self.allNamesToToggleDuringRaycast.append(i)
+
+		# for i in allNamesToToggleDuringRaycast:
+		# 	print(i)
+
+		# print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! ~~~~~~~~~~~~~~~~~~~')
+		# print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! allNamesToToggleDuringRaycast', self.allNamesToToggleDuringRaycast)
+		# print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! ~~~~~~~~~~~~~~~~~~~')
+		############################################################
+
+		# ray_cast_faceCenter_to_V_list = []
+		# ray_cast_faceCenter_to_L_list = []
+
+		ray_cast_faceCenter_to_V_dict_list = []
+		ray_cast_faceCenter_to_L_dict_list = []
+
+		# myNewList = []
+
+		# deep_copied_list_perFace = None
+		deep_copied_list_perFace_all = []
+
+		for i in self.shadingList_perFace:			
+			self.profile_stage2_02_a = datetime.now() ################
+
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+
+			#################################################
+			#decide whether to continue and do a full refresh
+			#################################################
+			matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
+			skip_refresh = False
+			if matCheck: #material already exists...check if it is not selected for stage stepping
+				for j in self.shadingStages_perFace_stepList:
+					if (j["idx"]) == mySplitFaceIndexUsable:
+						if j['idx'] not in self.shadingStages_selectedFaces:
+							skip_refresh = True
+
+			if skip_refresh_override == True:
+				skip_refresh = False
+
+			if skip_refresh == True:
+				continue
+
+			####################################
+
+			shadingPlane = i['shadingPlane']
+			faceCenter = i['faceCenter']
+			N_dot_L = i['N_dot_L']
+			N_dot_V = i['N_dot_V']
+			R_dot_V = i['R_dot_V']
+			attenuation = i['attenuation']
+			L = i['L']
+			N = i['N']
+			R = i['R']
+
+			spec = i['spec']
+
+			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
+			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
+
+			usableRdotVPow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+			usableRdotVPow_id = usableRdotVPow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
+
+			if usableRdotVPow_id == 'pow1':
+				spec = pow(R_dot_V, 1) ##
+
+			elif usableRdotVPow_id == 'pow2':
+				spec = pow(R_dot_V, 2) ##
+
+			elif usableRdotVPow_id == 'pow4':
+				spec = pow(R_dot_V, 4) ##
+
+			elif usableRdotVPow_id == 'pow8':
+				spec = pow(R_dot_V, 8) ##
+
+			elif usableRdotVPow_id == 'pow16':
+				spec = pow(R_dot_V, 16) ##
+
+			elif usableRdotVPow_id == 'pow32':
+				spec = pow(R_dot_V, 32) ##
+
+			elif usableRdotVPow_id == 'diffuse_only':
+				spec = 0
+
+			# print('~~~~~~ SPEC CTRL 0 = ', mySplitFaceIndexUsable, ' ', spec)
+
+			deep_copied_list_perFace = copy.deepcopy(i) ####### DEEP COPY SPEC
+
+			# continue
+
+			##############
+			#######
+			###########
+			#debug
+			# self.shadingStages_selectedFaces.clear()
+			# self.shadingStages_selectedFaces.append('242')
+
+			#local variables
+			faceCenter_to_V_rayCast = None
+			faceCenter_to_L_rayCast = None
+
+			#visualize arrows if spec > cutoff
+			cutoff = self.spec_cutoff
+
+			self.profile_stage2_02_b = datetime.now() - self.profile_stage2_02_a
+			self.profile_stage2_02_final += self.profile_stage2_02_b
+			
+			N_dot_V_over_threshold_with_ortho_compensateTrick = None
+			# if (N_dot_V <= 0):
+			if (N_dot_V <= 0.1):
+
+				if self.hideUnHideInitialNdotV == True:
+					#Hide for potential ray_cast speed up
+					for j in bpy.context.scene.objects:
+						if j.name == shadingPlane:
+							j.hide_set(1)
+
+				N_dot_V_over_threshold_with_ortho_compensateTrick = False
+			else:
+				N_dot_V_over_threshold_with_ortho_compensateTrick = True
+
+
+			if N_dot_V_over_threshold_with_ortho_compensateTrick == False:
+				spec = 0
+
+			else:
+				#######################
+				#RAYCAST AGAINST V
+				#######################
+				# direction_vector = point_b - point_a:
+				# This line subtracts the coordinates of point_a from point_b, resulting in a vector pointing from point_a to point_b.
+				V_toFace = mathutils.Vector(faceCenter - self.pos_camera_global_v).normalized()
+
+				ray_cast_faceCenter_to_V_dict = {
+					'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
+					'origin' : self.pos_camera_global_v,
+					'direction' : V_toFace,
+				}
+
+				ray_cast_faceCenter_to_V_dict_list.append(ray_cast_faceCenter_to_V_dict)
+
+			deep_copied_list_perFace['spec'] = spec
+
+			deep_copied_list_perFace_all.append(deep_copied_list_perFace) ###
+		
+		self.shadingList_perFace = deep_copied_list_perFace_all[:] ###
+		deep_copied_list_perFace_all.clear()
+
+		deep_copied_list_perFace_all_02 = []
+		deep_copied_list_perFace_02 = None
+
+		self.profile_stage2_03_a = datetime.now() ################
+		deep_copied_list_02 = copy.deepcopy(self.shadingList_perFace)
+
+		for i in ray_cast_faceCenter_to_V_dict_list:
+
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+			origin = i['origin']
+			direction = i['direction']
+			myRay_faceCenter_to_V_result = self.raycast_abj_scene(origin, direction, mySplitFaceIndexUsable) ########## good
+
+			# myRay_faceCenter_to_V_result = self.raycast_abj_scene(self.pos_camera_global_v, V_toFace, mySplitFaceIndexUsable) ########## good
+
+			if myRay_faceCenter_to_V_result == False:
+				# print('behind something else, discard')
+
+				for idx, j in enumerate(self.shadingList_perFace):
+					if j['mySplitFaceIndexUsable'] == i['mySplitFaceIndexUsable']:
+						# deep_copied_list_perFace_02 = copy.deepcopy(j) ####### DEEP COPY SPEC
+
+						deep_copied_list_02[idx]['spec'] = 0
+						deep_copied_list_02[idx]['faceCenter_to_V_rayCast'] = myRay_faceCenter_to_V_result
+
+			elif myRay_faceCenter_to_V_result == True:
+				# print('makes it to the cam, now cast again')
+
+				#######################
+				#RAYCAST AGAINST L
+				#######################
+				usableDir = None
+				for idx, j in enumerate(self.shadingList_perFace):
+					if j['mySplitFaceIndexUsable'] == i['mySplitFaceIndexUsable']:
+						deep_copied_list_02[idx]['faceCenter_to_V_rayCast'] = myRay_faceCenter_to_V_result
+						usableDir = -j['L']
+
+				ray_cast_faceCenter_to_L_dict = {
+					'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
+					'origin' : self.pos_light_global_v,
+					# 'direction' : -L,
+					'direction' : usableDir,
+				}
+
+				ray_cast_faceCenter_to_L_dict_list.append(ray_cast_faceCenter_to_L_dict)
+
+			deep_copied_list_perFace_all_02.append(deep_copied_list_perFace_02) ###
+
+		self.shadingList_perFace = deep_copied_list_02[:] ###
+		deep_copied_list_02.clear()
+
+		deep_copied_list_perFace_all_03 = []
+		deep_copied_list_perFace_03 = None
+
+		deep_copied_list_03 = copy.deepcopy(self.shadingList_perFace)
+
+		for i in ray_cast_faceCenter_to_L_dict_list:
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+			origin = i['origin']
+			direction = i['direction']
+
+			# myRay_faceCenter_to_L_result = self.raycast_abj_scene(self.pos_light_global_v, -L, mySplitFaceIndexUsable)
+			myRay_faceCenter_to_L_result = self.raycast_abj_scene(origin, direction, mySplitFaceIndexUsable)
+
+			if myRay_faceCenter_to_L_result == True:
+				for idx, j in enumerate(self.shadingList_perFace):
+					if j['mySplitFaceIndexUsable'] == i['mySplitFaceIndexUsable']:
+						deep_copied_list_03[idx]['faceCenter_to_L_rayCast'] = myRay_faceCenter_to_L_result
+
+				# pass #end shader
+
+			else:
+				# spec = 0
+
+				for idx, j in enumerate(self.shadingList_perFace):
+					if j['mySplitFaceIndexUsable'] == i['mySplitFaceIndexUsable']:
+						deep_copied_list_03[idx]['spec'] = 0
+						deep_copied_list_03[idx]['faceCenter_to_L_rayCast'] = myRay_faceCenter_to_L_result
+
+			deep_copied_list_perFace_all_03.append(deep_copied_list_perFace_03) ###
+
+		self.shadingList_perFace = deep_copied_list_03[:] ###
+		deep_copied_list_03.clear()
+
+		self.profile_stage2_03_b = datetime.now() - self.profile_stage2_03_a
+		self.profile_stage2_03_final += self.profile_stage2_03_b
 
 	def doIt_part2_render(self):
 		startTime = datetime.now()
@@ -1802,13 +2092,7 @@ class ABJ_Shader_Debugger():
 
 		# self.objectsToToggleOnOffLater.clear()
 
-		V = self.shadingDict_global['V']
-
-		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
-		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
-
-		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
+		# V = self.shadingDict_global['V']
 
 		###print once variables
 		printOnce_stage_000 = False
@@ -1820,32 +2104,16 @@ class ABJ_Shader_Debugger():
 		printOnce_stage_006 = False
 		printOnce_stage_007 = False
 
-		skip_refresh_override = False
 
-		if self.aov_stored != aov_id:
-			self.aov_stored = aov_id
-			skip_refresh_override = True
-
-		if self.rdotvpow_stored != rdotvpow_id:
-			self.rdotvpow_stored = rdotvpow_id
-			skip_refresh_override = True
-
-		if self.recently_cleared_selFaces == True:
-			skip_refresh_override = True
-			self.recently_cleared_selFaces = False
-
-		self.profile_stage2_00_b = str(datetime.now() - self.profile_stage2_00_a)
-		if self.profileCode_part2 == True:
-			print('~~~~~~~~~ self.profile_stage2_00_b = ', self.profile_stage2_00_b)
-
-		# self.myCube1_instance_M_all_list_matrixOnly.clear()
-
-
-		self.profile_stage2_08_a = datetime.now() ################
+		if self.runOnce_part2_preProcess == False:
+			self.doIt_part2_preProcess()
+			self.runOnce_part2_preProcess = True
 
 		all_indicies_in_matrix_list = []
 		for i in self.myCube1_instance_M_all_list_matrixOnly:
 			all_indicies_in_matrix_list.append(i['mySplitFaceIndexUsable'])
+
+		self.profile_stage2_01_a = datetime.now() 
 
 		for i in self.shadingStages_selectedFaces:
 		# for i in self.myDebugFaces:
@@ -1855,7 +2123,6 @@ class ABJ_Shader_Debugger():
 					################
 					## PRE-PROCESS
 					################
-
 					mySplitFaceIndexUsable = j['mySplitFaceIndexUsable']
 
 					#################################################
@@ -1892,35 +2159,11 @@ class ABJ_Shader_Debugger():
 
 					self.myCube1_instance_M_all_list_matrixOnly.append(myCube1_instance_M_dict) ##########
 
-		self.updateScene()
-
-		self.profile_stage2_08_b = str(datetime.now() - self.profile_stage2_08_a)
+		self.profile_stage2_01_b = str(datetime.now() - self.profile_stage2_01_a)
 		if self.profileCode_part2 == True:
-			print('~~~~~~~~~ self.profile_stage2_08_b = ', self.profile_stage2_08_b)
+			print('~~~~~~~~~ self.profile_stage2_01_b (Matrix setup) = ', self.profile_stage2_01_b)
 
-		self.deselectAll()
-
-		############################################################
-		allNames = []
-		self.allNamesToToggleDuringRaycast = []
-		for i in self.shadingList_perFace:
-			allNames.append(i['shadingPlane'])
-
-		for i in bpy.context.scene.objects:
-			if i.name not in allNames:
-				if i.hide_get() == 0:
-					self.allNamesToToggleDuringRaycast.append(i)
-
-		# for i in allNamesToToggleDuringRaycast:
-		# 	print(i)
-
-		print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! ~~~~~~~~~~~~~~~~~~~')
-		print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! allNamesToToggleDuringRaycast', self.allNamesToToggleDuringRaycast)
-		print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! ~~~~~~~~~~~~~~~~~~~')
-		############################################################
-
-		for i in self.shadingList_perFace:
-			self.profile_stage2_01_a = datetime.now() ################
+		for i in self.shadingList_perFace:	
 
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
 
@@ -1935,126 +2178,40 @@ class ABJ_Shader_Debugger():
 						if j['idx'] not in self.shadingStages_selectedFaces:
 							skip_refresh = True
 
-			if skip_refresh_override == True:
-				skip_refresh = False
+			# if skip_refresh_override == True:
+			# 	skip_refresh = False
 
 			if skip_refresh == True:
 				continue
-
-			####################################
 
 			shadingPlane = i['shadingPlane']
 			faceCenter = i['faceCenter']
 			N_dot_L = i['N_dot_L']
 			N_dot_V = i['N_dot_V']
+			
+			N_dot_V_over_threshold_with_ortho_compensateTrick = None
+			if (N_dot_V <= 0.1):
+				N_dot_V_over_threshold_with_ortho_compensateTrick = False
+			else:
+				N_dot_V_over_threshold_with_ortho_compensateTrick = True
+
 			R_dot_V = i['R_dot_V']
 			attenuation = i['attenuation']
 			L = i['L']
 			N = i['N']
 			R = i['R']
 
-			spec = 0
+			spec = i['spec']
+			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
+			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
 
-			usableRdotVPow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-			usableRdotVPow_id = usableRdotVPow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
-
-			if usableRdotVPow_id == 'pow1':
-				spec = pow(R_dot_V, 1) ##
-
-			elif usableRdotVPow_id == 'pow2':
-				spec = pow(R_dot_V, 2) ##
-
-			elif usableRdotVPow_id == 'pow4':
-				spec = pow(R_dot_V, 4) ##
-
-			elif usableRdotVPow_id == 'pow8':
-				spec = pow(R_dot_V, 8) ##
-
-			elif usableRdotVPow_id == 'pow16':
-				spec = pow(R_dot_V, 16) ##
-
-			elif usableRdotVPow_id == 'pow32':
-				spec = pow(R_dot_V, 32) ##
-
-			elif usableRdotVPow_id == 'diffuse_only':
-				spec = 0
-
-			##############
-			#######
-			###########
-			#debug
-			# self.shadingStages_selectedFaces.clear()
-			# self.shadingStages_selectedFaces.append('242')
-
-			#local variables
-			faceCenter_to_V_rayCast = None
-			faceCenter_to_L_rayCast = None
-
-			#visualize arrows if spec > cutoff
-			cutoff = self.spec_cutoff
-
-			self.profile_stage2_01_b = datetime.now() - self.profile_stage2_01_a
-			self.profile_stage2_01_final += self.profile_stage2_01_b
+			# #Hide for raycast speed up
+			# if (N_dot_V <= 0.1):
+			# 	for j in bpy.context.scene.objects:
+			# 		if j.name == shadingPlane:
+			# 			j.hide_set(0)
 
 			self.profile_stage2_04_a = datetime.now() ################
-
-			N_dot_V_over_threshold_with_ortho_compensateTrick = None
-			# if (N_dot_V <= 0):
-			if (N_dot_V <= 0.1):
-				N_dot_V_over_threshold_with_ortho_compensateTrick = False
-			else:
-				N_dot_V_over_threshold_with_ortho_compensateTrick = True
-
-			if N_dot_V_over_threshold_with_ortho_compensateTrick == False:
-				spec = 0
-
-			else:
-				#######################
-				#RAYCAST AGAINST V
-				#######################
-				# direction_vector = point_b - point_a:
-				# This line subtracts the coordinates of point_a from point_b, resulting in a vector pointing from point_a to point_b.
-				V_toFace = mathutils.Vector(faceCenter - self.pos_camera_global_v).normalized()
-
-				myRay_faceCenter_to_V = self.raycast_abj_scene(self.pos_camera_global_v, V_toFace, mySplitFaceIndexUsable) ########## good
-
-				if myRay_faceCenter_to_V == True:
-					faceCenter_to_V_rayCast = True
-					# print('makes it to the cam, now cast again')
-
-				else:
-					faceCenter_to_V_rayCast = False
-					# print('behind something else, discard')
-
-				if faceCenter_to_V_rayCast == True:
-					#######################
-					#RAYCAST AGAINST L
-					#######################
-					if mySplitFaceIndexUsable == '350':
-						print('raycast to L check...')
-					myRay_faceCenter_to_L = self.raycast_abj_scene(self.pos_light_global_v, -L, mySplitFaceIndexUsable) 
-
-					if myRay_faceCenter_to_L == True:
-						faceCenter_to_L_rayCast = True
-
-					else:
-						faceCenter_to_L_rayCast = False
-
-					if faceCenter_to_L_rayCast == True: 
-						if (spec > cutoff):
-							pass #end shader
-
-					elif faceCenter_to_L_rayCast == False:
-						spec = 0
-							
-				elif faceCenter_to_V_rayCast == False:
-					spec = 0
-
-
-			self.profile_stage2_04_b = datetime.now() - self.profile_stage2_04_a
-			self.profile_stage2_04_final += self.profile_stage2_04_b
-
-			self.profile_stage2_02_a = datetime.now() ################
 
 			##################
 			#STEPS FOR ALL
@@ -2103,8 +2260,8 @@ class ABJ_Shader_Debugger():
 			aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
 			aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
-			self.profile_stage2_02_b = datetime.now() - self.profile_stage2_02_a
-			self.profile_stage2_02_final += self.profile_stage2_02_b
+			self.profile_stage2_04_b = datetime.now() - self.profile_stage2_04_a
+			self.profile_stage2_04_final += self.profile_stage2_04_b
 			# if self.profileCode_part2 == True:
 				# print('~~~~~~~~~ self.profile_stage2_02_b = ', self.profile_stage2_02_b)
 
@@ -2154,6 +2311,7 @@ class ABJ_Shader_Debugger():
 					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
 						if self.printDetailedInfo == True:
 							print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+
 						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
 					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
@@ -2162,14 +2320,14 @@ class ABJ_Shader_Debugger():
 							print("'stage_003' : 'raycast from faceCenter to V'")
 							printOnce_stage_003 = True
 
-						self.profile_stage2_03_a = datetime.now() ################
+						self.profile_stage2_05_a = datetime.now() ################
 
 						self.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
 						self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
-						self.profile_stage2_03_b = datetime.now() - self.profile_stage2_03_a
-						self.profile_stage2_03_final += self.profile_stage2_03_b
+						self.profile_stage2_05_b = datetime.now() - self.profile_stage2_05_a
+						self.profile_stage2_05_final += self.profile_stage2_05_b
 
 						self.myCubeCam.hide_set(1)
 
@@ -2177,6 +2335,7 @@ class ABJ_Shader_Debugger():
 					if faceCenter_to_V_rayCast == False: ####
 						if self.printDetailedInfo == True:
 							print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
+
 						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
 					elif faceCenter_to_V_rayCast == True or override == True:
@@ -2202,6 +2361,7 @@ class ABJ_Shader_Debugger():
 					if faceCenter_to_L_rayCast == False: ####
 						if self.printDetailedInfo == True:
 							print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
+
 						self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
 					elif faceCenter_to_L_rayCast == True or override == True:
@@ -2239,9 +2399,16 @@ class ABJ_Shader_Debugger():
 						print('stage_007 output AOV = ', aov_id)
 						printOnce_stage_007 = True
 
+					self.profile_stage2_06_a = datetime.now() ################
+
+
 					self.myCubeCam.hide_set(1)
 
 					self.aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+
+					self.profile_stage2_06_b = datetime.now() - self.profile_stage2_06_a
+					self.profile_stage2_06_final += self.profile_stage2_06_b
+
 
 			# if self.profileCode_part2 == True:
 				# print('~~~~~~~~~ self.profile_stage2_03_b = ', self.profile_stage2_03_b)
@@ -2249,13 +2416,13 @@ class ABJ_Shader_Debugger():
 		if self.profileCode_part2 == True:
 			# print('~~~~~~~~~ self.profile_stage2_00_final = ', self.profile_stage2_00_final)
 			# print('~~~~~~~~~ self.profile_stage2_01_final = ', self.profile_stage2_01_final)
-			print('~~~~~~~~~ self.profile_stage2_02_final - raycast = ', self.profile_stage2_02_final)
+			# print('~~~~~~~~~ self.profile_stage2_02_final () = ', self.profile_stage2_02_final)
 			
-			print('~~~~~~~~~ self.profile_stage2_03_final = ', self.profile_stage2_03_final)
-			# print('~~~~~~~~~ self.profile_stage2_04_final = ', self.profile_stage2_04_final)
-			print('~~~~~~~~~ self.profile_stage2_05_final = ', self.profile_stage2_05_final)
+			print('~~~~~~~~~ self.profile_stage2_03_final (raycast) = ', self.profile_stage2_03_final)
+			print('~~~~~~~~~ self.profile_stage2_04_final (set stage) = ', self.profile_stage2_04_final)
+			print('~~~~~~~~~ self.profile_stage2_05_final (stage 3) = ', self.profile_stage2_05_final)
 
-			# print('~~~~~~~~~ self.profile_stage2_06_final = ', self.profile_stage2_06_final)
+			print('~~~~~~~~~ self.profile_stage2_06_final (stage 7) = ', self.profile_stage2_06_final)
 			# print('~~~~~~~~~ self.profile_stage2_07_final = ', self.profile_stage2_07_final)
 			# print('~~~~~~~~~ self.profile_stage2_08_final = ', self.profile_stage2_08_final)
 			# print('~~~~~~~~~ self.profile_stage2_09_final = ', self.profile_stage2_09_final)
@@ -2353,12 +2520,14 @@ class ABJ_Shader_Debugger():
 		dynamicM = self.myCubeLight_dupe.matrix_world
 		return dynamicM
 
+
 	def aov_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation):
 		attenuation = 1.0 #temporary, outside sunlight
 
 		Ks = 10
 		Kl = 1
 		finalDiff = N_dot_L
+
 		finalSpec = spec * Ks
 
 		if aov_id == 'spec':
@@ -2400,8 +2569,8 @@ class ABJ_Shader_Debugger():
 		dir_usable = direction
 		origin_usable = origin
 
-		self.updateScene()
-		# myDepsgraph.update() 
+		# self.updateScene() ################
+		# myDepsgraph.update()
 
 		hit, loc, norm, idx, obj, mw = bpy.context.scene.ray_cast(myDepsgraph, origin_usable, dir_usable)
 
@@ -2418,14 +2587,14 @@ class ABJ_Shader_Debugger():
 				# if debugidx == '236' or debugidx == '361' or debugidx == '296' or debugidx == '223':
 				# 	print('TRUE for debugIdx, obj : ', debugidx, ' ', obj.name)
 
-				if debugidx == toDebug:
-					print('TRUE for debugIdx, obj : ', debugidx, ' ', obj.name)
+				# if debugidx == toDebug:
+				# print('TRUE for debugIdx, obj : ', debugidx, ' ', obj.name)
 			else:
 				toReturn = False
 				# if debugidx == '236' or debugidx == '361' or debugidx == '296' or debugidx == '223':
 
-				if debugidx == toDebug:
-					print('FALSE for debugIdx, obj : ', debugidx, ' ', obj.name)
+				# if debugidx == toDebug:
+				# print('FALSE for debugIdx, obj : ', debugidx, ' ', obj.name)
 	
 		else:
 			toReturn = False
@@ -2443,6 +2612,8 @@ class ABJ_Shader_Debugger():
 
 		for j in self.allNamesToToggleDuringRaycast:
 			j.hide_set(0)
+
+		# print('raycast ', debugidx, ' ', toReturn)
 
 		return toReturn
 
@@ -2845,8 +3016,4 @@ To: X min 0.5 / X max 2
 	- cube Cam is the eye
 '''
 
-#blender\intern\cycles\kernel\closure\bsdf.h
-#blender\intern\cycles\kernel\integrator\subsurface_random_walk.h
 
-#bpy.ops.script.reload()
-# LOCATION = C:\Users\aleks\AppData\Roaming\Blender Foundation\Blender\4.3\scripts\addons\ABJ_Shader_Debugger_for_Blender

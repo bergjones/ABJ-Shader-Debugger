@@ -89,7 +89,16 @@ class myEquation_simple_spec:
 			'L' : myL,
 			'N' : myN,
 			'R' : myR,
+			'spec' : 0,
+			'faceCenter_to_V_rayCast' : False,
+			'faceCenter_to_L_rayCast' : False,
+
 		}
+
+		if abj_sd_b_instance.hideUnHideInitialNdotV == True:
+			if N_dot_V <= 0.1:
+				#Hide for potential raycast speed up
+				abj_sd_b_instance.shadingPlane.hide_set(1)
 
 		test_stagesDict_perFace0 = {
 			'idx' : mySplitFaceIndexUsable,
