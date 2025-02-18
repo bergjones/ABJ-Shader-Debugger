@@ -55,7 +55,7 @@ class myEquation_simple_spec:
 
 		myN = normalDir.normalized()
 	
-		myReflectVec_cube2 = -myL.reflect(myN)
+		myReflectVec_cubeR = -myL.reflect(myN)
 
 		########################
 		########## DIFFUSE ########
@@ -65,7 +65,7 @@ class myEquation_simple_spec:
 		########################
 		########## SPEC ########
 		########################
-		myR = myReflectVec_cube2
+		myR = myReflectVec_cubeR
 
 		R_dot_V_control = max(abj_sd_b_instance.myV.dot(myR), 0.0)
 		N_dot_V = max(myN.dot(abj_sd_b_instance.myV), 0.0)
@@ -387,7 +387,7 @@ class myEquation_simple_spec:
 
 	def equation_part2_preProcess_arrow_matricies(self, abj_sd_b_instance):
 		all_indicies_in_matrix_list = []
-		for i in abj_sd_b_instance.myCube1_instance_M_all_list_matrixOnly:
+		for i in abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly:
 			all_indicies_in_matrix_list.append(i['mySplitFaceIndexUsable'])
 
 		for i in abj_sd_b_instance.shadingStages_selectedFaces:
@@ -412,10 +412,10 @@ class myEquation_simple_spec:
 					# N = j['N']
 					R = j['R']
 
-					N_M = abj_sd_b_instance.dynamic_cube1_creation(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-					L_M = abj_sd_b_instance.dynamic_cubeLight_creation(faceCenter, mySplitFaceIndexUsable, abj_sd_b_instance.mySun)
-					V_M = abj_sd_b_instance.dynamic_cubeV_creation(faceCenter, mySplitFaceIndexUsable, abj_sd_b_instance.myCam)
-					R_M = abj_sd_b_instance.dynamic_cube2_creation(faceCenter, mySplitFaceIndexUsable, N_M, R)
+					N_M = self.equation_dynamic_cubeN_creation(shadingPlane, faceCenter, abj_sd_b_instance)
+					L_M = self.equation_dynamic_cubeLight_creation(faceCenter, abj_sd_b_instance.mySun, abj_sd_b_instance)
+					V_M = self.equation_dynamic_cubeV_creation(faceCenter, abj_sd_b_instance.myCam, abj_sd_b_instance)
+					R_M = self.equation_dynamic_cubeR_creation(N_M, R, abj_sd_b_instance)
 
 					abj_sd_b_instance.updateScene() # need
 
@@ -424,7 +424,7 @@ class myEquation_simple_spec:
 					V_M_np = np.array(V_M)
 					R_M_np = np.array(R_M)
 
-					myCube1_instance_M_dict = {
+					arrow_dynamic_instance_M_dict = {
 						'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
 						'N_M_np' : N_M_np,
 						'L_M_np' : L_M_np,
@@ -432,7 +432,92 @@ class myEquation_simple_spec:
 						'R_M_np' : R_M_np,
 					}
 
-					abj_sd_b_instance.myCube1_instance_M_all_list_matrixOnly.append(myCube1_instance_M_dict) ##########
+					abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly.append(arrow_dynamic_instance_M_dict) ##########
+		
+	def equation_dynamic_cubeN_creation(self, shadingPlane, faceCenter, abj_sd_b_instance):
+		# abj_sd_b_instance.profile_stage2_07_a = datetime.now() ################
+
+		abj_sd_b_instance.myCubeN_dupe.matrix_world = abj_sd_b_instance.myCubeN_og_Matrix
+
+		for j in bpy.context.scene.objects:
+			if j.name == shadingPlane:
+				bpy.context.view_layer.objects.active = j
+
+		normalDir = abj_sd_b_instance.getFaceNormal()
+		# myN = normalDir.normalized()
+
+		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeN_dupe
+		bpy.context.active_object.rotation_mode = 'QUATERNION'
+		bpy.context.active_object.rotation_quaternion = normalDir.to_track_quat('X','Z')
+
+		abj_sd_b_instance.myCubeN_dupe.location = faceCenter
+
+		#use x axis
+		dynamicM = abj_sd_b_instance.myCubeN_dupe.matrix_world
+
+		# abj_sd_b_instance.profile_stage2_07_b = datetime.now() - abj_sd_b_instance.profile_stage2_07_a
+		# abj_sd_b_instance.profile_stage2_07_final += abj_sd_b_instance.profile_stage2_07_b
+
+		return dynamicM
+
+	def equation_dynamic_cubeLight_creation(self, faceCenter, mySun, abj_sd_b_instance):
+		abj_sd_b_instance.myCubeLight_dupe.matrix_world = abj_sd_b_instance.myCubeLight_og_Matrix
+		
+		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeLight_dupe
+		abj_sd_b_instance.myCubeLight_dupe.location = faceCenter
+		
+		abj_sd_b_instance.updateScene()
+		abj_sd_b_instance.look_at2(abj_sd_b_instance.myCubeLight_dupe, abj_sd_b_instance.pos_light_global_v)
+
+		# #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		abj_sd_b_instance.deselectAll()
+		abj_sd_b_instance.myCubeLight_dupe.select_set(1)
+
+		myCubeLight_dupe_Matrix_np = np.array(abj_sd_b_instance.myCubeLight_dupe.matrix_world)
+
+		abj_sd_b_instance.objScaling_toMatchPosition_localSolve(abj_sd_b_instance.myCubeLight_dupe, abj_sd_b_instance.myCubeLight_og.name, mySun.matrix_world.translation, -1, 0, myCubeLight_dupe_Matrix_np)
+
+		abj_sd_b_instance.updateScene()
+
+		dynamicM = abj_sd_b_instance.myCubeLight_dupe.matrix_world
+		return dynamicM
+
+	def equation_dynamic_cubeV_creation(self, faceCenter, myCam, abj_sd_b_instance):
+		abj_sd_b_instance.myCubeCam_dupe.matrix_world = abj_sd_b_instance.myCubeLight_og_Matrix
+		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeCam_dupe
+		abj_sd_b_instance.myCubeCam_dupe.location = faceCenter
+
+		abj_sd_b_instance.updateScene()
+		
+		abj_sd_b_instance.look_at2(abj_sd_b_instance.myCubeCam_dupe, abj_sd_b_instance.pos_camera_global_v)
+
+		# #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		abj_sd_b_instance.deselectAll()
+		abj_sd_b_instance.myCubeCam_dupe.select_set(1)
+
+		myCubeCam_dupe_Matrix_np = np.array(abj_sd_b_instance.myCubeCam_dupe.matrix_world)
+
+		abj_sd_b_instance.objScaling_toMatchPosition_localSolve(abj_sd_b_instance.myCubeCam_dupe, abj_sd_b_instance.myCubeLight_og.name, myCam.matrix_world.translation, 1, 0, myCubeCam_dupe_Matrix_np)
+
+		abj_sd_b_instance.updateScene()
+
+		dynamicM = abj_sd_b_instance.myCubeCam_dupe.matrix_world
+		return dynamicM
+
+	def equation_dynamic_cubeR_creation(self, defaultMatrix, R, abj_sd_b_instance):
+		abj_sd_b_instance.myCubeR_dupe.matrix_world = defaultMatrix
+
+		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeR_dupe
+
+		#apply rotation
+		bpy.context.active_object.rotation_mode = 'QUATERNION'
+		bpy.context.active_object.rotation_quaternion = R.to_track_quat('X','Z')
+
+		dynamicM = abj_sd_b_instance.myCubeR_dupe.matrix_world
+
+		return dynamicM
 
 	def equation_part3_switch_stages(self, abj_sd_b_instance, startTime):
 		###print once variables
@@ -560,7 +645,7 @@ class myEquation_simple_spec:
 
 				if items_id_currentStage == 0:
 					if printOnce_stage_000 == False:
-						print("'stage_000' : 'N....show N arrow (cube1)'")
+						print("'stage_000' : 'N....show N arrow (cubeN)'")
 						printOnce_stage_000 = True
 
 					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
@@ -580,7 +665,7 @@ class myEquation_simple_spec:
 
 				elif items_id_currentStage == 2:
 					if printOnce_stage_002 == False:
-						print("'stage_002' : 'N_dot_V......show both myCube1 and myCubeCam'")
+						print("'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam'")
 						printOnce_stage_002 = True
 
 					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
@@ -665,7 +750,7 @@ class myEquation_simple_spec:
 				elif items_id_currentStage == 6:
 					if faceCenter_to_L_rayCast == True or override == True:
 						if printOnce_stage_006 == False:
-							print("'stage_006' : 'R.....show R arrow (cube2) along with N and L'")
+							print("'stage_006' : 'R.....show R arrow (cubeR) along with N and L'")
 							printOnce_stage_006 = True
 
 						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)

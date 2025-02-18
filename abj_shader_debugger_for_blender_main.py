@@ -39,26 +39,11 @@ if "bpy" in locals():
 
 import bpy
 
-
 from .GGX_hable_abj import myTest
 from .simple_spec_abj import myEquation_simple_spec
 
 myTest_class = myTest()
 myEquation_simple_spec_class = myEquation_simple_spec()
-
-
-
-# # print('sys.modules = ', sys.modules)
-
-# import importlib, sys
-# importlib.reload(sys.modules['ABJ_Shader_Debugger_for_Blender.GGX_hable_abj'])
-# # importlib.reload(sys.modules['myTest'])
-# from .GGX_hable_abj import myTest
-
-
-# from .GGX_hable_abj import myTest
-
-# import GGX_hable_abj
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
@@ -83,7 +68,7 @@ class ABJ_Shader_Debugger():
 		self.debugV_223 = None
 		self.myDebugFaces = []
 		self.allNamesToToggleDuringRaycast = []
-		self.myCube1_instance_M_all_list_matrixOnly = []
+		self.arrow_dynamic_instance_M_all_list_matrixOnly = []
 		self.shadingDict_global = {}
 		self.shadingList_perFace = []
 		self.shadingStages_all = []
@@ -120,23 +105,25 @@ class ABJ_Shader_Debugger():
 
 		#instance
 		self.myCubeLight_og = None
-		self.myCube1_og = None
-		self.myCube2_og = None
-
 		self.myCubeLight_og_Matrix = None
 		self.myCubeLight_og_Matrix_np = None
-		self.myCube1_og_Matrix = None
-		self.myCube1_og_Matrix_np = None
-		self.myCube2_og_Matrix = None
+		self.myCubeLight_dupe = None
+
+		self.myCubeN_og = None
+		self.myCubeN_og_Matrix = None
+		self.myCubeN_og_Matrix_np = None
+		self.myCubeN_dupe = None
+		
+		self.myCubeR_og = None
+		self.myCubeR_og_Matrix = None
+		self.myCubeR_dupe = None
+		
+		self.myCubeCam = None
 		self.myCubeCam_og_Matrix = None
 		self.myCubeCam_og_Matrix_np = None
-
-		self.myCubeLight_dupe = None
-		self.myCube1_dupe = None
-		self.myCube2_dupe = None
 		self.myCubeCam_dupe = None
 
-		self.myCubeCam = None
+
 		self.mySun = None
 		self.myV = None
 
@@ -306,10 +293,6 @@ class ABJ_Shader_Debugger():
 					if j.name == i['shadingPlane']:
 						j.hide_set(0)
 
-
-
-
-	
 	##STAGES
 	def clamp(self, value, minimum, maximum):
 		"""Clamps the value between the minimum and maximum values."""
@@ -455,13 +438,13 @@ class ABJ_Shader_Debugger():
 	def stageIdx_print_UI(self):
 		shadingDict_spec_with_arrow_visualization = {
 			'description' : 'Basic Spec Visualization (with Arrow)',
-			'stage_000' : 'N....show N arrow (cube1)',
+			'stage_000' : 'N....show N arrow (cubeN)',
 			'stage_001' : 'V....show V arrow (myCubeCam)',
-			'stage_002' : 'N_dot_V......show both myCube1 and myCubeCam',
+			'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam',
 			'stage_003' : 'N_dot_V over ortho compensate trick, so continue...raycast from faceCenter to V',
 			'stage_004' : 'faceCenter_to_V_rayCast was TRUE so continue...raycast from faceCenter to L',
 			'stage_005' : 'faceCenter_to_L_rayCast was TRUE so continue......show arrows N and L',
-			'stage_009' : 'R.....show R arrow (cube2) along with N and L',
+			'stage_009' : 'R.....show R arrow (cubeR) along with N and L',
 			'stage_010' : 'final shade',
 		}
 
@@ -513,8 +496,8 @@ class ABJ_Shader_Debugger():
 
 	def stereo_retinal_rivalry_fix(self, choice):
 		# choice = 'cubeCam'
-		# choice = 'cube1_instance'
-		# choice = 'cube2_instance'
+		# choice = 'cubeN_instance'
+		# choice = 'cubeR_instance'
 		# choice = 'light_instance'
 
 		if choice == 'cubeCam':
@@ -537,13 +520,13 @@ class ABJ_Shader_Debugger():
 				for i in self.objectsToToggleOnOffLater:
 					usableColor = mathutils.Vector((0, 0, 0))
 
-					if choice == 'cube1_instance':
+					if choice == 'cubeN_instance':
 						if self.adjustedColors == True:
 							usableColor = mathutils.Vector((0.0, 1.0, 0.25)) #stereo
 						else:
 							usableColor = mathutils.Vector((1.0, 0.0, 0.0)) #agx
 
-					elif choice == 'cube2_instance':
+					elif choice == 'cubeR_instance':
 						if self.adjustedColors == True:
 							usableColor = mathutils.Vector((0.2, 0.87, 1.0)) #stereo
 						else:
@@ -568,8 +551,8 @@ class ABJ_Shader_Debugger():
 
 		self.adjustedColors = False
 		self.stereo_retinal_rivalry_fix('cubeCam')
-		self.stereo_retinal_rivalry_fix('cube1_instance')
-		self.stereo_retinal_rivalry_fix('cube2_instance')
+		self.stereo_retinal_rivalry_fix('cubeN_instance')
+		self.stereo_retinal_rivalry_fix('cubeR_instance')
 		self.stereo_retinal_rivalry_fix('light_instance')
 
 	def stereoscopicSettings_UI(self):
@@ -579,8 +562,8 @@ class ABJ_Shader_Debugger():
 
 		self.adjustedColors = True
 		self.stereo_retinal_rivalry_fix('cubeCam')
-		self.stereo_retinal_rivalry_fix('cube1_instance')
-		self.stereo_retinal_rivalry_fix('cube2_instance')
+		self.stereo_retinal_rivalry_fix('cubeN_instance')
+		self.stereo_retinal_rivalry_fix('cubeR_instance')
 		self.stereo_retinal_rivalry_fix('light_instance')
 
 	########
@@ -850,7 +833,7 @@ class ABJ_Shader_Debugger():
 
 		# self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 		
-		# self.myCube1_og = self.createArrowFullProcess('myCube1_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.0, 1.0, 0.25)
+		# self.myCubeN_og = self.createArrowFullProcess('myCubeN_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.0, 1.0, 0.25)
 
 
 		self.deselectAll()
@@ -898,9 +881,9 @@ class ABJ_Shader_Debugger():
 			self.myCubeLight_og_Matrix = outputArrow.matrix_world
 			self.myCubeLight_og_Matrix_np = np.array(outputArrow.matrix_world)
 
-		elif name == 'myCube1_og':
-			self.myCube1_og_Matrix = outputArrow.matrix_world
-			self.myCube1_og_Matrix_np = np.array(outputArrow.matrix_world)
+		elif name == 'myCubeN_og':
+			self.myCubeN_og_Matrix = outputArrow.matrix_world
+			self.myCubeN_og_Matrix_np = np.array(outputArrow.matrix_world)
 
 		if doLookAt == True:
 			outputArrow.location = self.myCam.location
@@ -960,7 +943,7 @@ class ABJ_Shader_Debugger():
 		self.shadingList_perFace.clear()
 		self.shadingStages_perFace_stepList.clear()
 		self.shadingStages_selectedFaces.clear()
-		self.myCube1_instance_M_all_list_matrixOnly.clear()
+		self.arrow_dynamic_instance_M_all_list_matrixOnly.clear()
 		self.objectsToToggleOnOffLater.clear()
 
 		self.myDebugFaces.clear()
@@ -1078,6 +1061,14 @@ class ABJ_Shader_Debugger():
 		########
 		#Dupe for raycasting
 		########
+
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeForMaterialCheck = self.copyObject()
+		myDupeForMaterialCheck.name = 'dupeForMaterialCheck'
+		myDupeForMaterialCheck.hide_set(1)
+
+
+
 		self.profile_stage1_00_a = datetime.now() ################
 
 		#SPLIT MESH INTO FACE OBJECTS
@@ -1120,27 +1111,27 @@ class ABJ_Shader_Debugger():
 		self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 
 		###############################
-		######### CUBE 1 ############
+		######### CUBE N ############
 		###############################
-		self.myCube1_og = self.createArrowFullProcess('myCube1_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.0, 1.0, 0.25)
+		self.myCubeN_og = self.createArrowFullProcess('myCubeN_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.0, 1.0, 0.25)
 
 		###############################
-		######### CUBE 2 ############
+		######### CUBE R ############
 		###############################
-		bpy.context.view_layer.objects.active = self.myCube1_og
-		self.myCube2_og = self.copyObject()
-		self.myCube2_og.name = 'myCube2_og'
+		bpy.context.view_layer.objects.active = self.myCubeN_og
+		self.myCubeR_og = self.copyObject()
+		self.myCubeR_og.name = 'myCubeR_og'
 
-		self.myCube2_og_Matrix = self.myCube2_og.matrix_world
+		self.myCubeR_og_Matrix = self.myCubeR_og.matrix_world
 
 		####
-		bpy.context.view_layer.objects.active = self.myCube2_og
+		bpy.context.view_layer.objects.active = self.myCubeR_og
 
 		mat2 = None
 		if self.adjustedColors == True:
-			mat2 = self.newShader("cube2_og", self.diffuse_or_emission_og_shading, 0.2, 0.87, 1.0)
+			mat2 = self.newShader("cubeR_og", self.diffuse_or_emission_og_shading, 0.2, 0.87, 1.0)
 		elif self.adjustedColors == False:	
-			mat2 = self.newShader("cube2_og", self.diffuse_or_emission_og_shading, 0.5, 0.0, 1.0) ###
+			mat2 = self.newShader("cubeR_og", self.diffuse_or_emission_og_shading, 0.5, 0.0, 1.0) ###
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat2)
 
@@ -1157,13 +1148,13 @@ class ABJ_Shader_Debugger():
 		self.myCubeLight_dupe = self.copyObject()
 		self.myCubeLight_dupe.name = 'myCubeLight_dupe'
 
-		bpy.context.view_layer.objects.active = self.myCube1_og
-		self.myCube1_dupe = self.copyObject()
-		self.myCube1_dupe.name = 'myCube1_dupe'
+		bpy.context.view_layer.objects.active = self.myCubeN_og
+		self.myCubeN_dupe = self.copyObject()
+		self.myCubeN_dupe.name = 'myCubeN_dupe'
 
-		bpy.context.view_layer.objects.active = self.myCube2_og
-		self.myCube2_dupe = self.copyObject()
-		self.myCube2_dupe.name = 'myCube2_dupe'
+		bpy.context.view_layer.objects.active = self.myCubeR_og
+		self.myCubeR_dupe = self.copyObject()
+		self.myCubeR_dupe.name = 'myCubeR_dupe'
 
 		bpy.context.view_layer.objects.active = self.myCubeCam
 		self.myCubeCam_dupe = self.copyObject()
@@ -1226,8 +1217,8 @@ class ABJ_Shader_Debugger():
 			#############
 			self.myCubeLight_dupe.matrix_world = self.myCubeLight_og_Matrix
 
-			self.myCube1_dupe.matrix_world = self.myCube1_og_Matrix
-			self.myCube2_dupe.matrix_world = self.myCube2_og_Matrix
+			self.myCubeN_dupe.matrix_world = self.myCubeN_og_Matrix
+			self.myCubeR_dupe.matrix_world = self.myCubeR_og_Matrix
 
 			self.profile_stage1_07_b = datetime.now() - self.profile_stage1_07_a
 			self.profile_stage1_07_final += self.profile_stage1_07_b
@@ -1236,11 +1227,6 @@ class ABJ_Shader_Debugger():
 			######### INFO (PER FACE) ############
 			###############################
 			self.profile_stage1_02_a = datetime.now() ################
-
-			faceCenter = self.shadingPlane.location
-			pos = self.shadingPlane.location
-
-			myL = mathutils.Vector((self.pos_light_global_v - pos)).normalized()
 
 			##################################################################################
 			###################################### STORE SHADE PARAMS #####################################
@@ -1265,12 +1251,12 @@ class ABJ_Shader_Debugger():
 		bpy.ops.object.mode_set(mode="OBJECT")
 
 		self.myCubeLight_og.hide_set(1)
-		self.myCube1_og.hide_set(1)
-		self.myCube2_og.hide_set(1)
+		self.myCubeN_og.hide_set(1)
+		self.myCubeR_og.hide_set(1)
 
 		self.myCubeLight_dupe.hide_set(1)
-		self.myCube1_dupe.hide_set(1)
-		self.myCube2_dupe.hide_set(1)
+		self.myCubeN_dupe.hide_set(1)
+		self.myCubeR_dupe.hide_set(1)
 
 		# self.profile_stage1_05_b = datetime.now() - self.profile_stage1_05_a
 		# if self.profileCode_part1 == True:
@@ -1281,26 +1267,12 @@ class ABJ_Shader_Debugger():
 		print('TIME TO COMPLETE stage 1 (preprocess) = ' + str(datetime.now() - self.startTime_stage1))
 		print(' ')
 
-
 		self.updateScene()
-
-		##################
-		# self.doIt_part2_render()
-		###############
 
 		self.myCubeCam.hide_set(1)
 		bpy.ops.object.mode_set(mode="OBJECT")
-		# bpy.context.space_data.lock_camera = True
 
 		self.deselectAll()
-
-		#####################
-		##debug raycast miss
-		####################
-		# myToSelect = [1347, 1319, 824, 1317, 1785, 799, 785, 1793]
-		# myToSelect = [236, 361, 223]
-		# for i in myToSelect:
-		# 	self.shadingStages_selectedFaces.append(str(i))
 
 	def objScaling_toMatchPosition_localSolve(self, objToScale, objToScaleOrigName, toCoord, facingDirection, scaleMode, mWorld):
 		global_coord = toCoord
@@ -1661,9 +1633,9 @@ class ABJ_Shader_Debugger():
 		if type == "V":
 			bpy.context.view_layer.objects.active = self.myCubeCam
 		elif type == "N":
-			bpy.context.view_layer.objects.active = self.myCube1_og
+			bpy.context.view_layer.objects.active = self.myCubeN_og
 		elif type == "R":
-			bpy.context.view_layer.objects.active = self.myCube2_og
+			bpy.context.view_layer.objects.active = self.myCubeR_og
 		elif type == "L":
 			bpy.context.view_layer.objects.active = self.myCubeLight_og
 
@@ -1678,7 +1650,7 @@ class ABJ_Shader_Debugger():
 		return arrow_instance
 
 	def show_arrow_N(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
-		nameToLookFor = 'cube1_instance_' + mySplitFaceIndexUsable
+		nameToLookFor = 'cubeN_instance_' + mySplitFaceIndexUsable
 
 		for k in self.objectsToToggleOnOffLater:
 			if k.name == nameToLookFor:
@@ -1695,14 +1667,14 @@ class ABJ_Shader_Debugger():
 
 		restored_N_M_np = None
 
-		for i in self.myCube1_instance_M_all_list_matrixOnly:
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly:
 			temp_idx = i['mySplitFaceIndexUsable']
 			if temp_idx == mySplitFaceIndexUsable:
 				N_M_np = i['N_M_np']
 				restored_N_M_np = mathutils.Matrix(N_M_np.tolist())
 
-		myCube1_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_N_M_np, 'cube1_instance_', 'N')
-		self.objectsToToggleOnOffLater.append(myCube1_instance)
+		myCubeN_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_N_M_np, 'cubeN_instance_', 'N')
+		self.objectsToToggleOnOffLater.append(myCubeN_instance)
 
 	def show_arrow_V_to_faceCenter(self, faceCenter, mySplitFaceIndexUsable):
 		nameToLookFor = 'faceCenterToV_rc_instance_' + mySplitFaceIndexUsable
@@ -1718,7 +1690,7 @@ class ABJ_Shader_Debugger():
 
 		restored_V_M_np = None
 
-		for i in self.myCube1_instance_M_all_list_matrixOnly:
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly:
 			temp_idx = i['mySplitFaceIndexUsable']
 			if temp_idx == mySplitFaceIndexUsable:
 				V_M_np = i['V_M_np']
@@ -1746,7 +1718,7 @@ class ABJ_Shader_Debugger():
 
 		restored_L_M_np = None
 
-		for i in self.myCube1_instance_M_all_list_matrixOnly:
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly:
 			temp_idx = i['mySplitFaceIndexUsable']
 			if temp_idx == mySplitFaceIndexUsable:
 				L_M_np = i['L_M_np']
@@ -1756,7 +1728,7 @@ class ABJ_Shader_Debugger():
 		self.objectsToToggleOnOffLater.append(myCubeLight_instance)
 
 	def show_arrow_R(self, faceCenter, mySplitFaceIndexUsable, L, N):
-		nameToLookFor = 'cube2_instance_' + mySplitFaceIndexUsable
+		nameToLookFor = 'cubeR_instance_' + mySplitFaceIndexUsable
 
 		for k in self.objectsToToggleOnOffLater:
 			if k.name == nameToLookFor:
@@ -1769,14 +1741,14 @@ class ABJ_Shader_Debugger():
 
 		restored_R_M_np = None
 
-		for i in self.myCube1_instance_M_all_list_matrixOnly:
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly:
 			temp_idx = i['mySplitFaceIndexUsable']
 			if temp_idx == mySplitFaceIndexUsable:
 				R_M_np = i['R_M_np']
 				restored_R_M_np = mathutils.Matrix(R_M_np.tolist())
 
-		myCube2_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_R_M_np, 'cube2_instance_', 'R')
-		self.objectsToToggleOnOffLater.append(myCube2_instance)
+		myCubeR_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_R_M_np, 'cubeR_instance_', 'R')
+		self.objectsToToggleOnOffLater.append(myCubeR_instance)
 
 	def setActiveStageMaterial(self, shadingPlane, idx, r, g, b):
 		if self.specTesterMatToggle == -1:
@@ -1834,90 +1806,7 @@ class ABJ_Shader_Debugger():
 
 		myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B, startTime)
 
-	def dynamic_cube2_creation(self, faceCenter, mySplitFaceIndexUsable, defaultMatrix, R):
-		self.myCube2_dupe.matrix_world = defaultMatrix
 
-		bpy.context.view_layer.objects.active = self.myCube2_dupe
-
-		#apply rotation
-		bpy.context.active_object.rotation_mode = 'QUATERNION'
-		bpy.context.active_object.rotation_quaternion = R.to_track_quat('X','Z')
-
-		dynamicM = self.myCube2_dupe.matrix_world
-
-		return dynamicM
-
-	def dynamic_cube1_creation(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
-		# self.profile_stage2_07_a = datetime.now() ################
-
-		self.myCube1_dupe.matrix_world = self.myCube1_og_Matrix
-
-		for j in bpy.context.scene.objects:
-			if j.name == shadingPlane:
-				bpy.context.view_layer.objects.active = j
-
-		normalDir = self.getFaceNormal()
-		# myN = normalDir.normalized()
-
-		bpy.context.view_layer.objects.active = self.myCube1_dupe
-		bpy.context.active_object.rotation_mode = 'QUATERNION'
-		bpy.context.active_object.rotation_quaternion = normalDir.to_track_quat('X','Z')
-
-		self.myCube1_dupe.location = faceCenter
-
-		#use x axis
-		dynamicM = self.myCube1_dupe.matrix_world
-
-		# self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
-		# self.profile_stage2_07_final += self.profile_stage2_07_b
-
-		return dynamicM
-
-	def dynamic_cubeV_creation(self, faceCenter, mySplitFaceIndexUsable, myCam):
-		self.myCubeCam_dupe.matrix_world = self.myCubeLight_og_Matrix
-		bpy.context.view_layer.objects.active = self.myCubeCam_dupe
-		self.myCubeCam_dupe.location = faceCenter
-
-		self.updateScene()
-		
-		self.look_at2(self.myCubeCam_dupe, self.pos_camera_global_v)
-
-		# #####################
-		bpy.ops.object.mode_set(mode="OBJECT")
-		self.deselectAll()
-		self.myCubeCam_dupe.select_set(1)
-
-		myCubeLight_dupe_Matrix_np = np.array(self.myCubeCam_dupe.matrix_world)
-
-		self.objScaling_toMatchPosition_localSolve(self.myCubeCam_dupe, self.myCubeLight_og.name, myCam.matrix_world.translation, 1, 0, myCubeLight_dupe_Matrix_np)
-
-		self.updateScene()
-
-		dynamicM = self.myCubeCam_dupe.matrix_world
-		return dynamicM
-
-	def dynamic_cubeLight_creation(self, faceCenter, mySplitFaceIndexUsable, mySun):
-		self.myCubeLight_dupe.matrix_world = self.myCubeLight_og_Matrix
-		
-		bpy.context.view_layer.objects.active = self.myCubeLight_dupe
-		self.myCubeLight_dupe.location = faceCenter
-		
-		self.updateScene()
-		self.look_at2(self.myCubeLight_dupe, self.pos_light_global_v)
-
-		# #####################
-		bpy.ops.object.mode_set(mode="OBJECT")
-		self.deselectAll()
-		self.myCubeLight_dupe.select_set(1)
-
-		myCubeLight_dupe_Matrix_np = np.array(self.myCubeLight_dupe.matrix_world)
-
-		self.objScaling_toMatchPosition_localSolve(self.myCubeLight_dupe, self.myCubeLight_og.name, mySun.matrix_world.translation, -1, 0, myCubeLight_dupe_Matrix_np)
-
-		self.updateScene()
-
-		dynamicM = self.myCubeLight_dupe.matrix_world
-		return dynamicM
 
 	def raycast_abj_scene(self, origin, direction, debugidx):
 		for j in self.allNamesToToggleDuringRaycast:
@@ -2348,43 +2237,10 @@ myABJ_SD_B = ABJ_Shader_Debugger() ######################
 #########
 # TO DO:
 #########
+- additional shading models (ggx, oren, glass, hair, subsurface, sheen, fuzz)
 - Multiple lights
-- light types
-- additional shading models (ggx, oren, principled, new metallic)
 
 
-
-	
-##########
-# DONE
-##########
-- step through selected faces at different rates
-- cam arrow scaling
-- light arrow scaling
-- look at redundant calls to self.updateScene()
-- Input Model Choose
-- arrow cutoff +-
-- randomize transform
-- UI
-- enum property
-- enum for changing spec power through UI
-- 3d stereo
-- Set arrow materials
-- fix matrix assignment (with numpy)
-- look at changing materials on cube1/cube2/cubeL with self.adjustedColors toggle added to Agx / stereoscopic button
-
-
--2 constraints
-Copy Rotation (camera)
-Transformation (camera)
-From: X min 1 / X max 10
-To: X min 0.5 / X max 2
-
-- write / show what the face arrows are trying to accomplish at any given time
-	- cube1 is the normal
-	- cube 2 is the reflection
-	- cube L is the light
-	- cube Cam is the eye
 '''
 
 
