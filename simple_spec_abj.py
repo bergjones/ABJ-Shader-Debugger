@@ -32,83 +32,6 @@ class myEquation_simple_spec:
 	def testPrint(self):
 			myString = '~~~~~~~~~~~ myString...from myEquation_simple_spec_002'
 			return myString
-	
-		# def refreshPart2_UI(self):
-		# 	self.print(myTest_class.testPrint())
-		# 	self.print(myEquation_simple_spec_class.testPrint())
-
-		# 	self.doIt_part2_render()
-		# 	bpy.ops.object.mode_set(mode="OBJECT")
-
-	def equation_part1_preProcess_00(self, abj_sd_b_instance, mySplitFaceIndexUsable):
-		faceCenter = abj_sd_b_instance.shadingPlane.location
-		pos = abj_sd_b_instance.shadingPlane.location
-
-		myL = mathutils.Vector((abj_sd_b_instance.pos_light_global_v - pos)).normalized()
-
-		##################################################################################
-		###################################### STORE SHADE PARAMS #####################################
-		##################################################################################
-		bpy.context.view_layer.objects.active = abj_sd_b_instance.shadingPlane
-
-		normalDir = abj_sd_b_instance.getFaceNormal() ################
-
-		myN = normalDir.normalized()
-	
-		myReflectVec_cubeR = -myL.reflect(myN)
-
-		########################
-		########## DIFFUSE ########
-		########################
-		N_dot_L = max(np.dot(myN, myL), 0.0)
-
-		########################
-		########## SPEC ########
-		########################
-		myR = myReflectVec_cubeR
-
-		R_dot_V_control = max(abj_sd_b_instance.myV.dot(myR), 0.0)
-		N_dot_V = max(myN.dot(abj_sd_b_instance.myV), 0.0)
-
-		distance = (abj_sd_b_instance.pos_light_global_v - pos).length
-		attenuation = 1.0 / (distance * distance)
-
-		shadingDict_perFace = {
-			'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
-			'shadingPlane' : abj_sd_b_instance.shadingPlane.name,
-			'faceCenter' : faceCenter,
-			'N_dot_L' : N_dot_L,
-			'N_dot_V' : N_dot_V,
-			'R_dot_V' : R_dot_V_control,
-			'attenuation' : attenuation,
-			'L' : myL,
-			'N' : myN,
-			'R' : myR,
-			'spec' : 0,
-			'faceCenter_to_V_rayCast' : False,
-			'faceCenter_to_L_rayCast' : False,
-		}
-
-		if abj_sd_b_instance.hideUnHideInitialNdotV == True:
-			if N_dot_V <= 0.1:
-				#Hide for potential raycast speed up
-				abj_sd_b_instance.shadingPlane.hide_set(1)
-
-		test_stagesDict_perFace0 = {
-			'idx' : mySplitFaceIndexUsable,
-			'shadingPlane' : abj_sd_b_instance.shadingPlane.name,
-			# 'stage' : usableBreakpoint000_items_id,
-			'stage' : 0,
-			'breakpoint_idx' : 0,
-		}
-
-		abj_sd_b_instance.myDebugFaces.append(mySplitFaceIndexUsable)
-
-		abj_sd_b_instance.shadingList_perFace.append(shadingDict_perFace)
-
-		abj_sd_b_instance.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
-		
-		# '''
 
 	def equation_part2_preProcess(self, abj_sd_b_instance):
 		abj_sd_b_instance.profile_stage2_00_b = str(datetime.now() - abj_sd_b_instance.profile_stage2_00_a)
@@ -358,10 +281,10 @@ class myEquation_simple_spec:
 					# N = j['N']
 					R = j['R']
 
-					N_M = self.equation_dynamic_cubeN_creation(shadingPlane, faceCenter, abj_sd_b_instance)
-					L_M = self.equation_dynamic_cubeLight_creation(faceCenter, abj_sd_b_instance.mySun, abj_sd_b_instance)
-					V_M = self.equation_dynamic_cubeV_creation(faceCenter, abj_sd_b_instance.myCam, abj_sd_b_instance)
-					R_M = self.equation_dynamic_cubeR_creation(N_M, R, abj_sd_b_instance)
+					N_M = abj_sd_b_instance.equation_dynamic_cubeN_creation(shadingPlane, faceCenter)
+					L_M = abj_sd_b_instance.equation_dynamic_cubeLight_creation(faceCenter, abj_sd_b_instance.mySun)
+					V_M = abj_sd_b_instance.equation_dynamic_cubeV_creation(faceCenter, abj_sd_b_instance.myCam)
+					R_M = abj_sd_b_instance.equation_dynamic_cubeR_creation(N_M, R)
 
 					abj_sd_b_instance.updateScene() # need
 
@@ -380,91 +303,6 @@ class myEquation_simple_spec:
 
 					abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly.append(arrow_dynamic_instance_M_dict) ##########
 		
-	def equation_dynamic_cubeN_creation(self, shadingPlane, faceCenter, abj_sd_b_instance):
-		# abj_sd_b_instance.profile_stage2_07_a = datetime.now() ################
-
-		abj_sd_b_instance.myCubeN_dupe.matrix_world = abj_sd_b_instance.myCubeN_og_Matrix
-
-		for j in bpy.context.scene.objects:
-			if j.name == shadingPlane:
-				bpy.context.view_layer.objects.active = j
-
-		normalDir = abj_sd_b_instance.getFaceNormal()
-		# myN = normalDir.normalized()
-
-		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeN_dupe
-		bpy.context.active_object.rotation_mode = 'QUATERNION'
-		bpy.context.active_object.rotation_quaternion = normalDir.to_track_quat('X','Z')
-
-		abj_sd_b_instance.myCubeN_dupe.location = faceCenter
-
-		#use x axis
-		dynamicM = abj_sd_b_instance.myCubeN_dupe.matrix_world
-
-		# abj_sd_b_instance.profile_stage2_07_b = datetime.now() - abj_sd_b_instance.profile_stage2_07_a
-		# abj_sd_b_instance.profile_stage2_07_final += abj_sd_b_instance.profile_stage2_07_b
-
-		return dynamicM
-
-	def equation_dynamic_cubeLight_creation(self, faceCenter, mySun, abj_sd_b_instance):
-		abj_sd_b_instance.myCubeLight_dupe.matrix_world = abj_sd_b_instance.myCubeLight_og_Matrix
-		
-		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeLight_dupe
-		abj_sd_b_instance.myCubeLight_dupe.location = faceCenter
-		
-		abj_sd_b_instance.updateScene()
-		abj_sd_b_instance.look_at2(abj_sd_b_instance.myCubeLight_dupe, abj_sd_b_instance.pos_light_global_v)
-
-		# #####################
-		bpy.ops.object.mode_set(mode="OBJECT")
-		abj_sd_b_instance.deselectAll()
-		abj_sd_b_instance.myCubeLight_dupe.select_set(1)
-
-		myCubeLight_dupe_Matrix_np = np.array(abj_sd_b_instance.myCubeLight_dupe.matrix_world)
-
-		abj_sd_b_instance.objScaling_toMatchPosition_localSolve(abj_sd_b_instance.myCubeLight_dupe, abj_sd_b_instance.myCubeLight_og.name, mySun.matrix_world.translation, -1, 0, myCubeLight_dupe_Matrix_np)
-
-		abj_sd_b_instance.updateScene()
-
-		dynamicM = abj_sd_b_instance.myCubeLight_dupe.matrix_world
-		return dynamicM
-
-	def equation_dynamic_cubeV_creation(self, faceCenter, myCam, abj_sd_b_instance):
-		abj_sd_b_instance.myCubeCam_dupe.matrix_world = abj_sd_b_instance.myCubeLight_og_Matrix
-		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeCam_dupe
-		abj_sd_b_instance.myCubeCam_dupe.location = faceCenter
-
-		abj_sd_b_instance.updateScene()
-		
-		abj_sd_b_instance.look_at2(abj_sd_b_instance.myCubeCam_dupe, abj_sd_b_instance.pos_camera_global_v)
-
-		# #####################
-		bpy.ops.object.mode_set(mode="OBJECT")
-		abj_sd_b_instance.deselectAll()
-		abj_sd_b_instance.myCubeCam_dupe.select_set(1)
-
-		myCubeCam_dupe_Matrix_np = np.array(abj_sd_b_instance.myCubeCam_dupe.matrix_world)
-
-		abj_sd_b_instance.objScaling_toMatchPosition_localSolve(abj_sd_b_instance.myCubeCam_dupe, abj_sd_b_instance.myCubeLight_og.name, myCam.matrix_world.translation, 1, 0, myCubeCam_dupe_Matrix_np)
-
-		abj_sd_b_instance.updateScene()
-
-		dynamicM = abj_sd_b_instance.myCubeCam_dupe.matrix_world
-		return dynamicM
-
-	def equation_dynamic_cubeR_creation(self, defaultMatrix, R, abj_sd_b_instance):
-		abj_sd_b_instance.myCubeR_dupe.matrix_world = defaultMatrix
-
-		bpy.context.view_layer.objects.active = abj_sd_b_instance.myCubeR_dupe
-
-		#apply rotation
-		bpy.context.active_object.rotation_mode = 'QUATERNION'
-		bpy.context.active_object.rotation_quaternion = R.to_track_quat('X','Z')
-
-		dynamicM = abj_sd_b_instance.myCubeR_dupe.matrix_world
-
-		return dynamicM
-
 	def equation_part3_switch_stages(self, abj_sd_b_instance):
 		###print once variables
 		printOnce_stage_000 = False

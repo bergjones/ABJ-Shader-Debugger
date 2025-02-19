@@ -39,29 +39,16 @@ if "bpy" in locals():
 
 import bpy
 
-from .GGX_hable_abj import myTest
+from .GGX_hable_abj import myEquation_GGX
 from .simple_spec_abj import myEquation_simple_spec
 
-myTest_class = myTest()
+myEquation_GGX_class = myEquation_GGX()
 myEquation_simple_spec_class = myEquation_simple_spec()
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
-
-		# print('~~~~~~~~~~~~~~~~')
-		# print('sys.path = ', sys.path)
-		# print('sys.modules = ', sys.modules)
-
-		# myPrint2 = myTest()
-		# myTestPrinting = myPrint2.testPrint()
-		
-		# print(myTestPrinting)
-
-		# print(myPrint2.testPrint())
-
-		# print('~~~~~~~~~~~~~~~~')
-
-		# return
+		# self.chosen_specular_equation = 'simple'
+		self.chosen_specular_equation = 'GGX'
 
 		self.Ci_render_temp_list = []
 		self.selectedFaceMat_temp_list = []
@@ -1236,7 +1223,8 @@ class ABJ_Shader_Debugger():
 			##################################################################################
 			###################################### STORE SHADE PARAMS #####################################
 			##################################################################################
-			myEquation_simple_spec_class.equation_part1_preProcess_00(myABJ_SD_B, mySplitFaceIndexUsable)
+			# myEquation_simple_spec_class.equation_part1_preProcess_00(myABJ_SD_B, mySplitFaceIndexUsable)
+			self.equation_part1_preProcess_00(mySplitFaceIndexUsable)
 
 		if self.profileCode_part1 == True:
 			print('~~~~~~~~~ self.profile_stage1_02_final = ', self.profile_stage1_02_final)
@@ -1278,6 +1266,73 @@ class ABJ_Shader_Debugger():
 		bpy.ops.object.mode_set(mode="OBJECT")
 
 		self.deselectAll()
+
+	def equation_part1_preProcess_00(self, mySplitFaceIndexUsable):
+		faceCenter = self.shadingPlane.location
+		pos = self.shadingPlane.location
+
+		myL = mathutils.Vector((self.pos_light_global_v - pos)).normalized()
+
+		##################################################################################
+		###################################### STORE SHADE PARAMS #####################################
+		##################################################################################
+		bpy.context.view_layer.objects.active = self.shadingPlane
+
+		normalDir = self.getFaceNormal() ################
+
+		myN = normalDir.normalized()
+	
+		########################
+		########## DIFFUSE ########
+		########################
+		N_dot_L = max(np.dot(myN, myL), 0.0)
+
+		########################
+		########## SPEC ########
+		########################
+		myR = -myL.reflect(myN)
+		myH = (self.myV + myL).normalized()
+		R_dot_V_control = max(self.myV.dot(myR), 0.0)
+		N_dot_V = max(myN.dot(self.myV), 0.0)
+
+		distance = (self.pos_light_global_v - pos).length
+		attenuation = 1.0 / (distance * distance)
+
+		shadingDict_perFace = {
+			'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
+			'shadingPlane' : self.shadingPlane.name,
+			'faceCenter' : faceCenter,
+			'N_dot_L' : N_dot_L,
+			'N_dot_V' : N_dot_V,
+			'R_dot_V' : R_dot_V_control,
+			'attenuation' : attenuation,
+			'L' : myL,
+			'N' : myN,
+			'R' : myR,
+			'H' : myH,
+			'spec' : 0,
+			'faceCenter_to_V_rayCast' : False,
+			'faceCenter_to_L_rayCast' : False,
+		}
+
+		if self.hideUnHideInitialNdotV == True:
+			if N_dot_V <= 0.1:
+				#Hide for potential raycast speed up
+				self.shadingPlane.hide_set(1)
+
+		test_stagesDict_perFace0 = {
+			'idx' : mySplitFaceIndexUsable,
+			'shadingPlane' : self.shadingPlane.name,
+			# 'stage' : usableBreakpoint000_items_id,
+			'stage' : 0,
+			'breakpoint_idx' : 0,
+		}
+
+		self.myDebugFaces.append(mySplitFaceIndexUsable)
+
+		self.shadingList_perFace.append(shadingDict_perFace)
+
+		self.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
 
 	def doIt_part2_render(self):
 		startTime = datetime.now()
@@ -1327,12 +1382,20 @@ class ABJ_Shader_Debugger():
 			changedSimpleSpecEquation = True
 
 		if self.runOnce_part2_preProcess == False or changedSimpleSpecEquation == True:
-			myEquation_simple_spec_class.equation_part2_preProcess(myABJ_SD_B)
+
+			if self.chosen_specular_equation == 'simple':
+				myEquation_simple_spec_class.equation_part2_preProcess(myABJ_SD_B)
+			elif self.chosen_specular_equation == 'GGX':
+				myEquation_GGX_class.equation_part2_preProcess(myABJ_SD_B)
+
 			self.runOnce_part2_preProcess = True
 
 		self.profile_stage2_01_a = datetime.now() 
 
-		myEquation_simple_spec_class.equation_part2_preProcess_arrow_matricies(myABJ_SD_B)
+		if self.chosen_specular_equation == 'simple':
+			myEquation_simple_spec_class.equation_part2_preProcess_arrow_matricies(myABJ_SD_B)
+		elif self.chosen_specular_equation == 'GGX':
+			myEquation_GGX_class.equation_part2_preProcess_arrow_matricies(myABJ_SD_B)
 
 		self.profile_stage2_01_b = str(datetime.now() - self.profile_stage2_01_a)
 		if self.profileCode_part2 == True:
@@ -1341,7 +1404,10 @@ class ABJ_Shader_Debugger():
 		self.Ci_render_temp_list.clear()
 		self.selectedFaceMat_temp_list.clear()
 
-		myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B)
+		if self.chosen_specular_equation == 'simple':
+			myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B)
+		elif self.chosen_specular_equation == 'GGX':
+			myEquation_GGX_class.equation_part3_switch_stages(myABJ_SD_B)
 
 		#############################
 		### FINAL RENDER
@@ -1435,9 +1501,90 @@ class ABJ_Shader_Debugger():
 
 		return skip_refresh
 		
+	def equation_dynamic_cubeN_creation(self, shadingPlane, faceCenter):
+		# self.profile_stage2_07_a = datetime.now() ################
 
+		self.myCubeN_dupe.matrix_world = self.myCubeN_og_Matrix
 
+		for j in bpy.context.scene.objects:
+			if j.name == shadingPlane:
+				bpy.context.view_layer.objects.active = j
 
+		normalDir = self.getFaceNormal()
+		# myN = normalDir.normalized()
+
+		bpy.context.view_layer.objects.active = self.myCubeN_dupe
+		bpy.context.active_object.rotation_mode = 'QUATERNION'
+		bpy.context.active_object.rotation_quaternion = normalDir.to_track_quat('X','Z')
+
+		self.myCubeN_dupe.location = faceCenter
+
+		#use x axis
+		dynamicM = self.myCubeN_dupe.matrix_world
+
+		# self.profile_stage2_07_b = datetime.now() - self.profile_stage2_07_a
+		# self.profile_stage2_07_final += self.profile_stage2_07_b
+
+		return dynamicM
+
+	def equation_dynamic_cubeLight_creation(self, faceCenter, mySun):
+		self.myCubeLight_dupe.matrix_world = self.myCubeLight_og_Matrix
+		
+		bpy.context.view_layer.objects.active = self.myCubeLight_dupe
+		self.myCubeLight_dupe.location = faceCenter
+		
+		self.updateScene()
+		self.look_at2(self.myCubeLight_dupe, self.pos_light_global_v)
+
+		# #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeLight_dupe.select_set(1)
+
+		myCubeLight_dupe_Matrix_np = np.array(self.myCubeLight_dupe.matrix_world)
+
+		self.objScaling_toMatchPosition_localSolve(self.myCubeLight_dupe, self.myCubeLight_og.name, mySun.matrix_world.translation, -1, 0, myCubeLight_dupe_Matrix_np)
+
+		self.updateScene()
+
+		dynamicM = self.myCubeLight_dupe.matrix_world
+		return dynamicM
+
+	def equation_dynamic_cubeV_creation(self, faceCenter, myCam):
+		self.myCubeCam_dupe.matrix_world = self.myCubeLight_og_Matrix
+		bpy.context.view_layer.objects.active = self.myCubeCam_dupe
+		self.myCubeCam_dupe.location = faceCenter
+
+		self.updateScene()
+		
+		self.look_at2(self.myCubeCam_dupe, self.pos_camera_global_v)
+
+		# #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeCam_dupe.select_set(1)
+
+		myCubeCam_dupe_Matrix_np = np.array(self.myCubeCam_dupe.matrix_world)
+
+		self.objScaling_toMatchPosition_localSolve(self.myCubeCam_dupe, self.myCubeLight_og.name, myCam.matrix_world.translation, 1, 0, myCubeCam_dupe_Matrix_np)
+
+		self.updateScene()
+
+		dynamicM = self.myCubeCam_dupe.matrix_world
+		return dynamicM
+
+	def equation_dynamic_cubeR_creation(self, defaultMatrix, R):
+		self.myCubeR_dupe.matrix_world = defaultMatrix
+
+		bpy.context.view_layer.objects.active = self.myCubeR_dupe
+
+		#apply rotation
+		bpy.context.active_object.rotation_mode = 'QUATERNION'
+		bpy.context.active_object.rotation_quaternion = R.to_track_quat('X','Z')
+
+		dynamicM = self.myCubeR_dupe.matrix_world
+
+		return dynamicM
 
 
 	def objScaling_toMatchPosition_localSolve(self, objToScale, objToScaleOrigName, toCoord, facingDirection, scaleMode, mWorld):
