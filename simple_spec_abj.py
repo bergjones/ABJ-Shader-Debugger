@@ -111,26 +111,6 @@ class myEquation_simple_spec:
 		# '''
 
 	def equation_part2_preProcess(self, abj_sd_b_instance):
-		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
-		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
-
-		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
-
-		skip_refresh_override = False
-
-		if abj_sd_b_instance.aov_stored != aov_id:
-			abj_sd_b_instance.aov_stored = aov_id
-			skip_refresh_override = True
-
-		if abj_sd_b_instance.rdotvpow_stored != rdotvpow_id:
-			abj_sd_b_instance.rdotvpow_stored = rdotvpow_id
-			skip_refresh_override = True
-
-		if abj_sd_b_instance.recently_cleared_selFaces == True:
-			skip_refresh_override = True
-			abj_sd_b_instance.recently_cleared_selFaces = False
-
 		abj_sd_b_instance.profile_stage2_00_b = str(datetime.now() - abj_sd_b_instance.profile_stage2_00_a)
 		if abj_sd_b_instance.profileCode_part2 == True:
 			print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_00_b = ', abj_sd_b_instance.profile_stage2_00_b)
@@ -160,13 +140,8 @@ class myEquation_simple_spec:
 		# print('~~~~~~~~~~~~~~~~~~~ !!!!!!!!!!!! ~~~~~~~~~~~~~~~~~~~')
 		############################################################
 
-		# ray_cast_faceCenter_to_V_list = []
-		# ray_cast_faceCenter_to_L_list = []
-
 		ray_cast_faceCenter_to_V_dict_list = []
 		ray_cast_faceCenter_to_L_dict_list = []
-
-		# myNewList = []
 
 		# deep_copied_list_perFace = None
 		deep_copied_list_perFace_all = []
@@ -175,23 +150,6 @@ class myEquation_simple_spec:
 			abj_sd_b_instance.profile_stage2_02_a = datetime.now() ################
 
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
-
-			#################################################
-			#decide whether to continue and do a full refresh
-			#################################################
-			matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
-			skip_refresh = False
-			if matCheck: #material already exists...check if it is not selected for stage stepping
-				for j in abj_sd_b_instance.shadingStages_perFace_stepList:
-					if (j["idx"]) == mySplitFaceIndexUsable:
-						if j['idx'] not in abj_sd_b_instance.shadingStages_selectedFaces:
-							skip_refresh = True
-
-			if skip_refresh_override == True:
-				skip_refresh = False
-
-			if skip_refresh == True:
-				continue
 
 			####################################
 
@@ -234,18 +192,7 @@ class myEquation_simple_spec:
 			elif usableRdotVPow_id == 'diffuse_only':
 				spec = 0
 
-			# print('~~~~~~ SPEC CTRL 0 = ', mySplitFaceIndexUsable, ' ', spec)
-
 			deep_copied_list_perFace = copy.deepcopy(i) ####### DEEP COPY SPEC
-
-			# continue
-
-			##############
-			#######
-			###########
-			#debug
-			# abj_sd_b_instance.shadingStages_selectedFaces.clear()
-			# abj_sd_b_instance.shadingStages_selectedFaces.append('242')
 
 			#local variables
 			faceCenter_to_V_rayCast = None
@@ -305,7 +252,6 @@ class myEquation_simple_spec:
 		deep_copied_list_02 = copy.deepcopy(abj_sd_b_instance.shadingList_perFace)
 
 		for i in ray_cast_faceCenter_to_V_dict_list:
-
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
 			origin = i['origin']
 			direction = i['direction']
@@ -519,7 +465,7 @@ class myEquation_simple_spec:
 
 		return dynamicM
 
-	def equation_part3_switch_stages(self, abj_sd_b_instance, startTime):
+	def equation_part3_switch_stages(self, abj_sd_b_instance):
 		###print once variables
 		printOnce_stage_000 = False
 		printOnce_stage_001 = False
@@ -530,25 +476,16 @@ class myEquation_simple_spec:
 		printOnce_stage_006 = False
 		printOnce_stage_007 = False
 
-		for i in abj_sd_b_instance.shadingList_perFace:	
+		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
+		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
+
+		for i in abj_sd_b_instance.shadingList_perFace:	
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
 
-			#################################################
-			#decide whether to continue and do a full refresh
-			#################################################
-			matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
-			skip_refresh = False
-			if matCheck: #material already exists...check if it is not selected for stage stepping
-				for j in abj_sd_b_instance.shadingStages_perFace_stepList:
-					if (j["idx"]) == mySplitFaceIndexUsable:
-						if j['idx'] not in abj_sd_b_instance.shadingStages_selectedFaces:
-							skip_refresh = True
-
-			# if skip_refresh_override == True:
-			# 	skip_refresh = False
-
-			if skip_refresh == True:
+			if abj_sd_b_instance.skip_refresh_determine(mySplitFaceIndexUsable) == True:
 				continue
 
 			shadingPlane = i['shadingPlane']
@@ -635,14 +572,7 @@ class myEquation_simple_spec:
 			###############
 			### spec_with_arrow
 			##############
-
 			if usableStageCategory_id == 'spec_with_arrow':
-				# if mySplitFaceIndexUsable == '242':
-				# 	print('!!!!!!!!!!!!! items_id_currentStage = ', items_id_currentStage)
-				# 	print('skip_refresh = ', skip_refresh)
-				# 	print('faceCenter_to_L_rayCast for 242 = ', faceCenter_to_L_rayCast)
-				# 	print('faceCenter_to_V_rayCast for 242 = ', faceCenter_to_V_rayCast)
-
 				if items_id_currentStage == 0:
 					if printOnce_stage_000 == False:
 						print("'stage_000' : 'N....show N arrow (cubeN)'")
@@ -652,7 +582,7 @@ class myEquation_simple_spec:
 
 					abj_sd_b_instance.myCubeCam.hide_set(1)
 
-					abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 1:
 					if printOnce_stage_001 == False:
@@ -661,7 +591,7 @@ class myEquation_simple_spec:
 
 					abj_sd_b_instance.myCubeCam.hide_set(0)
 
-					abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 2:
 					if printOnce_stage_002 == False:
@@ -672,14 +602,14 @@ class myEquation_simple_spec:
 
 					abj_sd_b_instance.myCubeCam.hide_set(0)
 
-					abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 3:
 					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
 						if abj_sd_b_instance.printDetailedInfo == True:
 							print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
 
-						self.equation_aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation, abj_sd_b_instance)
+						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
 					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
 						if printOnce_stage_003 == False:
@@ -691,19 +621,19 @@ class myEquation_simple_spec:
 
 						abj_sd_b_instance.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
-
 						abj_sd_b_instance.profile_stage2_05_b = datetime.now() - abj_sd_b_instance.profile_stage2_05_a
 						abj_sd_b_instance.profile_stage2_05_final += abj_sd_b_instance.profile_stage2_05_b
 
 						abj_sd_b_instance.myCubeCam.hide_set(1)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 4:
 					if faceCenter_to_V_rayCast == False: ####
 						if abj_sd_b_instance.printDetailedInfo == True:
 							print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
 
-						self.equation_aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation, abj_sd_b_instance)
+						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
 					elif faceCenter_to_V_rayCast == True or override == True:
 							if printOnce_stage_004 == False:
@@ -715,21 +645,14 @@ class myEquation_simple_spec:
 
 							abj_sd_b_instance.myCubeCam.hide_set(1)
 
-							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 5:
-					# if mySplitFaceIndexUsable == '242':
-					# 	print('IN 005')
-					# 	print('skip_refresh = ', skip_refresh)
-					# 	print('printOnce_stage_005 = ', printOnce_stage_005)
-					# 	print('faceCenter_to_L_rayCast for 242 = ', faceCenter_to_L_rayCast)
-					# 	print('faceCenter_to_V_rayCast for 242 = ', faceCenter_to_V_rayCast)
-
 					if faceCenter_to_L_rayCast == False: ####
 						if abj_sd_b_instance.printDetailedInfo == True:
 							print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
 
-						self.equation_aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation, abj_sd_b_instance)
+						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
 					elif faceCenter_to_L_rayCast == True or override == True:
 						if printOnce_stage_005 == False:
@@ -745,7 +668,7 @@ class myEquation_simple_spec:
 
 						abj_sd_b_instance.myCubeCam.hide_set(1)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 6:
 					if faceCenter_to_L_rayCast == True or override == True:
@@ -759,7 +682,7 @@ class myEquation_simple_spec:
 
 						abj_sd_b_instance.myCubeCam.hide_set(1)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, abj_sd_b_instance.shadingPlane_sel_r, abj_sd_b_instance.shadingPlane_sel_g, abj_sd_b_instance.shadingPlane_sel_b)
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 				elif items_id_currentStage == 7:
 					if printOnce_stage_007 == False:
@@ -768,14 +691,12 @@ class myEquation_simple_spec:
 
 					abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
 
-
 					abj_sd_b_instance.myCubeCam.hide_set(1)
 
-					self.equation_aov_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation, abj_sd_b_instance)
+					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
 					abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
 					abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
-
 
 			# if abj_sd_b_instance.profileCode_part2 == True:
 				# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_03_b = ', abj_sd_b_instance.profile_stage2_03_b)
@@ -798,34 +719,3 @@ class myEquation_simple_spec:
 			# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_08_b = ', abj_sd_b_instance.profile_stage2_08_b)
 
 		# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
-		print(' ')
-
-
-	def equation_aov_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation, abj_sd_b_instance):
-		attenuation = 1.0 #temporary, outside sunlight
-
-		Ks = 10
-		Kl = 1
-		finalDiff = N_dot_L
-
-		finalSpec = spec * Ks
-
-		if aov_id == 'spec':
-			Ci = ((finalSpec) * attenuation * Kl) ###
-		elif aov_id == 'diffuse':
-			Ci = ((finalDiff) * attenuation * Kl) ###
-		elif aov_id == 'Ci':
-			Ci = ((finalDiff + finalSpec) * attenuation * Kl) ###
-
-		Ci = pow(Ci, (1.0 / 2.2))
-
-		if abj_sd_b_instance.specTesterMatToggle == -1:
-			for j in bpy.context.scene.objects:
-				if j.name == shadingPlane:
-					bpy.context.view_layer.objects.active = j
-
-			mat1 = abj_sd_b_instance.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci, Ci, Ci)
-			bpy.context.active_object.data.materials.clear()
-			bpy.context.active_object.data.materials.append(mat1)

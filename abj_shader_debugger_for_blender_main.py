@@ -63,6 +63,9 @@ class ABJ_Shader_Debugger():
 
 		# return
 
+		self.Ci_render_temp_list = []
+		self.selectedFaceMat_temp_list = []
+
 		self.runOnce_part2_preProcess = False
 		self.hideUnHideInitialNdotV = False
 		self.debugV_223 = None
@@ -81,6 +84,8 @@ class ABJ_Shader_Debugger():
 		self.aov_stored = None
 		self.rdotvpow_stored = None
 		self.breakpointsOverrideToggle = False
+		self.skip_refresh_override_aov = False
+		self.skip_refresh_override_RdotVpow = False
 
 		self.shadingPlane_sel_r = 0.0
 		self.shadingPlane_sel_g = 0.0
@@ -1274,6 +1279,167 @@ class ABJ_Shader_Debugger():
 
 		self.deselectAll()
 
+	def doIt_part2_render(self):
+		startTime = datetime.now()
+
+		self.profile_stage2_00_final = startTime - startTime
+		self.profile_stage2_01_final = startTime - startTime
+		self.profile_stage2_02_final = startTime - startTime
+		self.profile_stage2_03_final = startTime - startTime
+		self.profile_stage2_04_final = startTime - startTime
+		self.profile_stage2_05_final = startTime - startTime
+		self.profile_stage2_06_final = startTime - startTime
+		self.profile_stage2_07_final = startTime - startTime
+		self.profile_stage2_08_final = startTime - startTime
+		self.profile_stage2_09_final = startTime - startTime
+		self.profile_stage2_10_final = startTime - startTime
+
+		self.profile_stage2_00_a = datetime.now() ################
+
+		# for i in self.objectsToToggleOnOffLater:
+		# 	try:
+		# 		self.deleteSpecificObject(i.name)
+		# 	except:
+		# 		pass
+
+		for i in self.objectsToToggleOnOffLater:
+			i.hide_set(1)
+
+		# self.objectsToToggleOnOffLater.clear()
+
+		# V = self.shadingDict_global['V']
+
+		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
+		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
+
+		if self.aov_stored != aov_id:
+			self.skip_refresh_override_aov = True
+			self.aov_stored = aov_id
+
+		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
+		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
+
+		changedSimpleSpecEquation = False
+
+		if self.rdotvpow_stored != rdotvpow_id:
+			self.skip_refresh_override_RdotVpow = True
+			self.rdotvpow_stored = rdotvpow_id
+			changedSimpleSpecEquation = True
+
+		if self.runOnce_part2_preProcess == False or changedSimpleSpecEquation == True:
+			myEquation_simple_spec_class.equation_part2_preProcess(myABJ_SD_B)
+			self.runOnce_part2_preProcess = True
+
+		self.profile_stage2_01_a = datetime.now() 
+
+		myEquation_simple_spec_class.equation_part2_preProcess_arrow_matricies(myABJ_SD_B)
+
+		self.profile_stage2_01_b = str(datetime.now() - self.profile_stage2_01_a)
+		if self.profileCode_part2 == True:
+			print('~~~~~~~~~ self.profile_stage2_01_b (Matrix setup) = ', self.profile_stage2_01_b)
+
+		self.Ci_render_temp_list.clear()
+		self.selectedFaceMat_temp_list.clear()
+
+		myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B)
+
+		#############################
+		### FINAL RENDER
+		#############################
+
+		# print('self.Ci_render_temp_list', self.Ci_render_temp_list)
+		# print('self.selectedFaceMat_temp_list', self.selectedFaceMat_temp_list)
+
+		for i in self.shadingList_perFace:
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+
+			if self.skip_refresh_determine(mySplitFaceIndexUsable) == True:
+				continue
+
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+			shadingPlane = i['shadingPlane']
+			N_dot_L = i['N_dot_L']
+			spec = i['spec']
+			attenuation = i['attenuation']
+
+			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
+
+				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+
+			elif mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
+					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
+
+		self.skip_refresh_override_RdotVpow = False
+
+		#reset refresh override skips
+		self.skip_refresh_override_RdotVpow = False
+
+		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
+		print(' ')
+
+	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation):
+		attenuation = 1.0 #temporary, outside sunlight
+
+		Ks = 10
+		Kl = 1
+		finalDiff = N_dot_L
+
+		finalSpec = spec * Ks
+
+		if aov_id == 'spec':
+			Ci = ((finalSpec) * attenuation * Kl) ###
+		elif aov_id == 'diffuse':
+			Ci = ((finalDiff) * attenuation * Kl) ###
+		elif aov_id == 'Ci':
+			Ci = ((finalDiff + finalSpec) * attenuation * Kl) ###
+
+		Ci = pow(Ci, (1.0 / 2.2))
+
+		if self.specTesterMatToggle == -1:
+			for j in bpy.context.scene.objects:
+				if j.name == shadingPlane:
+					bpy.context.view_layer.objects.active = j
+
+			mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci, Ci, Ci)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+	def skip_refresh_determine(self, mySplitFaceIndexUsable):
+		#################################################
+		#decide whether to continue and do a full refresh
+		#################################################
+
+		skip_refresh_override_recently_cleared_faces = False
+
+		if self.recently_cleared_selFaces == True:
+			skip_refresh_override_recently_cleared_faces = True
+			self.recently_cleared_selFaces = False
+
+		skip_refresh = False
+
+		matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
+		if matCheck: #material already exists...check if it is not selected for stage stepping
+			for j in self.shadingStages_perFace_stepList:
+				if (j["idx"]) == mySplitFaceIndexUsable:
+					if j['idx'] not in self.shadingStages_selectedFaces:
+						skip_refresh = True
+
+		if self.skip_refresh_override_aov == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_RdotVpow == True:
+			skip_refresh = False
+
+		if skip_refresh_override_recently_cleared_faces == True:
+			skip_refresh = False
+
+		return skip_refresh
+		
+
+
+
+
+
 	def objScaling_toMatchPosition_localSolve(self, objToScale, objToScaleOrigName, toCoord, facingDirection, scaleMode, mWorld):
 		global_coord = toCoord
 		local_coord = mathutils.Matrix(mWorld.tolist()).inverted() @ global_coord
@@ -1760,53 +1926,6 @@ class ABJ_Shader_Debugger():
 			mat1 = self.newShader("ShaderVisualizer_" + str(idx), "emission", r, g, b)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
-
-	def doIt_part2_render(self):
-		startTime = datetime.now()
-
-		self.profile_stage2_00_final = startTime - startTime
-		self.profile_stage2_01_final = startTime - startTime
-		self.profile_stage2_02_final = startTime - startTime
-		self.profile_stage2_03_final = startTime - startTime
-		self.profile_stage2_04_final = startTime - startTime
-		self.profile_stage2_05_final = startTime - startTime
-		self.profile_stage2_06_final = startTime - startTime
-		self.profile_stage2_07_final = startTime - startTime
-		self.profile_stage2_08_final = startTime - startTime
-		self.profile_stage2_09_final = startTime - startTime
-		self.profile_stage2_10_final = startTime - startTime
-
-		self.profile_stage2_00_a = datetime.now() ################
-
-		# for i in self.objectsToToggleOnOffLater:
-		# 	try:
-		# 		self.deleteSpecificObject(i.name)
-		# 	except:
-		# 		pass
-
-		for i in self.objectsToToggleOnOffLater:
-			i.hide_set(1)
-
-		# self.objectsToToggleOnOffLater.clear()
-
-		# V = self.shadingDict_global['V']
-
-		if self.runOnce_part2_preProcess == False:
-			myEquation_simple_spec_class.equation_part2_preProcess(myABJ_SD_B)
-			self.runOnce_part2_preProcess = True
-
-		self.profile_stage2_01_a = datetime.now() 
-
-		myEquation_simple_spec_class.equation_part2_preProcess_arrow_matricies(myABJ_SD_B)
-
-		self.profile_stage2_01_b = str(datetime.now() - self.profile_stage2_01_a)
-		if self.profileCode_part2 == True:
-			print('~~~~~~~~~ self.profile_stage2_01_b (Matrix setup) = ', self.profile_stage2_01_b)
-
-
-		myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B, startTime)
-
-
 
 	def raycast_abj_scene(self, origin, direction, debugidx):
 		for j in self.allNamesToToggleDuringRaycast:
