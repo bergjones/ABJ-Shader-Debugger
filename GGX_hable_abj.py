@@ -565,7 +565,7 @@ class myEquation_GGX:
 
 					abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
 
-					abj_sd_b_instance.myCubeCam.hide_set(1)
+					# abj_sd_b_instance.myCubeCam.hide_set(1)
 
 					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
