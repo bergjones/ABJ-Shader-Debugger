@@ -139,15 +139,10 @@ class myEquation_GGX:
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
 			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
 
+			ggx_roughness = bpy.context.scene.ggx_roughness_prop
+			ggx_fresnel = bpy.context.scene.ggx_fresnel_prop
 
-			# usableGGX_roughness_items = bpy.context.scene.bl_rna.properties['ggx_roughness_enum_prop'].enum_items
-			# usableGGX_roughness_id = usableRdotVPow_items[bpy.context.scene.ggx_roughness_enum_prop].identifier
-
-	
-			debug_roughness = 0.1
-			debug_fresnel = 0.15
-
-			spec = self.LightingFuncGGX_REF(N, V, L, H, debug_roughness, debug_fresnel, abj_sd_b_instance)
+			spec = self.LightingFuncGGX_REF(N, V, L, H, ggx_roughness, ggx_fresnel, abj_sd_b_instance)
 
 			deep_copied_list_perFace = copy.deepcopy(i) ####### DEEP COPY SPEC
 

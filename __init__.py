@@ -32,15 +32,8 @@ import bpy
 import sys
 import importlib
 
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXSETTINGS, SHADER_OT_STEREOSCOPICSETTINGS, SHADER_OT_TOGGLEEXTRAS
 
-#### WORKING
-# from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger
-####
-
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXSETTINGS, SHADER_OT_STEREOSCOPICSETTINGS, SHADER_OT_ARROWCUTOFFMINUS, SHADER_OT_ARROWCUTOFFPLUS, SHADER_OT_ARROWCUTOFFRESET, SHADER_OT_TOGGLEEXTRAS
-
-
-# from . import GGX_hable_abj
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -50,8 +43,6 @@ if "bpy" in locals():
 			globals()[basename] = importlib.reload(module)
 
 import bpy
-
-# from .GGX_hable_abj import myTest
 
 classes = [
 	# ABJ_Shader_Debugger,
@@ -76,10 +67,6 @@ classes = [
 	SHADER_OT_RESTORECAMVIEW,
 	SHADER_OT_AGXSETTINGS,
 	SHADER_OT_STEREOSCOPICSETTINGS,
-
-	SHADER_OT_ARROWCUTOFFMINUS,
-	SHADER_OT_ARROWCUTOFFPLUS,
-	SHADER_OT_ARROWCUTOFFRESET,
 	
 	SHADER_OT_TOGGLEEXTRAS,
 ]
@@ -92,6 +79,9 @@ def register():
 
 	# '''
 	
+	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1)
+	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15)
+
 	# [(identifier, name, description, icon, number), ...].
 	r_dot_v_pow_enum_items = (
 			('pow1', 'pow_1', 'R_dot_V pow 1'),
@@ -120,13 +110,25 @@ def register():
 			('cone', 'cone', 'cone primitive'),
 			('torus', 'torus', 'torus primitive'),
 			('monkey', 'monkey', 'monkey primitive'),
-		)
+	)
 
 	bpy.types.Scene.primitive_enum_prop = bpy.props.EnumProperty(
 		name='primitive_select',
 		description="primitive_select",
 		items=primitive_select_enum_items,
 		default='monkey',
+	)
+
+	specular_equation_enum_items = (
+			('GGX', 'GGX', 'GGX'),
+			('simple', 'simple', 'simple'),
+	)
+
+	bpy.types.Scene.specular_equation_enum_prop = bpy.props.EnumProperty(
+		name='specular_equation',
+		description="specular_equation",
+		items=specular_equation_enum_items,
+		default='GGX',
 	)
 
 	shader_stages_enum_items = (
@@ -403,10 +405,17 @@ def unregister():
 
 	# '''
 
+	del bpy.types.Scene.ggx_roughness_prop
+	del bpy.types.Scene.ggx_fresnel_prop
+
 	del bpy.types.Scene.r_dot_v_pow_enum_prop
 	del bpy.types.Scene.primitive_enum_prop
 
 	del bpy.types.Scene.breakpoint_override_enum_prop
+
+	del bpy.types.Scene.specular_equation_enum_prop
+	del bpy.types.Scene.shader_stages_enum_prop
+
 
 	del bpy.types.Scene.breakpoint_000_enum_prop
 	del bpy.types.Scene.breakpoint_001_enum_prop

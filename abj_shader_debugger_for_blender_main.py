@@ -50,6 +50,8 @@ class ABJ_Shader_Debugger():
 		# self.chosen_specular_equation = 'simple'
 		self.chosen_specular_equation = 'GGX'
 
+		self.changedSpecularEquation_variables = False
+
 		self.Ci_render_temp_list = []
 		self.selectedFaceMat_temp_list = []
 
@@ -68,11 +70,17 @@ class ABJ_Shader_Debugger():
 		self.objectsToToggleOnOffLater = []
 		self.debugStageIterPlusMinus = False
 		self.recently_cleared_selFaces = False
+
 		self.aov_stored = None
 		self.rdotvpow_stored = None
+		self.ggx_roughness_stored = None
+		self.ggx_fresnel_stored = None
+
 		self.breakpointsOverrideToggle = False
 		self.skip_refresh_override_aov = False
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_GGX_roughness = False
+		self.skip_refresh_override_GGX_fresnel = False
 
 		self.shadingPlane_sel_r = 0.0
 		self.shadingPlane_sel_g = 0.0
@@ -90,7 +98,6 @@ class ABJ_Shader_Debugger():
 		self.arrow_wings = .75
 		self.myOrigin = mathutils.Vector((0, 0, 0))
 
-		self.spec_cutoff = 0.35
 		self.diffuse_or_emission_og_shading = 'diffuse'
 		# self.diffuse_or_emission_og_shading = 'emission'
 		self.adjustedColors = False
@@ -114,7 +121,6 @@ class ABJ_Shader_Debugger():
 		self.myCubeCam_og_Matrix = None
 		self.myCubeCam_og_Matrix_np = None
 		self.myCubeCam_dupe = None
-
 
 		self.mySun = None
 		self.myV = None
@@ -233,7 +239,6 @@ class ABJ_Shader_Debugger():
 		# self.pos_light_global = (10, 10, 0)
 		# self.pos_light_global = (-10, -10, -10)
 		self.pos_light_global_v = mathutils.Vector((self.pos_light_global[0], self.pos_light_global[1], self.pos_light_global[2]))
-
 
 		self.RandomRotationAxis = 'X'
 		self.RandomRotationDegree = 0
@@ -557,21 +562,6 @@ class ABJ_Shader_Debugger():
 		self.stereo_retinal_rivalry_fix('cubeN_instance')
 		self.stereo_retinal_rivalry_fix('cubeR_instance')
 		self.stereo_retinal_rivalry_fix('light_instance')
-
-	########
-	def arrowCutoff_UI(self, mode):
-		usableIncrement = 0.05
-		if mode == "minus":
-			self.spec_cutoff -= usableIncrement
-		elif mode == "plus":
-			self.spec_cutoff += usableIncrement
-		elif mode == "reset":
-			self.spec_cutoff = 0.35
-			# self.spec_cutoff = 0.4
-
-		print('self.spec_cutoff = ', self.spec_cutoff)
-
-		self.doIt_part2_render()
 
 	################
 	def restoreCameraView_UI(self):
@@ -922,7 +912,6 @@ class ABJ_Shader_Debugger():
 		# self.profile_stage1_10_final = self.startTime_stage1 - self.startTime_stage1
 		# print('should be zero... ', self.profile_stage1_02_final)
 
-
 		self.profile_stage1_06_a = datetime.now() ################
 
 		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
@@ -942,7 +931,6 @@ class ABJ_Shader_Debugger():
 
 		self.runOnce_part2_preProcess = False
 
-
 		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
 		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 		self.aov_stored = aov_id
@@ -950,6 +938,12 @@ class ABJ_Shader_Debugger():
 		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
 		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 		self.rdotvpow_stored = rdotvpow_id
+
+		val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
+		self.ggx_roughness_stored = val_ggx_roughness_prop
+
+		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
+		self.ggx_fresnel_stored = val_ggx_fresnel_prop
 
 		if self.debugStageIterPlusMinus == True:
 			self.shadingStages_selectedFaces.clear()
@@ -1374,15 +1368,36 @@ class ABJ_Shader_Debugger():
 		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
 		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 
-		changedSimpleSpecEquation = False
+		val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
+		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
+
+		self.changedSpecularEquation_variables = False
 
 		if self.rdotvpow_stored != rdotvpow_id:
 			self.skip_refresh_override_RdotVpow = True
 			self.rdotvpow_stored = rdotvpow_id
-			changedSimpleSpecEquation = True
+			self.changedSpecularEquation_variables = True
 
-		if self.runOnce_part2_preProcess == False or changedSimpleSpecEquation == True:
+		if self.ggx_roughness_stored != val_ggx_roughness_prop:
+			self.skip_refresh_override_GGX_roughness = True
+			self.ggx_roughness_stored = val_ggx_fresnel_prop
+			self.changedSpecularEquation_variables = True
 
+		if self.ggx_fresnel_stored != val_ggx_fresnel_prop:
+			self.skip_refresh_override_GGX_fresnel = True
+			self.ggx_fresnel_stored = val_ggx_fresnel_prop
+			self.changedSpecularEquation_variables = True
+
+		usableSpecularEquationType_items = bpy.context.scene.bl_rna.properties['specular_equation_enum_prop'].enum_items
+		usableSpecularEquationType_id = usableSpecularEquationType_items[bpy.context.scene.specular_equation_enum_prop].identifier
+
+		# self.chosen_specular_equation = usableSpecularEquationType_id
+
+		if usableSpecularEquationType_id != self.chosen_specular_equation:
+			self.changedSpecularEquation_variables = True
+			self.chosen_specular_equation = usableSpecularEquationType_id
+
+		if self.runOnce_part2_preProcess == False or self.changedSpecularEquation_variables == True:
 			if self.chosen_specular_equation == 'simple':
 				myEquation_simple_spec_class.equation_part2_preProcess(myABJ_SD_B)
 			elif self.chosen_specular_equation == 'GGX':
@@ -1400,6 +1415,7 @@ class ABJ_Shader_Debugger():
 		self.profile_stage2_01_b = str(datetime.now() - self.profile_stage2_01_a)
 		if self.profileCode_part2 == True:
 			print('~~~~~~~~~ self.profile_stage2_01_b (Matrix setup) = ', self.profile_stage2_01_b)
+
 
 		self.Ci_render_temp_list.clear()
 		self.selectedFaceMat_temp_list.clear()
@@ -1429,16 +1445,15 @@ class ABJ_Shader_Debugger():
 			attenuation = i['attenuation']
 
 			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
-
 				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
 
 			elif mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
-		self.skip_refresh_override_RdotVpow = False
-
 		#reset refresh override skips
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_GGX_roughness = False
+		self.skip_refresh_override_GGX_fresnel = False
 
 		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		print(' ')
@@ -1496,7 +1511,16 @@ class ABJ_Shader_Debugger():
 		if self.skip_refresh_override_RdotVpow == True:
 			skip_refresh = False
 
+		if self.skip_refresh_override_GGX_roughness == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_GGX_fresnel == True:
+			skip_refresh = False
+
 		if skip_refresh_override_recently_cleared_faces == True:
+			skip_refresh = False
+
+		if self.changedSpecularEquation_variables == True:
 			skip_refresh = False
 
 		return skip_refresh
@@ -2197,10 +2221,32 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 1.0 ###
 		row.operator('shader.abj_shader_debugger_stageidxprint_operator')
+		
+		layout.label(text='Specular:')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'specular_equation_enum_prop', text="")
+
+
+		layout.label(text='GGX:')
+		
+		row = layout.row()
+		row.prop(bpy.context.scene, 'ggx_roughness_prop')
+		
+		row = layout.row()
+		row.prop(bpy.context.scene, 'ggx_fresnel_prop')
+
+		# val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
+		# print('val_ggx_roughness_prop = ', val_ggx_roughness_prop)
+
+		# val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
+		# print('val_ggx_fresnel_prop = ', val_ggx_fresnel_prop)
+
 
 		######################################
 		###### R_DOT_V_POW
 		######################################
+		layout.label(text='Simple')
+		row = layout.row()
 		layout.label(text='R.V POW:')
 		row = layout.row()
 		row.scale_y = 1.0 ###
@@ -2236,12 +2282,6 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_showhidearrow_operator')
 		row.operator('shader.abj_shader_debugger_showhidecubecam_operator')
 		row.operator('shader.abj_shader_debugger_toggleextras_operator')
-
-		layout.label(text='arrow cutoff')
-		row = layout.row()
-		row.operator('shader.abj_shader_debugger_arrowcutoffminus_operator')
-		row.operator('shader.abj_shader_debugger_arrowcutoffplus_operator')
-		row.operator('shader.abj_shader_debugger_arrowcutoffreset_operator')
 
 		######################################
 		###### BREAKPOINTS
@@ -2430,33 +2470,6 @@ class SHADER_OT_TOGGLEEXTRAS(bpy.types.Operator):
 
 	def execute(self, context):
 		myABJ_SD_B.toggleExtras_UI()
-		return {'FINISHED'}
-
-##########################################
-############# CUTOFF ################
-##########################################
-class SHADER_OT_ARROWCUTOFFMINUS(bpy.types.Operator):
-	bl_label = 'cutoff -'
-	bl_idname = 'shader.abj_shader_debugger_arrowcutoffminus_operator'
-
-	def execute(self, context):
-		myABJ_SD_B.arrowCutoff_UI('minus')
-		return {'FINISHED'}
-
-class SHADER_OT_ARROWCUTOFFPLUS(bpy.types.Operator):
-	bl_label = 'cutoff +'
-	bl_idname = 'shader.abj_shader_debugger_arrowcutoffplus_operator'
-
-	def execute(self, context):
-		myABJ_SD_B.arrowCutoff_UI('plus')
-		return {'FINISHED'}
-
-class SHADER_OT_ARROWCUTOFFRESET(bpy.types.Operator):
-	bl_label = 'cutoff R'
-	bl_idname = 'shader.abj_shader_debugger_arrowcutoffreset_operator'
-
-	def execute(self, context):
-		myABJ_SD_B.arrowCutoff_UI('reset')
 		return {'FINISHED'}
 
 ##########################################

@@ -121,9 +121,6 @@ class myEquation_simple_spec:
 			faceCenter_to_V_rayCast = None
 			faceCenter_to_L_rayCast = None
 
-			#visualize arrows if spec > cutoff
-			cutoff = abj_sd_b_instance.spec_cutoff
-
 			abj_sd_b_instance.profile_stage2_02_b = datetime.now() - abj_sd_b_instance.profile_stage2_02_a
 			abj_sd_b_instance.profile_stage2_02_final += abj_sd_b_instance.profile_stage2_02_b
 			
