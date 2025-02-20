@@ -131,21 +131,6 @@ def register():
 		default='GGX',
 	)
 
-	shader_stages_enum_items = (
-			('spec_with_arrow', 'spec_with_arrow', 'spec_with_arrow'),
-			('spec_no_arrow', 'spec_no_arrow', 'spec_no_arrow'),
-			('diffuse', 'diffuse', 'diffuse'),
-			('cs', 'cs', 'cs'),
-		)
-
-
-	bpy.types.Scene.shader_stages_enum_prop = bpy.props.EnumProperty(
-		name='shader_stages',
-		description="shader_stages",
-		items=shader_stages_enum_items,
-		default='spec_with_arrow',
-	)
-
 	#BREAKPOINT 000
 	breakpoint_enum_items = (
 		('-1', '-1', '-1'),
@@ -414,8 +399,6 @@ def unregister():
 	del bpy.types.Scene.breakpoint_override_enum_prop
 
 	del bpy.types.Scene.specular_equation_enum_prop
-	del bpy.types.Scene.shader_stages_enum_prop
-
 
 	del bpy.types.Scene.breakpoint_000_enum_prop
 	del bpy.types.Scene.breakpoint_001_enum_prop

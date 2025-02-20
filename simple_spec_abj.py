@@ -355,22 +355,7 @@ class myEquation_simple_spec:
 			##################
 			#STEPS FOR ALL
 			##################
-			maxRange_usable = None
-
-			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
-
-			if usableStageCategory_id == 'spec_with_arrow':
-				maxRange_usable = 7
-
-			elif usableStageCategory_id == 'spec_no_arrow':
-				maxRange_usable = 4
-
-			elif usableStageCategory_id == 'diffuse':
-				maxRange_usable = 2
-
-			elif usableStageCategory_id == 'cs':
-				maxRange_usable = 5
+			maxRange_usable = 7
 
 			items_id_currentStage = None
 			override = False
@@ -378,9 +363,8 @@ class myEquation_simple_spec:
 			for j in abj_sd_b_instance.shadingStages_perFace_stepList:
 				if (j["idx"]) == mySplitFaceIndexUsable:
 					if j['idx'] not in abj_sd_b_instance.shadingStages_selectedFaces:
-						if usableStageCategory_id == 'spec_with_arrow':
-							items_id_currentStage = maxRange_usable
-							override = True
+						items_id_currentStage = maxRange_usable
+						override = True
 
 					elif j['idx'] in abj_sd_b_instance.shadingStages_selectedFaces:
 						currentStage = abj_sd_b_instance.myBreakpointList[j['breakpoint_idx']]
@@ -393,9 +377,6 @@ class myEquation_simple_spec:
 			####################################
 			#variables
 			####################################
-			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
-
 			aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
 			aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
 
@@ -405,133 +386,132 @@ class myEquation_simple_spec:
 				# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_02_b = ', abj_sd_b_instance.profile_stage2_02_b)
 
 			###############
-			### spec_with_arrow
+			### Simple Specular Breakdown
 			##############
-			if usableStageCategory_id == 'spec_with_arrow':
-				if items_id_currentStage == 0:
-					if printOnce_stage_000 == False:
-						print("'stage_000' : 'N....show N arrow (cubeN)'")
-						printOnce_stage_000 = True
+			if items_id_currentStage == 0:
+				if printOnce_stage_000 == False:
+					print("'stage_000' : 'N....show N arrow (cubeN)'")
+					printOnce_stage_000 = True
 
-					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+				abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+				abj_sd_b_instance.myCubeCam.hide_set(1)
+
+				abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 1:
+				if printOnce_stage_001 == False:
+					print("'stage_001' : 'V....show V arrow (myCubeCam)'")
+					printOnce_stage_001 = True
+
+				abj_sd_b_instance.myCubeCam.hide_set(0)
+
+				abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 2:
+				if printOnce_stage_002 == False:
+					print("'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam'")
+					printOnce_stage_002 = True
+
+				abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+				abj_sd_b_instance.myCubeCam.hide_set(0)
+
+				abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 3:
+				if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
+					if abj_sd_b_instance.printDetailedInfo == True:
+						print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+
+					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+				elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
+					if printOnce_stage_003 == False:
+						print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
+						print("'stage_003' : 'raycast from faceCenter to V'")
+						printOnce_stage_003 = True
+
+					abj_sd_b_instance.profile_stage2_05_a = datetime.now() ################
+
+					abj_sd_b_instance.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+					abj_sd_b_instance.profile_stage2_05_b = datetime.now() - abj_sd_b_instance.profile_stage2_05_a
+					abj_sd_b_instance.profile_stage2_05_final += abj_sd_b_instance.profile_stage2_05_b
 
 					abj_sd_b_instance.myCubeCam.hide_set(1)
 
 					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-				elif items_id_currentStage == 1:
-					if printOnce_stage_001 == False:
-						print("'stage_001' : 'V....show V arrow (myCubeCam)'")
-						printOnce_stage_001 = True
-
-					abj_sd_b_instance.myCubeCam.hide_set(0)
-
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 2:
-					if printOnce_stage_002 == False:
-						print("'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam'")
-						printOnce_stage_002 = True
-
-					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-					abj_sd_b_instance.myCubeCam.hide_set(0)
-
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 3:
-					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
-						if printOnce_stage_003 == False:
-							print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
-							print("'stage_003' : 'raycast from faceCenter to V'")
-							printOnce_stage_003 = True
-
-						abj_sd_b_instance.profile_stage2_05_a = datetime.now() ################
-
-						abj_sd_b_instance.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.profile_stage2_05_b = datetime.now() - abj_sd_b_instance.profile_stage2_05_a
-						abj_sd_b_instance.profile_stage2_05_final += abj_sd_b_instance.profile_stage2_05_b
-
-						abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 4:
-					if faceCenter_to_V_rayCast == False: ####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif faceCenter_to_V_rayCast == True or override == True:
-							if printOnce_stage_004 == False:
-								print('faceCenter_to_V_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
-								print("'stage_004' : 'raycast from faceCenter to L'")
-								printOnce_stage_004 = True
-
-							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-							# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 5:
-					if faceCenter_to_L_rayCast == False: ####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif faceCenter_to_L_rayCast == True or override == True:
-						if printOnce_stage_005 == False:
-							print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
-							print("'stage_005' : 'show arrows (N, L)'")
-							printOnce_stage_005 = True
-
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-						##############
-
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 6:
-					if faceCenter_to_L_rayCast == True or override == True:
-						if printOnce_stage_006 == False:
-							print("'stage_006' : 'R.....show R arrow (cubeR) along with N and L'")
-							printOnce_stage_006 = True
-
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-						abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
-
-						# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 7:
-					if printOnce_stage_007 == False:
-						print('stage_007 output AOV = ', aov_id)
-						printOnce_stage_007 = True
-
-					abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
-
-					# abj_sd_b_instance.myCubeCam.hide_set(1)
+			elif items_id_currentStage == 4:
+				if faceCenter_to_V_rayCast == False: ####
+					if abj_sd_b_instance.printDetailedInfo == True:
+						print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
 
 					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
-					abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
-					abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
+				elif faceCenter_to_V_rayCast == True or override == True:
+						if printOnce_stage_004 == False:
+							print('faceCenter_to_V_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
+							print("'stage_004' : 'raycast from faceCenter to L'")
+							printOnce_stage_004 = True
+
+						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+						# abj_sd_b_instance.myCubeCam.hide_set(1)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 5:
+				if faceCenter_to_L_rayCast == False: ####
+					if abj_sd_b_instance.printDetailedInfo == True:
+						print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
+
+					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+				elif faceCenter_to_L_rayCast == True or override == True:
+					if printOnce_stage_005 == False:
+						print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
+						print("'stage_005' : 'show arrows (N, L)'")
+						printOnce_stage_005 = True
+
+					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+					##############
+
+					abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+					# abj_sd_b_instance.myCubeCam.hide_set(1)
+
+					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 6:
+				if faceCenter_to_L_rayCast == True or override == True:
+					if printOnce_stage_006 == False:
+						print("'stage_006' : 'R.....show R arrow (cubeR) along with N and L'")
+						printOnce_stage_006 = True
+
+					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+					abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+					abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
+
+					# abj_sd_b_instance.myCubeCam.hide_set(1)
+
+					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+			elif items_id_currentStage == 7:
+				if printOnce_stage_007 == False:
+					print('stage_007 output AOV = ', aov_id)
+					printOnce_stage_007 = True
+
+				abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
+
+				# abj_sd_b_instance.myCubeCam.hide_set(1)
+
+				abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+				abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
+				abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
 
 			# if abj_sd_b_instance.profileCode_part2 == True:
 				# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_03_b = ', abj_sd_b_instance.profile_stage2_03_b)

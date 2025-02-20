@@ -317,22 +317,13 @@ class ABJ_Shader_Debugger():
 		for j in self.shadingStages_perFace_stepList:
 
 			if j['idx'] == passedIdx:
-				usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-				usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
-
 				maxRange_usable = None
 
-				if usableStageCategory_id == 'spec_with_arrow':
+				if self.chosen_specular_equation == 'GGX':
 					maxRange_usable = 7
 
-				elif usableStageCategory_id == 'spec_no_arrow':
-					maxRange_usable = 4
-
-				elif usableStageCategory_id == 'diffuse':
-					maxRange_usable = 2
-
-				elif usableStageCategory_id == 'cs':
-					maxRange_usable = 5
+				if self.chosen_specular_equation == 'simple':
+					maxRange_usable = 7
 
 				######################################################
 				#get the breakpoint
@@ -369,39 +360,6 @@ class ABJ_Shader_Debugger():
 			pass
 			# iterate by 1 without having to change order
 
-			'''
-			usableStageCategory_items = bpy.context.scene.bl_rna.properties['shader_stages_enum_prop'].enum_items
-			usableStageCategory_id = usableStageCategory_items[bpy.context.scene.shader_stages_enum_prop].identifier
-
-			maxRange_usable = None
-
-			if usableStageCategory_id == 'spec_with_arrow':
-				maxRange_usable = 7
-
-			elif usableStageCategory_id == 'spec_no_arrow':
-				maxRange_usable = 4
-
-			elif usableStageCategory_id == 'diffuse':
-				maxRange_usable = 2
-
-			elif usableStageCategory_id == 'cs':
-				maxRange_usable = 5
-
-			#all
-			if step == -1:
-					
-				for i in self.shadingStages_selectedFaces:
-					for j in self.shadingStages_perFace_stepList:
-						if j["idx"] == i: #mySplitFaceIndexUsable:
-							j["stage"] = max(j["stage"] + step, 0)
-
-			elif step == 1:
-				for i in self.shadingStages_selectedFaces:
-					for j in self.shadingStages_perFace_stepList:
-						if j["idx"] == i: #mySplitFaceIndexUsable:
-							j["stage"] = self.clamp(j["stage"] + step, 0, maxRange_usable)
-
-			'''
 		if self.debugStageIterPlusMinus == False:
 			self.refreshPart2_UI()
 
@@ -433,8 +391,8 @@ class ABJ_Shader_Debugger():
 		self.refreshPart2_UI()
 	
 	def stageIdx_print_UI(self):
-		shadingDict_spec_with_arrow_visualization = {
-			'description' : 'Basic Spec Visualization (with Arrow)',
+		shadingDict_simple_specular_visualization = {
+			'description' : 'Simple Specular Visualization',
 			'stage_000' : 'N....show N arrow (cubeN)',
 			'stage_001' : 'V....show V arrow (myCubeCam)',
 			'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam',
@@ -445,7 +403,7 @@ class ABJ_Shader_Debugger():
 			'stage_010' : 'final shade',
 		}
 
-		for key, value in shadingDict_spec_with_arrow_visualization.items():
+		for key, value in shadingDict_simple_specular_visualization.items():
 			print(f"{key}: {value}")
 		print(' ')
 
@@ -2203,10 +2161,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		###### STAGE IDX
 		######################################
 		layout.label(text='STAGE IDX')
-		row = layout.row()
-		row.scale_y = 1.0 ###
-		row.prop(bpy.context.scene, 'shader_stages_enum_prop', text="")
-
+		
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_stages_selectfaces_operator')
