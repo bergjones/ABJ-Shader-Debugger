@@ -370,6 +370,7 @@ class myEquation_GGX:
 			L = i['L']
 			N = i['N']
 			R = i['R']
+			H = i['H']
 
 			spec = i['spec']
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
@@ -437,8 +438,6 @@ class myEquation_GGX:
 
 			#'V + L....show V arrow and L arrow',
 			#'V + L + H....show V arrow and L arrow',
-			#'H....show H arrow (cubeH)',
-
 
 			# dotNH - show N and H
 			# dotNH * dotNH
@@ -531,6 +530,20 @@ class myEquation_GGX:
 
 						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
+					elif items_id_currentStage == 3:
+						if printOnce_stage_003 == False:
+							print("'stage_003' : 'NdotH....show N and H arrows'")
+							printOnce_stage_003 = True
+
+						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.myCubeCam.hide_set(1)
+
+						#visualize stage output on face
+						NdotH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
+						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, NdotH_temp, NdotH_temp, NdotH_temp)
 
 			'''
 			elif items_id_currentStage == 1:
