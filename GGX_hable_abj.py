@@ -50,7 +50,6 @@ class myEquation_GGX:
 		return 1.0 / (dotNV * (1.0 - k) + k)
 	
 	# This function is based on a public domain algorithm found at [http://filmicworlds.com/blog/optimizing-ggx-shaders-with-dotlh/ or https://gist.github.com/alvalau/c4aa35069ff339da5e59e5ed9c4db192]
-	# float LightingFuncGGX_REF(float3 N, float3 V, float3 L, float roughness, float F0)
 	def LightingFuncGGX_REF(self, N, V, L, H, roughness, F0, abj_sd_b_instance):
 		alpha = roughness * roughness
 
@@ -61,17 +60,17 @@ class myEquation_GGX:
 		dotNH = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
 		dotLH = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
 
-		# D
+		# D = microfacet distrobution (GGX)
 		alphaSqr = alpha * alpha
 		pi = 3.14159
-		denom = dotNH * dotNH *(alphaSqr - 1.0) + 1.0
+		denom = dotNH * dotNH * (alphaSqr - 1.0) + 1.0
 		D = alphaSqr / (pi * denom * denom)
 
-		# F
+		# F = fresnel
 		dotLH5 = pow(1.0 - dotLH, 5)
 		F = F0 + (1.0 - F0) * (dotLH5)
 
-		# V
+		# V - shadowing
 		k = alpha / 2.0
 		vis = self.G1V(dotNL, k) * self.G1V(dotNV, k)
 
@@ -330,6 +329,7 @@ class myEquation_GGX:
 
 					abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly.append(arrow_dynamic_instance_M_dict) ##########
 
+	# This function is based on a public domain algorithm found at [http://filmicworlds.com/blog/optimizing-ggx-shaders-with-dotlh/ or https://gist.github.com/alvalau/c4aa35069ff339da5e59e5ed9c4db192]
 	def equation_part3_switch_stages(self, abj_sd_b_instance):
 		###print once variables
 		printOnce_stage_000 = False
@@ -343,9 +343,6 @@ class myEquation_GGX:
 
 		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
 		aov_id = aov_items[bpy.context.scene.aov_enum_prop].identifier
-
-		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
-		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 
 		for i in abj_sd_b_instance.shadingList_perFace:	
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
@@ -385,7 +382,10 @@ class myEquation_GGX:
 			##################
 			#STEPS FOR ALL
 			##################
-			maxRange_usable = 7
+			if abj_sd_b_instance.skip_showing_visibility_raycast_check == True:
+				maxRange_usable = 7
+			else:
+				maxRange_usable = 7
 
 			items_id_currentStage = None
 			override = False
@@ -405,12 +405,9 @@ class myEquation_GGX:
 						items_id_currentStage = int(items_id_currentStage)
 
 
-
-
-
 			#temp debug override
-			items_id_currentStage = maxRange_usable
-			override = True
+			# items_id_currentStage = maxRange_usable
+			# override = True
 
 			####################################
 			#variables
@@ -426,7 +423,73 @@ class myEquation_GGX:
 			###############
 			### GGX Breakdown
 			##############
-			'''
+			# shadingDict_GGX_visualization = {
+			# 	'description' : 'GGX Visualization',
+			
+			##############
+			####### D - microfacet GGX distrobution
+			##############
+			#'V + L....show V arrow and L arrow',
+			#'V + L + H....show V arrow and L arrow',
+			#'H....show H arrow (cubeH)',
+
+			#alphaSqr = alpha * alpha
+
+			# dotNH - show N and H
+			# dotNH * dotNH
+			# denom = dotNH * dotNH * (alphaSqr - 1.0)
+			# denom = dotNH * dotNH * (alphaSqr - 1.0) + 1
+			# D = pi * denom * denom
+			# D = alphaSqr / (pi * denom * denom)
+			#temp material for D
+
+			##############
+			####### F - Fresnel
+			##############
+			# LdotH - show L and H
+			# dotLH5 = pow(1.0 - dotLH, 5)
+			# F0
+			# 1 - F0
+			# F0 + (1.0 - F0)
+			# F0 + (1.0 - F0) * (dotLH5)
+
+			##############
+			####### V - shadowing
+			##############
+			# roughness
+			# alpha = roughness * roughness
+			# k = alpha / 2.0
+			# k0 = 1 - k
+
+			########## G1V_01 = 1.0 / (dotNL * (1.0 - k) + k)
+			# dotNL - show N and L
+			# dotNL * k0
+			# G1V_01 = dotNL * k0 + k
+
+			########## G1V_02 = 1.0 / (dotNV * (1.0 - k) + k)
+			# dotNV - show N and L
+			# dotNV * k0
+			# G1V_02 = dotNV * k0 + k
+
+			# show G1V_01 and G1V_02
+			# invert both - 1 / G1V_01 and 1 / G1V_02
+			# multiply together
+			# vis = 1 / G1V_01 * 1 / G1V_02
+
+			##############
+			####### Final
+			##############
+
+			# show dotNL - N and L
+			# show D
+			# show F
+			# show vis
+
+
+	
+
+
+
 			if items_id_currentStage == 0:
 				if printOnce_stage_000 == False:
 					print("'stage_000' : 'N....show N arrow (cubeN)'")
@@ -438,6 +501,7 @@ class myEquation_GGX:
 
 				abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
+			'''
 			elif items_id_currentStage == 1:
 				if printOnce_stage_001 == False:
 					print("'stage_001' : 'V....show V arrow (myCubeCam)'")
@@ -537,7 +601,7 @@ class myEquation_GGX:
 					abj_sd_b_instance.myCubeCam.hide_set(1)
 
 					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-				'''
+			'''
 
 			if items_id_currentStage == 7:
 				if printOnce_stage_007 == False:

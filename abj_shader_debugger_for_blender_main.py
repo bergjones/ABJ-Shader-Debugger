@@ -51,6 +51,7 @@ class ABJ_Shader_Debugger():
 		self.chosen_specular_equation = 'GGX'
 
 		self.changedSpecularEquation_variables = False
+		self.skip_showing_visibility_raycast_check = True
 
 		self.Ci_render_temp_list = []
 		self.selectedFaceMat_temp_list = []
@@ -323,7 +324,11 @@ class ABJ_Shader_Debugger():
 					maxRange_usable = 7
 
 				if self.chosen_specular_equation == 'simple':
-					maxRange_usable = 7
+
+					if self.skip_showing_visibility_raycast_check == True:
+						maxRange_usable = 2
+					else:
+						maxRange_usable = 7
 
 				######################################################
 				#get the breakpoint
