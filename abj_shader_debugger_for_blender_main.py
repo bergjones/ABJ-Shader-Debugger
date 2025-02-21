@@ -109,6 +109,11 @@ class ABJ_Shader_Debugger():
 		self.myCubeLight_og_Matrix_np = None
 		self.myCubeLight_dupe = None
 
+		self.myCubeH_og = None
+		self.myCubeH_og_Matrix = None
+		self.myCubeH_og_Matrix_np = None
+		self.myCubeH_dupe = None
+
 		self.myCubeN_og = None
 		self.myCubeN_og_Matrix = None
 		self.myCubeN_og_Matrix_np = None
@@ -825,6 +830,10 @@ class ABJ_Shader_Debugger():
 		elif name == 'myCubeLight_og':
 			self.myCubeLight_og_Matrix = outputArrow.matrix_world
 			self.myCubeLight_og_Matrix_np = np.array(outputArrow.matrix_world)
+		
+		elif name == 'myCubeH_og':
+			self.myCubeH_og_Matrix = outputArrow.matrix_world
+			self.myCubeH_og_Matrix_np = np.array(outputArrow.matrix_world)
 
 		elif name == 'myCubeN_og':
 			self.myCubeN_og_Matrix = outputArrow.matrix_world
@@ -1055,9 +1064,14 @@ class ABJ_Shader_Debugger():
 		#############################################################################################
 
 		###############################
-		######### CUBE LIGHT (DIRECTIONAL) ############
+		######### CUBE LIGHT (POINT) ############
 		###############################
 		self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+
+		###############################
+		######### CUBE H ############
+		###############################
+		self.myCubeH_og = self.createArrowFullProcess('myCubeH_og', 'front', False, self.myOrigin, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
 
 		###############################
 		######### CUBE N ############
@@ -1096,6 +1110,10 @@ class ABJ_Shader_Debugger():
 		bpy.context.view_layer.objects.active = self.myCubeLight_og
 		self.myCubeLight_dupe = self.copyObject()
 		self.myCubeLight_dupe.name = 'myCubeLight_dupe'
+
+		bpy.context.view_layer.objects.active = self.myCubeH_og
+		self.myCubeH_dupe = self.copyObject()
+		self.myCubeH_dupe.name = 'myCubeH_dupe'
 
 		bpy.context.view_layer.objects.active = self.myCubeN_og
 		self.myCubeN_dupe = self.copyObject()
@@ -1165,6 +1183,7 @@ class ABJ_Shader_Debugger():
 			### RESET USABLE DUPES
 			#############
 			self.myCubeLight_dupe.matrix_world = self.myCubeLight_og_Matrix
+			self.myCubeH_dupe.matrix_world = self.myCubeH_og_Matrix
 
 			self.myCubeN_dupe.matrix_world = self.myCubeN_og_Matrix
 			self.myCubeR_dupe.matrix_world = self.myCubeR_og_Matrix
@@ -1201,10 +1220,12 @@ class ABJ_Shader_Debugger():
 		bpy.ops.object.mode_set(mode="OBJECT")
 
 		self.myCubeLight_og.hide_set(1)
+		self.myCubeH_og.hide_set(1)
 		self.myCubeN_og.hide_set(1)
 		self.myCubeR_og.hide_set(1)
 
 		self.myCubeLight_dupe.hide_set(1)
+		self.myCubeH_dupe.hide_set(1)
 		self.myCubeN_dupe.hide_set(1)
 		self.myCubeR_dupe.hide_set(1)
 
@@ -1487,7 +1508,36 @@ class ABJ_Shader_Debugger():
 			skip_refresh = False
 
 		return skip_refresh
+	
+	def equation_dynamic_cubeH_creation(self, faceCenter, H, myCam):
+		self.myCubeH_dupe.matrix_world = self.myCubeLight_og_Matrix
 		
+		bpy.context.view_layer.objects.active = self.myCubeH_dupe
+		self.myCubeH_dupe.location = faceCenter
+		
+		self.updateScene()
+
+		#look at direct
+		rot_quat = H.to_track_quat('X', 'Z')
+
+		# assume we're using euler rotation
+		self.myCubeH_dupe.rotation_euler = rot_quat.to_euler()
+
+		# #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeH_dupe.select_set(1)
+
+		myCubeH_dupe_Matrix_np = np.array(self.myCubeH_dupe.matrix_world)
+
+		#scale to camera position
+		self.objScaling_toMatchPosition_localSolve(self.myCubeH_dupe, self.myCubeH_og.name, myCam.matrix_world.translation, -1, 0, myCubeH_dupe_Matrix_np)
+
+		self.updateScene()
+
+		dynamicM = self.myCubeH_dupe.matrix_world
+		return dynamicM
+
 	def equation_dynamic_cubeN_creation(self, shadingPlane, faceCenter):
 		# self.profile_stage2_07_a = datetime.now() ################
 
@@ -1938,6 +1988,8 @@ class ABJ_Shader_Debugger():
 			bpy.context.view_layer.objects.active = self.myCubeR_og
 		elif type == "L":
 			bpy.context.view_layer.objects.active = self.myCubeLight_og
+		elif type == "H":
+			bpy.context.view_layer.objects.active = self.myCubeH_og
 
 		arrow_instance = self.copyObject()
 
@@ -1949,6 +2001,28 @@ class ABJ_Shader_Debugger():
 
 		return arrow_instance
 
+	def show_arrow_H(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
+		nameToLookFor = 'cubeH_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_H_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				H_M_np = i['H_M_np']
+				restored_H_M_np = mathutils.Matrix(H_M_np.tolist())
+
+		myCubeH_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_H_M_np, 'cubeH_instance_', 'H')
+		self.objectsToToggleOnOffLater.append(myCubeH_instance)
+
+
 	def show_arrow_N(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
 		nameToLookFor = 'cubeN_instance_' + mySplitFaceIndexUsable
 
@@ -1958,12 +2032,6 @@ class ABJ_Shader_Debugger():
 				k.hide_set(0)
 
 				return
-
-		########################
-
-		# for j in bpy.context.scene.objects:
-		# 	for k in self.objectsToToggleOnOffLater:
-		# 		if j.name == k.name:
 
 		restored_N_M_np = None
 

@@ -306,11 +306,13 @@ class myEquation_GGX:
 					# L = j['L']
 					# N = j['N']
 					R = j['R']
+					H = j['H']
 
 					N_M = abj_sd_b_instance.equation_dynamic_cubeN_creation(shadingPlane, faceCenter)
 					L_M = abj_sd_b_instance.equation_dynamic_cubeLight_creation(faceCenter, abj_sd_b_instance.mySun)
 					V_M = abj_sd_b_instance.equation_dynamic_cubeV_creation(faceCenter, abj_sd_b_instance.myCam)
 					R_M = abj_sd_b_instance.equation_dynamic_cubeR_creation(N_M, R)
+					H_M = abj_sd_b_instance.equation_dynamic_cubeH_creation(faceCenter, H, abj_sd_b_instance.myCam)
 
 					abj_sd_b_instance.updateScene() # need
 
@@ -318,6 +320,7 @@ class myEquation_GGX:
 					L_M_np = np.array(L_M)
 					V_M_np = np.array(V_M)
 					R_M_np = np.array(R_M)
+					H_M_np = np.array(H_M)
 
 					arrow_dynamic_instance_M_dict = {
 						'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
@@ -325,6 +328,7 @@ class myEquation_GGX:
 						'L_M_np' : L_M_np,
 						'V_M_np' : V_M_np,
 						'R_M_np' : R_M_np,
+						'H_M_np' : H_M_np,
 					}
 
 					abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly.append(arrow_dynamic_instance_M_dict) ##########
@@ -429,19 +433,21 @@ class myEquation_GGX:
 			##############
 			####### D - microfacet GGX distrobution
 			##############
+			#show N arrow
+
 			#'V + L....show V arrow and L arrow',
 			#'V + L + H....show V arrow and L arrow',
 			#'H....show H arrow (cubeH)',
 
-			#alphaSqr = alpha * alpha
 
 			# dotNH - show N and H
 			# dotNH * dotNH
+			# alphaSqr = alpha * alpha
 			# denom = dotNH * dotNH * (alphaSqr - 1.0)
 			# denom = dotNH * dotNH * (alphaSqr - 1.0) + 1
 			# D = pi * denom * denom
 			# D = alphaSqr / (pi * denom * denom)
-			#temp material for D
+			# temp material for D
 
 			##############
 			####### F - Fresnel
@@ -486,20 +492,45 @@ class myEquation_GGX:
 			# show vis
 
 
-	
+			if N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
+				if faceCenter_to_V_rayCast == True or faceCenter_to_L_rayCast == True: ####
 
+					if items_id_currentStage == 0:
+						if printOnce_stage_000 == False:
+							print("'stage_000' : 'N....show N arrow (cubeN)'")
+							printOnce_stage_000 = True
 
+						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-			if items_id_currentStage == 0:
-				if printOnce_stage_000 == False:
-					print("'stage_000' : 'N....show N arrow (cubeN)'")
-					printOnce_stage_000 = True
+						abj_sd_b_instance.myCubeCam.hide_set(1)
 
-				abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-				abj_sd_b_instance.myCubeCam.hide_set(1)
+					elif items_id_currentStage == 1:
+						if printOnce_stage_001 == False:
+							print("'stage_001' : 'V + L....show V arrow and L arrow'")
+							printOnce_stage_001 = True
 
-				abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+						abj_sd_b_instance.myCubeCam.hide_set(0) # V
+
+						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 2:
+						if printOnce_stage_002 == False:
+							print("'stage_002' : 'V + L + H....show V arrow and L arrow and H arrow'")
+							print("'stage_002' : 'H = mathutils.Vector(V + L).normalized()")
+							printOnce_stage_002 = True
+
+						abj_sd_b_instance.myCubeCam.hide_set(0) # V
+
+						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
 
 			'''
 			elif items_id_currentStage == 1:
