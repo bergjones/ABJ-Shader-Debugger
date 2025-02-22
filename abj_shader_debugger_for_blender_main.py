@@ -238,7 +238,8 @@ class ABJ_Shader_Debugger():
 		self.pos_camera_global = (5, 5, 5)
 		self.pos_camera_global_v = mathutils.Vector((self.pos_camera_global[0], self.pos_camera_global[1], self.pos_camera_global[2]))
 		# self.pos_light_global =  (0.766, 0.836, 0.427)
-		self.pos_light_global = (0.184085, 1.99077, 0.427) 
+		self.pos_light_global = (0.184085, 1.99077, 0.427)
+		self.pos_light_global_toRestore = (0.184085, 1.99077, 0.427) 
 
 		# self.pos_light_global =  (-0.08, 0.675, 0.327) # debug
 		# self.pos_light_global = (0, 0, 5) ############################## overhead
@@ -430,6 +431,59 @@ class ABJ_Shader_Debugger():
 			'stage_010' : 'final shade',
 		}
 
+
+		#todo - notes for study
+		'''
+		if NdotV < 0.1 (ortho -> persp fix), spec = 0. So, NdotV between .1 and 1
+		if raycast from V to faceCenter = False : spec 0
+		if raycast from L to faceCenter = False : spec 0
+		dotNL / dotNV / dotNH all between 0 and 1
+		############## D......dotNH, roughness^3
+		if items_id_currentStage == 0:
+				print("'stage_000' : 'N....show N arrow (cubeN)'")
+		elif items_id_currentStage == 1:
+				print("'stage_001' : 'V + L....show V arrow and L arrow'")
+		elif items_id_currentStage == 2:
+				print("'stage_002' : 'V + L + H....show V arrow and L arrow and H arrow'")
+				print("'stage_002' : 'H = mathutils.Vector(V + L).normalized()")
+		elif items_id_currentStage == 3:
+				print("'stage_003' : 'dotNH....show N and H arrows'")
+		elif items_id_currentStage == 4:
+				print("'stage_004' : 'dotNH * dotNH'")
+		elif items_id_currentStage == 5:
+				print("'stage_005' : 'roughness'")
+		elif items_id_currentStage == 6:
+				print("'stage_006' : 'alpha = roughness * roughness'")
+		elif items_id_currentStage == 7:
+				print("'stage_007' : 'alphaSqr = alpha * alpha'")
+		elif items_id_currentStage == 8:
+				print("'stage_008' : denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
+		elif items_id_currentStage == 9:
+				print("'stage_009' : D = alphaSqr / (pi * denom * denom)")
+		############## FRESNEL......dotLH, F0
+		elif items_id_currentStage == 10:
+				print("'stage_010' : dotLH....show L arrow and H arrow")
+				print("'stage_010' : 'H = mathutils.Vector(V + L).normalized()")
+		elif items_id_currentStage == 11:
+				print("'stage_011' : dotLH5 = pow(1.0 - dotLH, 5)")
+		elif items_id_currentStage == 12:
+				print("'stage_012' : F = F0 + (1.0 - F0) * (dotLH5)")
+		############## V - Shadowing......dotNL, dotNV, roughness^2
+		elif items_id_currentStage == 13:
+				print("'stage_013' : k = alpha / 2.0")
+		elif items_id_currentStage == 14:
+				print("'stage_014' : G1V(dotNL, k)")
+				print("'stage_014' : 1.0 / (dotNL * (1.0 - k) + k)")
+		elif items_id_currentStage == 15:
+				print("'stage_015' : G1V(dotNV, k)")
+				print("'stage_015' : 1.0 / (dotNV * (1.0 - k) + k)")
+		elif items_id_currentStage == 16:
+				print("'stage_016' : vis = G1V(dotNL, k) * G1V(dotNV, k)")
+		if items_id_currentStage == 17:
+				print('stage_017 output AOV = dotNL * D * F * vis')
+
+		'''
+
 		for key, value in shadingDict_simple_specular_visualization.items():
 			print(f"{key}: {value}")
 		print(' ')
@@ -582,6 +636,13 @@ class ABJ_Shader_Debugger():
 	def updateText_UI(self):
 		print('some text')
 
+	def restoreLight_UI(self):
+		self.pos_light_global = self.pos_light_global_toRestore
+
+		self.pos_light_global_v = mathutils.Vector((self.pos_light_global[0], self.pos_light_global[1], self.pos_light_global[2]))
+
+		self.DoIt_part1_preprocess()
+
 	def randomLight_UI(self):
 		posNegX_0 = float(self.genRandomVertexColor())
 		posNegX_1 = None
@@ -650,8 +711,6 @@ class ABJ_Shader_Debugger():
 	def static_debugOnly_Stage1_UI(self):
 		self.setupCompositor()
 
-		#values from init
-		self.pos_light_global =  (0.766, 0.836, 0.427)
 		self.DoIt_part1_preprocess()
 
 	def updateScene(self):
@@ -2268,6 +2327,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_randomlight_operator')
+		row.operator('shader.abj_shader_debugger_restorelight_operator')
 		row.operator('shader.abj_shader_debugger_randomrotation_operator')
 
 		row = layout.row()
@@ -2447,11 +2507,21 @@ class SHADER_OT_RANDOMLIGHT(bpy.types.Operator):
 	def execute(self, context):
 		myABJ_SD_B.randomLight_UI()
 		return {'FINISHED'}
+	
+class SHADER_OT_RESTORELIGHT(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'restore L'
+	bl_idname = 'shader.abj_shader_debugger_restorelight_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.restoreLight_UI()
+		return {'FINISHED'}
 
 class SHADER_OT_RANDOMROTATION(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'rand mesh rotation'
+	bl_label = 'rand Rxyz'
 	bl_idname = 'shader.abj_shader_debugger_randomrotation_operator'
 
 	def execute(self, context):
@@ -2599,7 +2669,7 @@ myABJ_SD_B = ABJ_Shader_Debugger() ######################
 - additional shading models (ggx, oren, glass, hair, subsurface, sheen, fuzz)
 - Multiple lights
 
-
+- stageIdx_print_UI GGX notes
 '''
 
 

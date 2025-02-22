@@ -626,7 +626,7 @@ class myEquation_GGX:
 
 					elif items_id_currentStage == 8:
 						if printOnce_stage_008 == False:
-							print("'stage_008' : dotNH * dotNH * (alphaSqr - 1.0) + 1")
+							print("'stage_008' : denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
 							printOnce_stage_008 = True
 
 						dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
@@ -806,35 +806,6 @@ class myEquation_GGX:
 
 				# abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
 				# abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
-
-
-
-
-			# if items_id_currentStage == 7:
-			# 	if printOnce_stage_007 == False:
-			# 		print('stage_007 output AOV = ', aov_id)
-			# 		printOnce_stage_007 = True
-
-			# 	abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
-
-			# 	# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-			# 	abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-			# 	abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
-			# 	abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
-
-
-
-
-
-
-
-
-
-
-
-
 
 			# if abj_sd_b_instance.profileCode_part2 == True:
 				# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_03_b = ', abj_sd_b_instance.profile_stage2_03_b)
