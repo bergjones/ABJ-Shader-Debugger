@@ -431,62 +431,9 @@ class ABJ_Shader_Debugger():
 			'stage_010' : 'final shade',
 		}
 
-
-		#todo - notes for study
-		'''
-		if if NdotV < 0.1 (ortho -> persp fix), spec = 0
-		if raycast from V to faceCenter = False : spec 0
-		if raycast from L to faceCenter = False : spec 0
-		############## D......dotNH, roughness^3
-		if items_id_currentStage == 0:
-				print("'stage_000' : 'N....show N arrow (cubeN)'")
-		elif items_id_currentStage == 1:
-				print("'stage_001' : 'V + L....show V arrow and L arrow'")
-		elif items_id_currentStage == 2:
-				print("'stage_002' : 'V + L + H....show V arrow and L arrow and H arrow'")
-				print("'stage_002' : 'H = mathutils.Vector(V + L).normalized()")
-		elif items_id_currentStage == 3:
-				print("'stage_003' : 'dotNH....show N and H arrows'")
-		elif items_id_currentStage == 4:
-				print("'stage_004' : 'dotNH * dotNH'")
-		elif items_id_currentStage == 5:
-				print("'stage_005' : 'roughness'")
-		elif items_id_currentStage == 6:
-				print("'stage_006' : 'alpha = roughness * roughness'")
-		elif items_id_currentStage == 7:
-				print("'stage_007' : 'alphaSqr = alpha * alpha'")
-		elif items_id_currentStage == 8:
-				print("'stage_008' : denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
-		elif items_id_currentStage == 9:
-				print("'stage_009' : D = alphaSqr / (pi * denom * denom)")
-		############## FRESNEL......dotLH, F0
-		elif items_id_currentStage == 10:
-				print("'stage_010' : dotLH....show L arrow and H arrow")
-				print("'stage_010' : 'H = mathutils.Vector(V + L).normalized()")
-		elif items_id_currentStage == 11:
-				print("'stage_011' : dotLH5 = pow(1.0 - dotLH, 5)")
-		elif items_id_currentStage == 12:
-				print("'stage_012' : F = F0 + (1.0 - F0) * (dotLH5)")
-		############## V - Shadowing......dotNL, dotNV, roughness^2
-		elif items_id_currentStage == 13:
-				print("'stage_013' : k = alpha / 2.0")
-		elif items_id_currentStage == 14:
-				print("'stage_014' : G1V(dotNL, k)")
-				print("'stage_014' : 1.0 / (dotNL * (1.0 - k) + k)")
-		elif items_id_currentStage == 15:
-				print("'stage_015' : G1V(dotNV, k)")
-				print("'stage_015' : 1.0 / (dotNV * (1.0 - k) + k)")
-		elif items_id_currentStage == 16:
-				print("'stage_016' : vis = G1V(dotNL, k) * G1V(dotNV, k)")
-		if items_id_currentStage == 17:
-				print('stage_017 output AOV = dotNL * D * F * vis')
-
-		'''
-
 		for key, value in shadingDict_simple_specular_visualization.items():
 			print(f"{key}: {value}")
 		print(' ')
-
 
 	def toggleExtras_UI(self):
 		# for screen in bpy.data.screens:
