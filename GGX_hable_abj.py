@@ -671,6 +671,12 @@ class myEquation_GGX:
 
 						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
+						dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
+						dotLH_temp = pow(dotLH_temp, (1.0 / 2.2))
+
+						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotLH_temp, dotLH_temp, dotLH_temp)
+
+
 					elif items_id_currentStage == 11:
 						if printOnce_stage_011 == False:
 							print("'stage_011' : dotLH5 = pow(1.0 - dotLH, 5)")
