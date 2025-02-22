@@ -786,6 +786,7 @@ class myEquation_GGX:
 			if items_id_currentStage == 17:
 				if printOnce_stage_017 == False:
 					print('stage_017 output AOV = FINAL STAGE')
+					print('stage_017 output AOV = dotNL * D * F * vis')
 					print('stage_017 output AOV = ', aov_id)
 					printOnce_stage_017 = True
 
