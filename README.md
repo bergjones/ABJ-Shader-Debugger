@@ -1,8 +1,8 @@
 View stages of a shader with arrows and text while it is shown in the viewport as opposed to your only option being the final output stage. This addon was originally developed for use with improving my traditional realist paintings where I have to really understand what is going on for to be able to paint in the realist style with tradtional mediums. Choose a input mesh from one of the primitives and break it up into "faces" that are shaded individually with an emissive shader. There are preprocessing stages. You can randomly rotate the mesh and set random light placement. You can choose faces to step through in any order by setting the index value on breakpoint enums and then step through them with Plus (+) or Minus (-) buttons. 
 
-For now, choose between Simple Specular (RdotV) (with full breakdown of each stage by pressing the arrows) and GGX (in development)
+For now, choose between Simple Specular (RdotV) (7 steps) and GGX (17 steps).
 
-For simple specular, I broke it up into 7 steps. You can step through 1 to 7, or 2-4-6, or go directly to 5-7. You can set what AOV you want to see, in this example simple diffuse or simple spec.
+You can step through stages in direct order, 1 to N, or 2-4-6, etc. You can set what AOV you want to see, for now spec, diffuse, or combination (Ci)
 
 To note : This debugger clears your entire scene each time you pre-process. This addon requires numpy to be installed and resides in the Scene panel.
 
