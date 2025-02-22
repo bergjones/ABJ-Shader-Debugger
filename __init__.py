@@ -260,70 +260,70 @@ def register():
 		name='breakpoint_008',
 		description="breakpoint_008",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='008',
 	)
 
 	bpy.types.Scene.breakpoint_009_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_009',
 		description="breakpoint_009",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='009',
 	)
 
 	bpy.types.Scene.breakpoint_010_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_010',
 		description="breakpoint_010",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='010',
 	)
 
 	bpy.types.Scene.breakpoint_011_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_011',
 		description="breakpoint_011",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='011',
 	)
 
 	bpy.types.Scene.breakpoint_012_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_012',
 		description="breakpoint_012",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='012',
 	)
 
 	bpy.types.Scene.breakpoint_013_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_013',
 		description="breakpoint_013",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='013',
 	)
 
 	bpy.types.Scene.breakpoint_014_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_014',
 		description="breakpoint_014",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='014',
 	)
 
 	bpy.types.Scene.breakpoint_015_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_015',
 		description="breakpoint_015",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='015',
 	)
 
 	bpy.types.Scene.breakpoint_016_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_016',
 		description="breakpoint_016",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='016',
 	)
 
 	bpy.types.Scene.breakpoint_017_enum_prop = bpy.props.EnumProperty(
 		name='breakpoint_017',
 		description="breakpoint_017",
 		items=breakpoint_enum_items,
-		default='-1',
+		default='017',
 	)
 
 	bpy.types.Scene.breakpoint_018_enum_prop = bpy.props.EnumProperty(

@@ -185,7 +185,7 @@ class ABJ_Shader_Debugger():
 		self.profile_stage1_10_final = None
 
 		##########
-		self.profileCode_part2 = True
+		self.profileCode_part2 = False
 
 		self.profile_stage2_00_a = None
 		self.profile_stage2_00_b = None
@@ -237,7 +237,9 @@ class ABJ_Shader_Debugger():
 
 		self.pos_camera_global = (5, 5, 5)
 		self.pos_camera_global_v = mathutils.Vector((self.pos_camera_global[0], self.pos_camera_global[1], self.pos_camera_global[2]))
-		self.pos_light_global =  (0.766, 0.836, 0.427)
+		# self.pos_light_global =  (0.766, 0.836, 0.427)
+		self.pos_light_global = (0.184085, 1.99077, 0.427) 
+
 		# self.pos_light_global =  (-0.08, 0.675, 0.327) # debug
 		# self.pos_light_global = (0, 0, 5) ############################## overhead
 		# self.pos_light_global = (0, 10, 0) ####
@@ -262,6 +264,21 @@ class ABJ_Shader_Debugger():
 		self.myBreakpointList.append('breakpoint_008_enum_prop')
 		self.myBreakpointList.append('breakpoint_009_enum_prop')
 		self.myBreakpointList.append('breakpoint_010_enum_prop')
+		self.myBreakpointList.append('breakpoint_011_enum_prop')
+		self.myBreakpointList.append('breakpoint_012_enum_prop')
+		self.myBreakpointList.append('breakpoint_013_enum_prop')
+		self.myBreakpointList.append('breakpoint_014_enum_prop')
+		self.myBreakpointList.append('breakpoint_015_enum_prop')
+		self.myBreakpointList.append('breakpoint_016_enum_prop')
+		self.myBreakpointList.append('breakpoint_017_enum_prop')
+		self.myBreakpointList.append('breakpoint_018_enum_prop')
+		self.myBreakpointList.append('breakpoint_019_enum_prop')
+		self.myBreakpointList.append('breakpoint_020_enum_prop')
+		self.myBreakpointList.append('breakpoint_021_enum_prop')
+		self.myBreakpointList.append('breakpoint_022_enum_prop')
+		self.myBreakpointList.append('breakpoint_023_enum_prop')
+		self.myBreakpointList.append('breakpoint_024_enum_prop')
+		self.myBreakpointList.append('breakpoint_025_enum_prop')
 
 	def look_at(self, obj_camera, point):
 		loc_camera = obj_camera.matrix_world.to_translation()
@@ -326,7 +343,7 @@ class ABJ_Shader_Debugger():
 				maxRange_usable = None
 
 				if self.chosen_specular_equation == 'GGX':
-					maxRange_usable = 7
+					maxRange_usable = 17
 
 				if self.chosen_specular_equation == 'simple':
 
@@ -1039,9 +1056,10 @@ class ABJ_Shader_Debugger():
 			bpy.ops.object.modifier_apply(modifier="Subdivision")
 
 		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
-		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
-		bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
-		bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
+		# bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
+		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+		# bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
 
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 
@@ -1478,7 +1496,8 @@ class ABJ_Shader_Debugger():
 	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation):
 		attenuation = 1.0 #temporary, outside sunlight
 
-		Ks = 10
+		# Ks = 10
+		Ks = 1
 		Kl = 1
 		finalDiff = N_dot_L
 
