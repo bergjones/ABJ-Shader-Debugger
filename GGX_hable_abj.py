@@ -768,6 +768,8 @@ class myEquation_GGX:
 
 						abj_sd_b_instance.myCubeCam.hide_set(0) # V
 
+						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
 						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
 
 						k = alpha_temp / 2.0
