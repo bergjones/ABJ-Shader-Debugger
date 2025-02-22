@@ -631,7 +631,10 @@ class ABJ_Shader_Debugger():
 		self.DoIt_part1_preprocess()
 
 	def static_debugOnly_Stage1_UI(self):
+		self.setupCompositor()
+
 		#values from init
+		self.pos_light_global =  (0.766, 0.836, 0.427)
 		self.DoIt_part1_preprocess()
 
 	def updateScene(self):
@@ -740,8 +743,13 @@ class ABJ_Shader_Debugger():
 
 		elif type == "emission":
 			shader = nodes.new(type='ShaderNodeEmission')
-			nodes["Emission"].inputs[0].default_value = (r, g, b, 1)
-			nodes["Emission"].inputs[1].default_value = 1
+
+			#set _rgb_ to 1 and use _strength_ only to go above 1 with glare bloom but greyscale only
+			nodes["Emission"].inputs[0].default_value = (1, 1, 1, 1)
+			nodes["Emission"].inputs[1].default_value = r
+
+			# nodes["Emission"].inputs[0].default_value = (r, g, b, 1)
+			# nodes["Emission"].inputs[1].default_value = 1
 
 		elif type == "glossy":
 			shader = nodes.new(type='ShaderNodeBsdfGlossy')
@@ -869,6 +877,31 @@ class ABJ_Shader_Debugger():
 		bpy.context.active_object.data.materials.append(mat1)
 
 		return outputArrow
+
+	def setupCompositor(self):
+		bpy.context.scene.use_nodes = True
+
+		nodetree = bpy.context.scene.node_tree
+
+		# clear default nodes
+		for node in nodetree.nodes:
+			nodetree.nodes.remove(node)
+
+		# adding glare node
+		node0 = nodetree.nodes.new("CompositorNodeRLayers")
+		node0.location = (0,0)
+
+		node1 = nodetree.nodes.new("CompositorNodeGlare")
+		node1.location = (400,0)
+		node1.glare_type = 'BLOOM'
+
+		# adding compositor node
+		node2 = nodetree.nodes.new("CompositorNodeComposite")
+		node2.location = (800,0)
+
+		# connecting nodes
+		nodetree.links.new(node0.outputs["Image"],node1.inputs[0])
+		nodetree.links.new(node1.outputs["Image"],node2.inputs[0])
 
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
