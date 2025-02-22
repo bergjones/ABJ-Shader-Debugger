@@ -434,10 +434,9 @@ class ABJ_Shader_Debugger():
 
 		#todo - notes for study
 		'''
-		if NdotV < 0.1 (ortho -> persp fix), spec = 0. So, NdotV between .1 and 1
+		if if NdotV < 0.1 (ortho -> persp fix), spec = 0
 		if raycast from V to faceCenter = False : spec 0
 		if raycast from L to faceCenter = False : spec 0
-		dotNL / dotNV / dotNH all between 0 and 1
 		############## D......dotNH, roughness^3
 		if items_id_currentStage == 0:
 				print("'stage_000' : 'N....show N arrow (cubeN)'")
