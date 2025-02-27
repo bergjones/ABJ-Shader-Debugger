@@ -1545,7 +1545,6 @@ class ABJ_Shader_Debugger():
 		#############################
 		for i in self.shadingList_perFace:
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
-			print('7 for ', mySplitFaceIndexUsable)
 
 			if self.skip_refresh_determine(mySplitFaceIndexUsable) == True:
 				continue
@@ -1604,6 +1603,28 @@ class ABJ_Shader_Debugger():
 
 		self.myCubeR_dupe.hide_render = True
 		self.myCubeR_og.hide_render = True
+
+		if usableTextRGBPrecision_id != '0':
+			for area in bpy.context.screen.areas: 
+				if area.type == 'VIEW_3D':
+					for space in area.spaces: 
+						if space.type == 'VIEW_3D':
+							space.shading.type = 'SOLID'
+
+							space.shading.background_type = 'VIEWPORT'
+							space.shading.background_color = (1, 1, 1)
+
+							space.shading.color_type = 'SINGLE'
+							space.shading.single_color = (1, 1, 1)
+
+							space.shading.light = 'FLAT'
+
+							usableToggle = False
+							space.overlay.show_floor = usableToggle
+							space.overlay.show_axis_x = usableToggle
+							space.overlay.show_axis_y = usableToggle
+							space.overlay.show_axis_z = usableToggle
+							space.overlay.show_cursor = usableToggle
 	
 		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		print(' ')
@@ -1726,7 +1747,7 @@ class ABJ_Shader_Debugger():
 						if faceCenter_to_V_rayCast == True:
 							myFontOb.show_in_front = True
 
-						self.textRef_all.append(myFontOb.name)
+						# self.textRef_all.append(myFontOb.name)
 
 					bpy.context.view_layer.objects.active = j
 
