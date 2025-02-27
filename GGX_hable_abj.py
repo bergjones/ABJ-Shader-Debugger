@@ -523,9 +523,10 @@ class myEquation_GGX:
 			# show F
 			# show vis
 
-			if N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
-				if faceCenter_to_V_rayCast == True or faceCenter_to_L_rayCast == True: ####
+			# if N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
+				# if faceCenter_to_V_rayCast == True or faceCenter_to_L_rayCast == True: ####
 
+			if faceCenter_to_L_rayCast == True or override == True:
 					##############
 					### D
 					##############

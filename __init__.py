@@ -80,8 +80,13 @@ def register():
 
 	# '''
 	
+	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5)
 	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1)
 	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15)
+
+	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005)
+	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6)
+
 
 	# [(identifier, name, description, icon, number), ...].
 	r_dot_v_pow_enum_items = (
@@ -120,6 +125,18 @@ def register():
 		default='monkey',
 	)
 
+	diffuse_equation_enum_items = (
+			('oren', 'oren', 'oren'),
+			('simple', 'simple', 'simple'),
+	)
+
+	bpy.types.Scene.diffuse_equation_enum_prop = bpy.props.EnumProperty(
+		name='diffuse_equation',
+		description="diffuse_equation",
+		items=diffuse_equation_enum_items,
+		default='oren',
+	)	
+
 	specular_equation_enum_items = (
 			('GGX', 'GGX', 'GGX'),
 			('simple', 'simple', 'simple'),
@@ -130,6 +147,20 @@ def register():
 		description="specular_equation",
 		items=specular_equation_enum_items,
 		default='GGX',
+	)
+
+	text_rgb_precision_enum_items = (
+			('0', '0', '0'),
+			('1', '1', '1'),
+			('2', '2', '2'),
+			('3', '3', '3'),
+	)
+
+	bpy.types.Scene.text_rgb_precision_enum_prop = bpy.props.EnumProperty(
+		name='text_rgb_precision',
+		description="text_rgb_precision",
+		items=text_rgb_precision_enum_items,
+		default='0',
 	)
 
 	#BREAKPOINT 000
@@ -391,6 +422,8 @@ def unregister():
 
 	# '''
 
+	del bpy.types.Scene.oren_roughness_prop
+	
 	del bpy.types.Scene.ggx_roughness_prop
 	del bpy.types.Scene.ggx_fresnel_prop
 
@@ -399,7 +432,12 @@ def unregister():
 
 	del bpy.types.Scene.breakpoint_override_enum_prop
 
+	del bpy.types.Scene.diffuse_equation_enum_prop
 	del bpy.types.Scene.specular_equation_enum_prop
+
+	del bpy.types.Scene.text_rgb_precision_enum_prop
+	del bpy.types.Scene.text_radius_0_prop
+	del bpy.types.Scene.text_radius_1_prop
 
 	del bpy.types.Scene.breakpoint_000_enum_prop
 	del bpy.types.Scene.breakpoint_001_enum_prop

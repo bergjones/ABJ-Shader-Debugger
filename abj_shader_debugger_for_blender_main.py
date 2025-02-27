@@ -47,10 +47,18 @@ myEquation_simple_spec_class = myEquation_simple_spec()
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
+		self.chosen_diffuse_equation = 'oren'
 		# self.chosen_specular_equation = 'simple'
 		self.chosen_specular_equation = 'GGX'
 
+
+		self.compositor_setup = False
+		self.chosen_text_rgb_precision = '0'
+		self.text_radius_0_stored = 0.005
+		self.text_radius_1_stored = 0.6
+
 		self.changedSpecularEquation_variables = False
+		self.changedDiffuseEquation_variables = False
 		self.skip_showing_visibility_raycast_check = True
 
 		self.Ci_render_temp_list = []
@@ -67,6 +75,7 @@ class ABJ_Shader_Debugger():
 		self.shadingStages_all = []
 		self.shadingStages_perFace_stepList = []
 		self.shadingStages_selectedFaces = []
+		self.textRef_all = []
 		self.specTesterMatToggle = -1
 		self.objectsToToggleOnOffLater = []
 		self.debugStageIterPlusMinus = False
@@ -74,12 +83,14 @@ class ABJ_Shader_Debugger():
 
 		self.aov_stored = None
 		self.rdotvpow_stored = None
+		self.oren_roughness_stored = None
 		self.ggx_roughness_stored = None
 		self.ggx_fresnel_stored = None
 
 		self.breakpointsOverrideToggle = False
 		self.skip_refresh_override_aov = False
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
 
@@ -587,7 +598,7 @@ class ABJ_Shader_Debugger():
 
 		self.pos_light_global_v = mathutils.Vector((self.pos_light_global[0], self.pos_light_global[1], self.pos_light_global[2]))
 
-		self.DoIt_part1_preprocess()
+		# self.DoIt_part1_preprocess()
 
 	def randomLight_UI(self):
 		posNegX_0 = float(self.genRandomVertexColor())
@@ -767,11 +778,12 @@ class ABJ_Shader_Debugger():
 			shader = nodes.new(type='ShaderNodeEmission')
 
 			#set _rgb_ to 1 and use _strength_ only to go above 1 with glare bloom but greyscale only
-			nodes["Emission"].inputs[0].default_value = (1, 1, 1, 1)
-			nodes["Emission"].inputs[1].default_value = r
+			# nodes["Emission"].inputs[0].default_value = (1, 1, 1, 1)
+			# nodes["Emission"].inputs[1].default_value = r
 
-			# nodes["Emission"].inputs[0].default_value = (r, g, b, 1)
-			# nodes["Emission"].inputs[1].default_value = 1
+			#regular rgb 0-1
+			nodes["Emission"].inputs[0].default_value = (r, g, b, 1)
+			nodes["Emission"].inputs[1].default_value = 1
 
 		elif type == "glossy":
 			shader = nodes.new(type='ShaderNodeBsdfGlossy')
@@ -806,7 +818,8 @@ class ABJ_Shader_Debugger():
 		self.deselectAll()
 		bpy.ops.object.mode_set(mode="OBJECT")
 		myDc2.select_set(1)
-		bpy.ops.transform.resize(value=(2, 4, 2), orient_type='GLOBAL')
+		# bpy.ops.transform.resize(value=(2, 4, 2), orient_type='GLOBAL')
+		myDc2.scale = mathutils.Vector((2, 4, 2))
 
 	def createArrowFullProcess(self, name, front_or_back_arrow_origin, doLookAt, lookAtPos, r_agx, g_agx, b_agx, r_stereo, g_stereo, b_stereo):
 		# self.myCubeCam = self.createArrowFullProcess('myCubeCam', 'back', True, self.myOrigin, 0.0, 1.0, 0.9, 0.0, 1.0, 0.9)
@@ -814,7 +827,6 @@ class ABJ_Shader_Debugger():
 		# self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 		
 		# self.myCubeN_og = self.createArrowFullProcess('myCubeN_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.0, 1.0, 0.25)
-
 
 		self.deselectAll()
 
@@ -831,7 +843,8 @@ class ABJ_Shader_Debugger():
 
 		self.deselectAll()
 		outputArrow.select_set(1)
-		bpy.ops.transform.resize(value=(self.len_cam_arrow, self.arrowWidth, self.arrowWidth), orient_type='GLOBAL')
+		outputArrow.scale = mathutils.Vector((self.len_cam_arrow, self.arrowWidth, self.arrowWidth))		
+		
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 		bpy.ops.object.mode_set(mode="EDIT")
 		self.deselectAll_editMode()
@@ -842,7 +855,8 @@ class ABJ_Shader_Debugger():
 		bpy.ops.object.mode_set(mode="OBJECT") ###################
 		self.deselectAll()
 		outputArrow.select_set(1)
-		bpy.ops.transform.resize(value=(self.scaleRegArrows, self.scaleRegArrows, self.scaleRegArrows), orient_type='GLOBAL')
+		outputArrow.scale = mathutils.Vector((self.scaleRegArrows, self.scaleRegArrows, self.scaleRegArrows))
+
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1) ##########
 
 		if front_or_back_arrow_origin == 'back':
@@ -925,6 +939,8 @@ class ABJ_Shader_Debugger():
 		nodetree.links.new(node0.outputs["Image"],node1.inputs[0])
 		nodetree.links.new(node1.outputs["Image"],node2.inputs[0])
 
+		self.compositor_setup = True
+
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
 
@@ -966,11 +982,22 @@ class ABJ_Shader_Debugger():
 		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 		self.rdotvpow_stored = rdotvpow_id
 
+		val_oren_roughness_prop = bpy.context.scene.oren_roughness_prop
+		self.oren_roughness_stored = val_oren_roughness_prop
+
 		val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
 		self.ggx_roughness_stored = val_ggx_roughness_prop
 
 		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
 		self.ggx_fresnel_stored = val_ggx_fresnel_prop
+
+
+		val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+		self.text_radius_0_stored = val_text_radius_0_prop
+
+		val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+		self.text_radius_1_stored = val_text_radius_1_prop
+
 
 		if self.debugStageIterPlusMinus == True:
 			self.shadingStages_selectedFaces.clear()
@@ -1080,6 +1107,7 @@ class ABJ_Shader_Debugger():
 		myDupeForMaterialCheck = self.copyObject()
 		myDupeForMaterialCheck.name = 'dupeForMaterialCheck'
 		myDupeForMaterialCheck.hide_set(1)
+		myDupeForMaterialCheck.hide_render = True
 
 
 
@@ -1371,6 +1399,14 @@ class ABJ_Shader_Debugger():
 	def doIt_part2_render(self):
 		startTime = datetime.now()
 
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		if usableTextRGBPrecision_id != '0':
+			if self.compositor_setup == False:
+				self.setupCompositor()
+			self.DoIt_part1_preprocess()
+
 		self.profile_stage2_00_final = startTime - startTime
 		self.profile_stage2_01_final = startTime - startTime
 		self.profile_stage2_02_final = startTime - startTime
@@ -1384,12 +1420,6 @@ class ABJ_Shader_Debugger():
 		self.profile_stage2_10_final = startTime - startTime
 
 		self.profile_stage2_00_a = datetime.now() ################
-
-		# for i in self.objectsToToggleOnOffLater:
-		# 	try:
-		# 		self.deleteSpecificObject(i.name)
-		# 	except:
-		# 		pass
 
 		for i in self.objectsToToggleOnOffLater:
 			i.hide_set(1)
@@ -1408,10 +1438,14 @@ class ABJ_Shader_Debugger():
 		rdotvpow_items = bpy.context.scene.bl_rna.properties['r_dot_v_pow_enum_prop'].enum_items
 		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 
+		############
+		#### SPECULAR EQUATION
+		############
 		val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
 		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
 
 		self.changedSpecularEquation_variables = False
+		self.changedDiffuseEquation_variables = False
 
 		if self.rdotvpow_stored != rdotvpow_id:
 			self.skip_refresh_override_RdotVpow = True
@@ -1431,11 +1465,52 @@ class ABJ_Shader_Debugger():
 		usableSpecularEquationType_items = bpy.context.scene.bl_rna.properties['specular_equation_enum_prop'].enum_items
 		usableSpecularEquationType_id = usableSpecularEquationType_items[bpy.context.scene.specular_equation_enum_prop].identifier
 
-		# self.chosen_specular_equation = usableSpecularEquationType_id
-
 		if usableSpecularEquationType_id != self.chosen_specular_equation:
 			self.changedSpecularEquation_variables = True
 			self.chosen_specular_equation = usableSpecularEquationType_id
+
+		############
+		#### DIFFUSE EQUATION
+		############
+		val_oren_roughness_prop = bpy.context.scene.oren_roughness_prop
+
+		usableDiffuseEquationType_items = bpy.context.scene.bl_rna.properties['diffuse_equation_enum_prop'].enum_items
+		usableDiffuseEquationType_id = usableDiffuseEquationType_items[bpy.context.scene.diffuse_equation_enum_prop].identifier
+
+		if usableDiffuseEquationType_id != self.chosen_diffuse_equation:
+			self.changedDiffuseEquation_variables = True
+			self.chosen_diffuse_equation = usableDiffuseEquationType_id
+
+		if self.oren_roughness_stored != val_oren_roughness_prop:
+			self.skip_refresh_override_oren_roughness = True
+			self.oren_roughness_stored = val_oren_roughness_prop
+			self.changedSpecularEquation_variables = True
+
+
+		############
+		#### TEXT CHECKER
+		############
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		if usableTextRGBPrecision_id != self.chosen_text_rgb_precision:
+			self.changedSpecularEquation_variables = True
+			self.chosen_text_rgb_precision = usableTextRGBPrecision_id
+
+		val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+		val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+		if self.text_radius_0_stored != val_text_radius_0_prop:
+			self.text_radius_0_stored = val_text_radius_0_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.text_radius_1_stored != val_text_radius_1_prop:
+			self.text_radius_1_stored = val_text_radius_1_prop
+			self.changedSpecularEquation_variables = True
+
+
+		#########################
 
 		if self.runOnce_part2_preProcess == False or self.changedSpecularEquation_variables == True:
 			if self.chosen_specular_equation == 'simple':
@@ -1468,12 +1543,9 @@ class ABJ_Shader_Debugger():
 		#############################
 		### FINAL RENDER
 		#############################
-
-		# print('self.Ci_render_temp_list', self.Ci_render_temp_list)
-		# print('self.selectedFaceMat_temp_list', self.selectedFaceMat_temp_list)
-
 		for i in self.shadingList_perFace:
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+			print('7 for ', mySplitFaceIndexUsable)
 
 			if self.skip_refresh_determine(mySplitFaceIndexUsable) == True:
 				continue
@@ -1484,45 +1556,183 @@ class ABJ_Shader_Debugger():
 			spec = i['spec']
 			attenuation = i['attenuation']
 
+			N_dot_V = i['N_dot_V']
+			L = i['L']
+			N = i['N']
+			V = self.myV
+
+			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
+			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
+
 			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
-				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation)
+				finalDiffuse = 1
+
+				if faceCenter_to_L_rayCast == False:
+					finalDiffuse = 0
+
+				if faceCenter_to_L_rayCast == True:
+					if usableDiffuseEquationType_id == 'oren':
+						finalDiffuse = self.oren(N_dot_L, V, L, N, N_dot_V, self.oren_roughness_stored)
+
+					elif usableDiffuseEquationType_id == 'simple':
+						finalDiffuse = N_dot_L
+
+				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast)
 
 			elif mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
+		# bpy.ops.object.mode_set(mode="OBJECT")
+
 		#reset refresh override skips
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
 
+		#HIDE IN RENDER ALSO
+		self.myCubeCam.hide_render = True
+		self.myCubeCam_dupe.hide_render = True
+		self.myCubeH_og.hide_render = True
+		self.myCubeH_dupe.hide_render = True
+
+		self.myCubeLight_dupe.hide_render = True
+		self.myCubeLight_og.hide_render = True
+
+		self.myCubeN_dupe.hide_render = True
+		self.myCubeN_og.hide_render = True
+
+		self.myCubeR_dupe.hide_render = True
+		self.myCubeR_og.hide_render = True
+	
 		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		print(' ')
 
-	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, N_dot_L, spec, attenuation):
+		# self.updateScene()
+
+	def step(self, edge, x):
+		myOutput = None
+
+		if x < edge:
+			myOutput = 0.0
+
+		else:
+			myOutput = 1.0
+
+		return myOutput
+
+	def mix(self, x, y, a):
+		return x * (1.0 - a) + y * a
+
+	def lerp(self, a, b, t):
+		return a + (b - a) * t
+
+	def oren(self, NdotL, V, L, N, NdotV, roughness):
+		return NdotL
+
+
+	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, inputDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast):
 		attenuation = 1.0 #temporary, outside sunlight
 
-		# Ks = 10
 		Ks = 1
-		Kl = 1
-		finalDiff = N_dot_L
+		diff_Cs_V = mathutils.Vector((1.0, 0.0, 0.0))
+
+		inputDiff_V = mathutils.Vector((inputDiffuse, inputDiffuse, inputDiffuse))
 
 		finalSpec = spec * Ks
+		finalSpec_V = mathutils.Vector((finalSpec, finalSpec, finalSpec))
+		finalDiff_V = diff_Cs_V * inputDiff_V
+		# finalDiff_V = diff_Cs_V
+
+		ambientMultiplier = .0004
+		ambient_V = mathutils.Vector((ambientMultiplier, ambientMultiplier, ambientMultiplier))
+
+		Ci = None
 
 		if aov_id == 'spec':
-			Ci = ((finalSpec) * attenuation * Kl) ###
+			Ci = ((finalSpec_V) * attenuation) ###
 		elif aov_id == 'diffuse':
-			Ci = ((finalDiff) * attenuation * Kl) ###
+			Ci = ((finalDiff_V) * attenuation) ###
 		elif aov_id == 'Ci':
-			Ci = ((finalDiff + finalSpec) * attenuation * Kl) ###
+			Ci = ((finalDiff_V + finalSpec_V) * attenuation) ###
+			# Ci = ((finalDiff_V + finalSpec_V + (diff_Cs_V * ambient_V)) * attenuation) ###
 
-		Ci = pow(Ci, (1.0 / 2.2))
+		gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+		gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+		gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+		gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
 
+		Ci_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		# singleRadius = 0.01
+		singleRadius = 0.005
+		myRotation = self.myV * mathutils.Vector((0, 0, 180))
+		
 		if self.specTesterMatToggle == -1:
 			for j in bpy.context.scene.objects:
 				if j.name == shadingPlane:
+
+					#####################
+					### text_add() (better text placement)
+					#####################
+					if precisionVal != 0:
+						# precisionVal = 3
+						t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+
+						myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+						myFontCurve.body = t
+
+						myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
+						myFontOb.data.align_x = 'CENTER'
+						myFontOb.data.align_y = 'CENTER'
+
+						myFontOb.location = j.location
+						myFontOb.rotation_euler = myRotation
+
+						bpy.context.view_layer.objects.active = j
+						me = bpy.context.active_object.data
+
+						bm = bmesh.new()   # create an empty BMesh
+						bm.from_mesh(me)   # fill it in from a Mesh
+
+						outputSize = 0
+						for f in bm.faces:
+							# normalDir = f.normal
+							# f = f 
+							outputSize = f.calc_area()
+							outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
+
+						val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+						val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+						outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+
+						myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
+
+						if Ci > mathutils.Vector((0, 0, 0)):
+							myFontOb.data.body = t
+
+						else:
+							myFontOb.data.body = 'x'
+
+						bpy.context.collection.objects.link(myFontOb)
+
+						if faceCenter_to_V_rayCast == True:
+							myFontOb.show_in_front = True
+
+						self.textRef_all.append(myFontOb.name)
+
 					bpy.context.view_layer.objects.active = j
 
-			mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci, Ci, Ci)
+			# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci.x, Ci.y, Ci.z)
+			mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", 1, 0, 0)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
@@ -1552,6 +1762,9 @@ class ABJ_Shader_Debugger():
 		if self.skip_refresh_override_RdotVpow == True:
 			skip_refresh = False
 
+		if self.skip_refresh_override_oren_roughness == True:
+			skip_refresh = False
+
 		if self.skip_refresh_override_GGX_roughness == True:
 			skip_refresh = False
 
@@ -1562,6 +1775,9 @@ class ABJ_Shader_Debugger():
 			skip_refresh = False
 
 		if self.changedSpecularEquation_variables == True:
+			skip_refresh = False
+
+		if self.changedDiffuseEquation_variables == True:
 			skip_refresh = False
 
 		return skip_refresh
@@ -2308,10 +2524,15 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 1.0 ###
 		row.operator('shader.abj_shader_debugger_stageidxprint_operator')
 		
+		layout.label(text='Diffuse:')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'diffuse_equation_enum_prop', text="")
+		row = layout.row()
+		row.prop(bpy.context.scene, 'oren_roughness_prop')
+
 		layout.label(text='Specular:')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'specular_equation_enum_prop', text="")
-
 
 		layout.label(text='GGX:')
 		
@@ -2320,13 +2541,6 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		
 		row = layout.row()
 		row.prop(bpy.context.scene, 'ggx_fresnel_prop')
-
-		# val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
-		# print('val_ggx_roughness_prop = ', val_ggx_roughness_prop)
-
-		# val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
-		# print('val_ggx_fresnel_prop = ', val_ggx_fresnel_prop)
-
 
 		######################################
 		###### R_DOT_V_POW
@@ -2368,6 +2582,20 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_showhidearrow_operator')
 		row.operator('shader.abj_shader_debugger_showhidecubecam_operator')
 		row.operator('shader.abj_shader_debugger_toggleextras_operator')
+
+		######################################
+		###### TEXT ONLY
+		######################################
+		layout.label(text='TEXT REF')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'text_rgb_precision_enum_prop', text="")
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'text_radius_0_prop')
+		
+		row = layout.row()
+		row.prop(bpy.context.scene, 'text_radius_1_prop')
+
 
 		######################################
 		###### BREAKPOINTS
