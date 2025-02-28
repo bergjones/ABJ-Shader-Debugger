@@ -47,6 +47,10 @@ myEquation_simple_spec_class = myEquation_simple_spec()
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
+
+		self.useRestoredRxyzValues = True
+		self.breakEarlyForRandomLightAndRxyz = False
+
 		self.chosen_diffuse_equation = 'oren'
 		# self.chosen_specular_equation = 'simple'
 		self.chosen_specular_equation = 'GGX'
@@ -65,7 +69,6 @@ class ABJ_Shader_Debugger():
 		self.selectedFaceMat_temp_list = []
 
 		self.runOnce_part2_preProcess = False
-		self.hideUnHideInitialNdotV = False
 		self.debugV_223 = None
 		self.myDebugFaces = []
 		self.allNamesToToggleDuringRaycast = []
@@ -317,13 +320,6 @@ class ABJ_Shader_Debugger():
 	def refreshPart2_UI(self):
 		self.doIt_part2_render()
 		bpy.ops.object.mode_set(mode="OBJECT")
-
-		if self.hideUnHideInitialNdotV == True:
-			#Hide for potential raycast speed up
-			for i in self.shadingList_perFace:
-				for j in bpy.context.scene.objects:
-					if j.name == i['shadingPlane']:
-						j.hide_set(0)
 
 	##STAGES
 	def clamp(self, value, minimum, maximum):
@@ -600,6 +596,11 @@ class ABJ_Shader_Debugger():
 
 		# self.DoIt_part1_preprocess()
 
+	def restoreRxyz_UI(self):
+		self.useRestoredRxyzValues = True
+
+		self.DoIt_part1_preprocess()
+
 	def randomLight_UI(self):
 		posNegX_0 = float(self.genRandomVertexColor())
 		posNegX_1 = None
@@ -631,10 +632,10 @@ class ABJ_Shader_Debugger():
 		self.pos_light_global = (posNegX_1, posNegY_1, posNegZ_1)
 		self.pos_light_global_v = mathutils.Vector((self.pos_light_global[0], self.pos_light_global[1], self.pos_light_global[2]))
 		
-		#always positive Z value for now
-
 		# print('self.pos_light_global NEW = ', self.pos_light_global)
 		self.DoIt_part1_preprocess()
+
+		self.random_withMinimumShading('light')
 
 	def randomRotation_UI(self):
 		rand_initial = float(self.genRandomVertexColor())
@@ -663,7 +664,42 @@ class ABJ_Shader_Debugger():
 
 		print('randomly rotate the input mesh')
 
+		self.useRestoredRxyzValues = False
 		self.DoIt_part1_preprocess()
+
+		self.random_withMinimumShading('rotation')
+
+	def random_withMinimumShading(self, type):
+		val_min_shaded_prop = bpy.context.scene.min_shaded_prop
+
+		if val_min_shaded_prop > 0:
+			self.breakEarlyForRandomLightAndRxyz = True
+			self.doIt_part2_render()
+			#break early after spec
+
+			min_shaded_counter_list = []
+
+			for i in self.shadingList_perFace:
+				mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+				spec = i['spec']
+
+				if spec > 0:
+					min_shaded_counter_list.append(mySplitFaceIndexUsable)
+
+			if len(min_shaded_counter_list) < val_min_shaded_prop:
+				print('random with min shaded running again, only ', len(min_shaded_counter_list), ' / ', val_min_shaded_prop)
+				
+				if type == 'light':
+					self.randomLight_UI()
+				elif type == 'rotation':
+					self.randomRotation_UI()
+
+			else:
+				print('random with min shaded success for ', len(min_shaded_counter_list), ' / ', val_min_shaded_prop)
+			
+			bpy.ops.object.mode_set(mode="OBJECT")
+
+			self.breakEarlyForRandomLightAndRxyz = False
 
 	def static_debugOnly_Stage1_UI(self):
 		self.setupCompositor()
@@ -1087,11 +1123,21 @@ class ABJ_Shader_Debugger():
 			myObj.modifiers["Subdivision"].levels = 1
 			bpy.ops.object.modifier_apply(modifier="Subdivision")
 
-		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
-		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
-		# bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
-		bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
-		# bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+		if self.useRestoredRxyzValues == True:
+			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+		else:
+			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+			bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+		# # bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
+		# # bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
+		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+		# # bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
 
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 
@@ -1377,11 +1423,6 @@ class ABJ_Shader_Debugger():
 			'faceCenter_to_L_rayCast' : False,
 		}
 
-		if self.hideUnHideInitialNdotV == True:
-			if N_dot_V <= 0.1:
-				#Hide for potential raycast speed up
-				self.shadingPlane.hide_set(1)
-
 		test_stagesDict_perFace0 = {
 			'idx' : mySplitFaceIndexUsable,
 			'shadingPlane' : self.shadingPlane.name,
@@ -1519,6 +1560,16 @@ class ABJ_Shader_Debugger():
 				myEquation_GGX_class.equation_part2_preProcess(myABJ_SD_B)
 
 			self.runOnce_part2_preProcess = True
+
+		if self.breakEarlyForRandomLightAndRxyz == True:
+			#reset refresh override skips
+			self.skip_refresh_override_RdotVpow = False
+			self.skip_refresh_override_oren_roughness = False
+			self.skip_refresh_override_GGX_roughness = False
+			self.skip_refresh_override_GGX_fresnel = False
+
+			return
+		
 
 		self.profile_stage2_01_a = datetime.now() 
 
@@ -1771,6 +1822,8 @@ class ABJ_Shader_Debugger():
 		skip_refresh = False
 
 		matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
+		
+
 		if matCheck: #material already exists...check if it is not selected for stage stepping
 			for j in self.shadingStages_perFace_stepList:
 				if (j["idx"]) == mySplitFaceIndexUsable:
@@ -2508,13 +2561,20 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		######################################
 		layout.label(text='PRE-PROCESS')
 		row = layout.row()
+		row.operator('shader.abj_shader_debugger_restorelight_operator')
+		row.operator('shader.abj_shader_debugger_restorerxyz_operator')
+
+		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_randomlight_operator')
-		row.operator('shader.abj_shader_debugger_restorelight_operator')
+
 		row.operator('shader.abj_shader_debugger_randomrotation_operator')
 
 		row = layout.row()
-		row.scale_y = 1.0 ###
+		row.prop(bpy.context.scene, 'min_shaded_prop', text="")
+
+		row = layout.row()
+		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_staticstage1_operator')
 
 		######################################
@@ -2617,6 +2677,14 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.prop(bpy.context.scene, 'text_radius_1_prop')
 
+		######################################
+		###### COLOR PRESETS
+		######################################
+		layout.label(text='COLOR PRESETS')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_agx_operator')
+		row.operator('shader.abj_shader_debugger_stereoscopic_operator')
 
 		######################################
 		###### BREAKPOINTS
@@ -2681,15 +2749,6 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.prop(bpy.context.scene, 'breakpoint_025_enum_prop', text="")
 
-		######################################
-		###### COLOR PRESETS
-		######################################
-		layout.label(text='COLOR PRESETS')
-		row = layout.row()
-		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_agx_operator')
-		row.operator('shader.abj_shader_debugger_stereoscopic_operator')
-
 ##########
 #####
 	
@@ -2702,16 +2761,6 @@ class SHADER_OT_RANDOMLIGHT(bpy.types.Operator):
 	def execute(self, context):
 		myABJ_SD_B.randomLight_UI()
 		return {'FINISHED'}
-	
-class SHADER_OT_RESTORELIGHT(bpy.types.Operator):
-	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
-
-	bl_label = 'restore L'
-	bl_idname = 'shader.abj_shader_debugger_restorelight_operator'
-
-	def execute(self, context):
-		myABJ_SD_B.restoreLight_UI()
-		return {'FINISHED'}
 
 class SHADER_OT_RANDOMROTATION(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
@@ -2721,6 +2770,26 @@ class SHADER_OT_RANDOMROTATION(bpy.types.Operator):
 
 	def execute(self, context):
 		myABJ_SD_B.randomRotation_UI()
+		return {'FINISHED'}
+
+class SHADER_OT_RESTORELIGHT(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'restore L'
+	bl_idname = 'shader.abj_shader_debugger_restorelight_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.restoreLight_UI()
+		return {'FINISHED'}
+	
+class SHADER_OT_RESTORERXYZ(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'restore Rxyz'
+	bl_idname = 'shader.abj_shader_debugger_restorerxyz_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.restoreRxyz_UI()
 		return {'FINISHED'}
 
 class SHADER_OT_STATICSTAGE1(bpy.types.Operator):

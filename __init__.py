@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RESTORELIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXSETTINGS, SHADER_OT_STEREOSCOPICSETTINGS, SHADER_OT_TOGGLEEXTRAS
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXSETTINGS, SHADER_OT_STEREOSCOPICSETTINGS, SHADER_OT_TOGGLEEXTRAS
 
 
 if "bpy" in locals():
@@ -49,8 +49,9 @@ classes = [
 	SCENE_PT_ABJ_Shader_Debugger_Panel,
 
 	SHADER_OT_RANDOMLIGHT,
-	SHADER_OT_RESTORELIGHT,
 	SHADER_OT_RANDOMROTATION,
+	SHADER_OT_RESTORELIGHT,
+	SHADER_OT_RESTORERXYZ,
 	SHADER_OT_STATICSTAGE1,
 
 	SHADER_OT_REFRESHSTAGE2,
@@ -80,6 +81,8 @@ def register():
 
 	# '''
 	
+	bpy.types.Scene.min_shaded_prop = bpy.props.IntProperty(min=0, max=200, default=50)
+
 	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5)
 	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1)
 	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15)
@@ -422,6 +425,7 @@ def unregister():
 
 	# '''
 
+	del bpy.types.Scene.min_shaded_prop
 	del bpy.types.Scene.oren_roughness_prop
 	
 	del bpy.types.Scene.ggx_roughness_prop

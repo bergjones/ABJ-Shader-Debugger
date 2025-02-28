@@ -127,13 +127,6 @@ class myEquation_simple_spec:
 			N_dot_V_over_threshold_with_ortho_compensateTrick = None
 			# if (N_dot_V <= 0):
 			if (N_dot_V <= 0.1):
-
-				if abj_sd_b_instance.hideUnHideInitialNdotV == True:
-					#Hide for potential ray_cast speed up
-					for j in bpy.context.scene.objects:
-						if j.name == shadingPlane:
-							j.hide_set(1)
-
 				N_dot_V_over_threshold_with_ortho_compensateTrick = False
 			else:
 				N_dot_V_over_threshold_with_ortho_compensateTrick = True
