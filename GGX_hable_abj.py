@@ -383,6 +383,7 @@ class myEquation_GGX:
 			N_dot_V = i['N_dot_V']
 			
 			N_dot_V_over_threshold_with_ortho_compensateTrick = None
+			# if (N_dot_V <= 0):
 			if (N_dot_V <= 0.1):
 				N_dot_V_over_threshold_with_ortho_compensateTrick = False
 			else:

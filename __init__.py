@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXSETTINGS, SHADER_OT_STEREOSCOPICSETTINGS, SHADER_OT_TOGGLEEXTRAS
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS
 
 
 if "bpy" in locals():
@@ -63,12 +63,14 @@ classes = [
 	SHADER_OT_STAGEIDXPRINT,
 	SHADER_OT_STAGERESETALL,
 
+	SHADER_OT_SHOWHIDETEXTTOGGLE,
 	SHADER_OT_SHOWHIDEARROWTOGGLE,
 	SHADER_OT_SHOWHIDECUBECAM,
 
 	SHADER_OT_RESTORECAMVIEW,
-	SHADER_OT_AGXSETTINGS,
-	SHADER_OT_STEREOSCOPICSETTINGS,
+	SHADER_OT_AGXCOLORSETTINGS,
+	SHADER_OT_TEXTCOLORSETTINGS,
+	SHADER_OT_STEREOSCOPICCOLORSETTINGS,
 	
 	SHADER_OT_TOGGLEEXTRAS,
 ]
@@ -89,7 +91,6 @@ def register():
 
 	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005)
 	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6)
-
 
 	# [(identifier, name, description, icon, number), ...].
 	r_dot_v_pow_enum_items = (
@@ -153,7 +154,7 @@ def register():
 	)
 
 	text_rgb_precision_enum_items = (
-			('0', '0', '0'),
+			('-1', '-1', '-1'),
 			('1', '1', '1'),
 			('2', '2', '2'),
 			('3', '3', '3'),
@@ -163,39 +164,9 @@ def register():
 		name='text_rgb_precision',
 		description="text_rgb_precision",
 		items=text_rgb_precision_enum_items,
-		default='0',
+		default='-1',
 	)
 
-	#BREAKPOINT 000
-	breakpoint_enum_items = (
-		('-1', '-1', '-1'),
-		('000', '000', '000'),
-		('001', '001', '001'),
-		('002', '002', '002'),
-		('003', '003', '003'),
-		('004', '004', '004'),
-		('005', '005', '005'),
-		('006', '006', '006'),
-		('007', '007', '007'),
-		('008', '008', '008'),
-		('009', '009', '009'),
-		('010', '010', '010'),
-		('011', '011', '011'),
-		('012', '012', '012'),
-		('013', '013', '013'),
-		('014', '014', '014'),
-		('015', '015', '015'),
-		('016', '016', '016'),
-		('017', '017', '017'),
-		('018', '018', '018'),
-		('019', '019', '019'),
-		('020', '020', '020'),
-		('021', '021', '021'),
-		('022', '022', '022'),
-		('023', '023', '023'),
-		('024', '024', '024'),
-		('025', '025', '025'),
-	)
 
 	aov_items = (
 		('spec', 'spec', 'spec'),
@@ -228,10 +199,41 @@ def register():
 	)
 
 	bpy.types.Scene.subdivision_toggle_enum_prop = bpy.props.EnumProperty(
-		name='subdivision_toggle_enum_prop',
-		description="subdivision_toggle_enum_prop",
+		name='subdivision_toggle',
+		description="subdivision_toggle",
 		items=subdivision_toggle_items,
 		default='subd_0',
+	)
+
+	#BREAKPOINT 000
+	breakpoint_enum_items = (
+		('-1', '-1', '-1'),
+		('000', '000', '000'),
+		('001', '001', '001'),
+		('002', '002', '002'),
+		('003', '003', '003'),
+		('004', '004', '004'),
+		('005', '005', '005'),
+		('006', '006', '006'),
+		('007', '007', '007'),
+		('008', '008', '008'),
+		('009', '009', '009'),
+		('010', '010', '010'),
+		('011', '011', '011'),
+		('012', '012', '012'),
+		('013', '013', '013'),
+		('014', '014', '014'),
+		('015', '015', '015'),
+		('016', '016', '016'),
+		('017', '017', '017'),
+		('018', '018', '018'),
+		('019', '019', '019'),
+		('020', '020', '020'),
+		('021', '021', '021'),
+		('022', '022', '022'),
+		('023', '023', '023'),
+		('024', '024', '024'),
+		('025', '025', '025'),
 	)
 
 	bpy.types.Scene.breakpoint_000_enum_prop = bpy.props.EnumProperty(
@@ -435,11 +437,15 @@ def unregister():
 	del bpy.types.Scene.primitive_enum_prop
 
 	del bpy.types.Scene.breakpoint_override_enum_prop
+	del bpy.types.Scene.subdivision_toggle_enum_prop
+
+	del bpy.types.Scene.aov_enum_prop
 
 	del bpy.types.Scene.diffuse_equation_enum_prop
 	del bpy.types.Scene.specular_equation_enum_prop
 
 	del bpy.types.Scene.text_rgb_precision_enum_prop
+
 	del bpy.types.Scene.text_radius_0_prop
 	del bpy.types.Scene.text_radius_1_prop
 

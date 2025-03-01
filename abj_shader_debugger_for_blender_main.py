@@ -533,9 +533,10 @@ class ABJ_Shader_Debugger():
 						bpy.context.active_object.data.materials.clear()
 						bpy.context.active_object.data.materials.append(mat1)
 
-	def agxSettings_UI(self):
+	def agxColorSettings_UI(self):
 		bpy.context.scene.view_settings.view_transform = 'AgX'
-		bpy.context.scene.view_settings.look = 'AgX - Punchy'
+		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
+		bpy.context.scene.view_settings.look = 'None'
 		bpy.context.scene.render.use_multiview = False
 
 		self.adjustedColors = False
@@ -544,10 +545,50 @@ class ABJ_Shader_Debugger():
 		self.stereo_retinal_rivalry_fix('cubeR_instance')
 		self.stereo_retinal_rivalry_fix('light_instance')
 
-	def stereoscopicSettings_UI(self):
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						space.shading.type = 'MATERIAL'
+
+	def textColorSettings_UI(self):
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						space.shading.type = 'SOLID'
+
+						space.shading.background_type = 'VIEWPORT'
+						space.shading.background_color = (1, 1, 1)
+
+						space.shading.color_type = 'SINGLE'
+						space.shading.single_color = (1, 1, 1)
+
+						space.shading.light = 'FLAT'
+
+						usableToggle = False
+						space.overlay.show_floor = usableToggle
+						space.overlay.show_axis_x = usableToggle
+						space.overlay.show_axis_y = usableToggle
+						space.overlay.show_axis_z = usableToggle
+						space.overlay.show_cursor = usableToggle
+
+		self.adjustedColors = False
+		self.stereo_retinal_rivalry_fix('cubeCam')
+		self.stereo_retinal_rivalry_fix('cubeN_instance')
+		self.stereo_retinal_rivalry_fix('cubeR_instance')
+		self.stereo_retinal_rivalry_fix('light_instance')
+
+	def stereoscopicColorSettings_UI(self):
 		bpy.context.scene.view_settings.view_transform = 'Standard'
 		bpy.context.scene.view_settings.look = 'None'
 		bpy.context.scene.render.use_multiview = True
+
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						space.shading.type = 'MATERIAL'
 
 		self.adjustedColors = True
 		self.stereo_retinal_rivalry_fix('cubeCam')
@@ -565,6 +606,16 @@ class ABJ_Shader_Debugger():
 			self.myCubeCam.hide_set(0)
 		else:
 			self.myCubeCam.hide_set(1)
+
+	def showhideText_UI(self):
+		for i in self.textRef_all:
+			for j in bpy.context.scene.objects:
+				if j.name == i:
+					if j.hide_get() == 1:
+						j.hide_set(0)
+
+					else:
+						j.hide_set(1)
 
 	def showhideArrows_UI(self):
 		if self.objectsToToggleOnOffLater:
@@ -977,6 +1028,33 @@ class ABJ_Shader_Debugger():
 
 		self.compositor_setup = True
 
+	def printGreyScaleGradient(self, steps):
+		outputRatio = None
+		allOutputRatios = []
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		if precisionVal == -1:
+			precisionVal = 5
+
+		for i in range(steps + 1):
+			if i == 0:
+				outputRatio = 1
+
+			else:
+				outputRatio = 1 - (i / steps)
+
+			outputRatio = round(outputRatio, precisionVal)
+
+			allOutputRatios.append(outputRatio)
+
+		print(allOutputRatios)
+		reversed_allOutputRatios = list(reversed(allOutputRatios))
+		print(reversed_allOutputRatios)
+
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
 
@@ -1033,7 +1111,6 @@ class ABJ_Shader_Debugger():
 
 		val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
 		self.text_radius_1_stored = val_text_radius_1_prop
-
 
 		if self.debugStageIterPlusMinus == True:
 			self.shadingStages_selectedFaces.clear()
@@ -1443,7 +1520,7 @@ class ABJ_Shader_Debugger():
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
 		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
 
-		if usableTextRGBPrecision_id != '0':
+		if usableTextRGBPrecision_id != '-1':
 			if self.compositor_setup == False:
 				self.setupCompositor()
 			self.DoIt_part1_preprocess()
@@ -1550,7 +1627,6 @@ class ABJ_Shader_Debugger():
 			self.text_radius_1_stored = val_text_radius_1_prop
 			self.changedSpecularEquation_variables = True
 
-
 		#########################
 
 		if self.runOnce_part2_preProcess == False or self.changedSpecularEquation_variables == True:
@@ -1590,6 +1666,12 @@ class ABJ_Shader_Debugger():
 			myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B)
 		elif self.chosen_specular_equation == 'GGX':
 			myEquation_GGX_class.equation_part3_switch_stages(myABJ_SD_B)
+
+		if self.textRef_all != None:
+			for i in self.textRef_all:
+				self.deleteSpecificObject(i)
+
+		self.textRef_all.clear()
 
 		#############################
 		### FINAL RENDER
@@ -1655,30 +1737,19 @@ class ABJ_Shader_Debugger():
 		self.myCubeR_dupe.hide_render = True
 		self.myCubeR_og.hide_render = True
 
-		if usableTextRGBPrecision_id != '0':
-			for area in bpy.context.screen.areas: 
-				if area.type == 'VIEW_3D':
-					for space in area.spaces: 
-						if space.type == 'VIEW_3D':
-							space.shading.type = 'SOLID'
-
-							space.shading.background_type = 'VIEWPORT'
-							space.shading.background_color = (1, 1, 1)
-
-							space.shading.color_type = 'SINGLE'
-							space.shading.single_color = (1, 1, 1)
-
-							space.shading.light = 'FLAT'
-
-							usableToggle = False
-							space.overlay.show_floor = usableToggle
-							space.overlay.show_axis_x = usableToggle
-							space.overlay.show_axis_y = usableToggle
-							space.overlay.show_axis_z = usableToggle
-							space.overlay.show_cursor = usableToggle
+		#default hide text
+		self.showhideText_UI()
 	
 		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		print(' ')
+
+		#####################
+		##### GRADIENT
+		#####################
+		self.printGreyScaleGradient(10)
+		# self.printGreyScaleGradient(20)
+
+		# print(round(Ci_gc.x, precisionVal))
 
 		# self.updateScene()
 
@@ -1736,14 +1807,17 @@ class ABJ_Shader_Debugger():
 
 		Ci_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
-
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
 		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
 
 		precisionVal = int(usableTextRGBPrecision_id)
 
-		# singleRadius = 0.01
-		singleRadius = 0.005
+		if precisionVal == -1:
+			pass
+
+		else:
+			Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
+
 		myRotation = self.myV * mathutils.Vector((0, 0, 180))
 		
 		if self.specTesterMatToggle == -1:
@@ -1753,7 +1827,7 @@ class ABJ_Shader_Debugger():
 					#####################
 					### text_add() (better text placement)
 					#####################
-					if precisionVal != 0:
+					if precisionVal != -1:
 						# precisionVal = 3
 						t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
 
@@ -1798,7 +1872,7 @@ class ABJ_Shader_Debugger():
 						if faceCenter_to_V_rayCast == True:
 							myFontOb.show_in_front = True
 
-						# self.textRef_all.append(myFontOb.name)
+						self.textRef_all.append(myFontOb.name)
 
 					bpy.context.view_layer.objects.active = j
 
@@ -2663,11 +2737,13 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_showhidearrow_operator')
 		row.operator('shader.abj_shader_debugger_showhidecubecam_operator')
 		row.operator('shader.abj_shader_debugger_toggleextras_operator')
+		row.operator('shader.abj_shader_debugger_showhidetext_operator')
 
 		######################################
-		###### TEXT ONLY
+		###### TEXT
 		######################################
-		layout.label(text='TEXT REF')
+		layout.label(text='TEXT')
+		layout.label(text='precision')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'text_rgb_precision_enum_prop', text="")
 
@@ -2683,8 +2759,22 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout.label(text='COLOR PRESETS')
 		row = layout.row()
 		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_agx_operator')
-		row.operator('shader.abj_shader_debugger_stereoscopic_operator')
+		row.operator('shader.abj_shader_debugger_agx_color_operator')
+		row.operator('shader.abj_shader_debugger_text_color_operator')
+		row.operator('shader.abj_shader_debugger_stereoscopic_color_operator')
+
+		######################################
+		###### CONVIENENCE REDUNDANT CONTROLS
+		######################################
+		layout.label(text='PRE-PROCESS')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_staticstage1_operator')
+		
+		layout.label(text='RENDER')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_refreshstage2_operator')
 
 		######################################
 		###### BREAKPOINTS
@@ -2795,7 +2885,7 @@ class SHADER_OT_RESTORERXYZ(bpy.types.Operator):
 class SHADER_OT_STATICSTAGE1(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'debug (fixed)'
+	bl_label = 'stage 1'
 	bl_idname = 'shader.abj_shader_debugger_staticstage1_operator'
 
 	def execute(self, context):
@@ -2862,8 +2952,16 @@ class SHADER_OT_STAGEIDXPRINT(bpy.types.Operator):
 		return {'FINISHED'}
 
 ###############
+class SHADER_OT_SHOWHIDETEXTTOGGLE(bpy.types.Operator):
+	bl_label = 'tgl text'
+	bl_idname = 'shader.abj_shader_debugger_showhidetext_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.showhideText_UI()
+		return {'FINISHED'}
+
 class SHADER_OT_SHOWHIDEARROWTOGGLE(bpy.types.Operator):
-	bl_label = 'toggle arrow'
+	bl_label = 'tgl arrow'
 	bl_idname = 'shader.abj_shader_debugger_showhidearrow_operator'
 
 	def execute(self, context):
@@ -2871,7 +2969,7 @@ class SHADER_OT_SHOWHIDEARROWTOGGLE(bpy.types.Operator):
 		return {'FINISHED'}
 
 class SHADER_OT_SHOWHIDECUBECAM(bpy.types.Operator):
-	bl_label = 'cam tgl'
+	bl_label = 'tgl cam'
 	bl_idname = 'shader.abj_shader_debugger_showhidecubecam_operator'
 
 	def execute(self, context):
@@ -2879,7 +2977,7 @@ class SHADER_OT_SHOWHIDECUBECAM(bpy.types.Operator):
 		return {'FINISHED'}
 
 class SHADER_OT_TOGGLEEXTRAS(bpy.types.Operator):
-	bl_label = 'toggle extras'
+	bl_label = 'tgl extras'
 	bl_idname = 'shader.abj_shader_debugger_toggleextras_operator'
 
 	def execute(self, context):
@@ -2889,20 +2987,28 @@ class SHADER_OT_TOGGLEEXTRAS(bpy.types.Operator):
 ##########################################
 ############# COLOR PRESETS ################
 ##########################################
-class SHADER_OT_AGXSETTINGS(bpy.types.Operator):
+class SHADER_OT_AGXCOLORSETTINGS(bpy.types.Operator):
 	bl_label = 'agx'
-	bl_idname = 'shader.abj_shader_debugger_agx_operator'
+	bl_idname = 'shader.abj_shader_debugger_agx_color_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.agxSettings_UI()
+		myABJ_SD_B.agxColorSettings_UI()
+		return {'FINISHED'}
+	
+class SHADER_OT_TEXTCOLORSETTINGS(bpy.types.Operator):
+	bl_label = 'text'
+	bl_idname = 'shader.abj_shader_debugger_text_color_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.textColorSettings_UI()
 		return {'FINISHED'}
 
-class SHADER_OT_STEREOSCOPICSETTINGS(bpy.types.Operator):
-	bl_label = 'stereoscopic'
-	bl_idname = 'shader.abj_shader_debugger_stereoscopic_operator'
+class SHADER_OT_STEREOSCOPICCOLORSETTINGS(bpy.types.Operator):
+	bl_label = 'stereo'
+	bl_idname = 'shader.abj_shader_debugger_stereoscopic_color_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.stereoscopicSettings_UI()
+		myABJ_SD_B.stereoscopicColorSettings_UI()
 		return {'FINISHED'}
 
 #################
@@ -2930,10 +3036,9 @@ myABJ_SD_B = ABJ_Shader_Debugger() ######################
 #########
 # TO DO:
 #########
-- additional shading models (ggx, oren, glass, hair, subsurface, sheen, fuzz)
+- additional shading models (oren, glass, hair, subsurface, sheen, fuzz)
 - Multiple lights
 
-- stageIdx_print_UI GGX notes
+- gradient mixer
+
 '''
-
-
