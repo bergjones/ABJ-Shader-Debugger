@@ -573,6 +573,12 @@ class ABJ_Shader_Debugger():
 						space.overlay.show_axis_z = usableToggle
 						space.overlay.show_cursor = usableToggle
 
+
+		for i in self.textRef_all:
+			for j in bpy.context.scene.objects:
+				if j.name == i:
+					j.hide_set(0)
+
 		self.adjustedColors = False
 		self.stereo_retinal_rivalry_fix('cubeCam')
 		self.stereo_retinal_rivalry_fix('cubeN_instance')
@@ -1083,6 +1089,8 @@ class ABJ_Shader_Debugger():
 		self.shadingStages_selectedFaces.clear()
 		self.arrow_dynamic_instance_M_all_list_matrixOnly.clear()
 		self.objectsToToggleOnOffLater.clear()
+
+		self.textRef_all.clear()
 
 		self.myDebugFaces.clear()
 
@@ -1666,12 +1674,6 @@ class ABJ_Shader_Debugger():
 			myEquation_simple_spec_class.equation_part3_switch_stages(myABJ_SD_B)
 		elif self.chosen_specular_equation == 'GGX':
 			myEquation_GGX_class.equation_part3_switch_stages(myABJ_SD_B)
-
-		if self.textRef_all != None:
-			for i in self.textRef_all:
-				self.deleteSpecificObject(i)
-
-		self.textRef_all.clear()
 
 		#############################
 		### FINAL RENDER
