@@ -540,10 +540,13 @@ class ABJ_Shader_Debugger():
 		bpy.context.scene.render.use_multiview = False
 
 		self.adjustedColors = False
-		self.stereo_retinal_rivalry_fix('cubeCam')
-		self.stereo_retinal_rivalry_fix('cubeN_instance')
-		self.stereo_retinal_rivalry_fix('cubeR_instance')
-		self.stereo_retinal_rivalry_fix('light_instance')
+		try:
+			self.stereo_retinal_rivalry_fix('cubeCam')
+			self.stereo_retinal_rivalry_fix('cubeN_instance')
+			self.stereo_retinal_rivalry_fix('cubeR_instance')
+			self.stereo_retinal_rivalry_fix('light_instance')
+		except:
+			pass
 
 		for area in bpy.context.screen.areas: 
 			if area.type == 'VIEW_3D':
@@ -580,10 +583,13 @@ class ABJ_Shader_Debugger():
 					j.hide_set(0)
 
 		self.adjustedColors = False
-		self.stereo_retinal_rivalry_fix('cubeCam')
-		self.stereo_retinal_rivalry_fix('cubeN_instance')
-		self.stereo_retinal_rivalry_fix('cubeR_instance')
-		self.stereo_retinal_rivalry_fix('light_instance')
+		try:
+			self.stereo_retinal_rivalry_fix('cubeCam')
+			self.stereo_retinal_rivalry_fix('cubeN_instance')
+			self.stereo_retinal_rivalry_fix('cubeR_instance')
+			self.stereo_retinal_rivalry_fix('light_instance')
+		except:
+			pass
 
 	def stereoscopicColorSettings_UI(self):
 		bpy.context.scene.view_settings.view_transform = 'Standard'
@@ -1033,33 +1039,6 @@ class ABJ_Shader_Debugger():
 		nodetree.links.new(node1.outputs["Image"],node2.inputs[0])
 
 		self.compositor_setup = True
-
-	def printGreyScaleGradient(self, steps):
-		outputRatio = None
-		allOutputRatios = []
-
-		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
-		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
-
-		precisionVal = int(usableTextRGBPrecision_id)
-
-		if precisionVal == -1:
-			precisionVal = 5
-
-		for i in range(steps + 1):
-			if i == 0:
-				outputRatio = 1
-
-			else:
-				outputRatio = 1 - (i / steps)
-
-			outputRatio = round(outputRatio, precisionVal)
-
-			allOutputRatios.append(outputRatio)
-
-		print(allOutputRatios)
-		reversed_allOutputRatios = list(reversed(allOutputRatios))
-		print(reversed_allOutputRatios)
 
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
@@ -1745,6 +1724,120 @@ class ABJ_Shader_Debugger():
 		print('TIME TO COMPLETE (render) = ' + str(datetime.now() - startTime))
 		print(' ')
 
+		# self.updateScene()
+
+	def printGreyScaleGradient(self, steps):
+		outputRatio = None
+		allOutputRatios = []
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		if precisionVal == -1:
+			precisionVal = 5
+
+		for i in range(steps + 1):
+			if i == 0:
+				outputRatio = 1
+
+			else:
+				outputRatio = 1 - (i / steps)
+
+			outputRatio = round(outputRatio, precisionVal)
+
+			allOutputRatios.append(outputRatio)
+
+		self.makeGradientGrid(allOutputRatios)
+
+		print(allOutputRatios)
+		reversed_allOutputRatios = list(reversed(allOutputRatios))
+		print(reversed_allOutputRatios)
+
+	def makeGradientGrid(self, gradientArray):
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		cam1_data = bpy.data.cameras.new('Camera')
+		cam = bpy.data.objects.new('Camera', cam1_data)
+		bpy.context.collection.objects.link(cam)
+
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+		# bpy.context.object.data.type = 'ORTHO'
+		self.myCam.data.type = 'ORTHO'
+
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+
+		usablePrimitiveType_gradient_id = 'grid'
+
+		if usablePrimitiveType_gradient_id == 'grid':
+			bpy.ops.mesh.primitive_grid_add()
+
+
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.hide_set(1)
+		myInputMesh.hide_render = True
+
+		#####################
+		### grey background
+		#####################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		#####################
+		### each gradient face
+		#####################
+		locationMultiplier = .5
+		# for i in range(10):
+		# for i in gradientArray:
+		for idx, i in enumerate(gradientArray):
+			bpy.context.view_layer.objects.active = myInputMesh
+			myDupeGradient = self.copyObject()
+			myDupeGradient.name = 'dupeGradient_' + str(idx)
+			myDupeGradient.scale = mathutils.Vector((.1, .1, .1))
+			# myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplier * i, 0))
+			myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplier * idx, 0))
+			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+			# myDupeGradient.hide_set(1)
+			# myDupeGradient.hide_render = True
+
+			bpy.context.view_layer.objects.active = myDupeGradient
+			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", i, i, i)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+
+
+	def gradient_UI(self):
+
 		#####################
 		##### GRADIENT
 		#####################
@@ -1753,7 +1846,6 @@ class ABJ_Shader_Debugger():
 
 		# print(round(Ci_gc.x, precisionVal))
 
-		# self.updateScene()
 
 	def step(self, edge, x):
 		myOutput = None
@@ -2779,6 +2871,15 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_refreshstage2_operator')
 
 		######################################
+		###### GRADIENT
+		######################################
+		layout.label(text='Gradient')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_gradient_operator')
+
+
+		######################################
 		###### BREAKPOINTS
 		######################################
 		layout.label(text='BREAKPOINTS')
@@ -2895,11 +2996,22 @@ class SHADER_OT_STATICSTAGE1(bpy.types.Operator):
 		return {'FINISHED'}
 
 class SHADER_OT_REFRESHSTAGE2(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 	bl_label = 'refresh stage 2'
 	bl_idname = 'shader.abj_shader_debugger_refreshstage2_operator'
 
 	def execute(self, context):
 		myABJ_SD_B.refreshPart2_UI()
+		return {'FINISHED'}
+	
+class SHADER_OT_GRADIENT(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'gradient'
+	bl_idname = 'shader.abj_shader_debugger_gradient_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.gradient_UI()
 		return {'FINISHED'}
 
 ##############
@@ -3041,6 +3153,6 @@ myABJ_SD_B = ABJ_Shader_Debugger() ######################
 - additional shading models (oren, glass, hair, subsurface, sheen, fuzz)
 - Multiple lights
 
-- gradient mixer
+- gradient mixer (pencil, pen, greyscale paint, color pencil, color paint)
 
 '''
