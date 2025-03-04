@@ -1886,8 +1886,11 @@ class ABJ_Shader_Debugger():
 		self.myCam.data.type = 'ORTHO'
 
 		#near 8.5x11 printable ratio
-		bpy.context.scene.render.resolution_x = 3900
-		bpy.context.scene.render.resolution_y = 3000
+		# bpy.context.scene.render.resolution_x = 3900
+		# bpy.context.scene.render.resolution_y = 3000
+
+		bpy.context.scene.render.resolution_x = 2550
+		bpy.context.scene.render.resolution_y = 1970
 
 		self.updateScene() # need
 
