@@ -1904,7 +1904,7 @@ class ABJ_Shader_Debugger():
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
 		myInputMesh.hide_set(1)
-		myInputMesh.hide_render = True
+		# myInputMesh.hide_render = True
 
 		#####################
 		### grey background
@@ -2077,6 +2077,8 @@ class ABJ_Shader_Debugger():
 				bpy.context.active_object.data.materials.append(mat1)
 
 				bpy.context.view_layer.objects.active = myDupeGradient
+
+		myInputMesh.hide_render = True
 
 	def gradient_UI(self):
 
