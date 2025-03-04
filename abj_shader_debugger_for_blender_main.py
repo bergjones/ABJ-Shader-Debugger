@@ -1797,7 +1797,33 @@ class ABJ_Shader_Debugger():
 
 		# self.updateScene()
 
+	def test_gradientRows(self, startIdx, rangeLength):
+		gradientArrayTest = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0]
+
+		sortedRows = []
+		usableCurrRow = 0
+
+		for idx, i in enumerate(gradientArrayTest):
+			myRange = range(startIdx, startIdx + rangeLength)
+			
+			usable_Z_Row = None
+
+			if idx > myRange[-1]:
+				startIdx = startIdx + rangeLength
+				myRange = range(startIdx, startIdx + rangeLength)
+				usableCurrRow += 1
+			
+			if myRange[0] <= idx <= myRange[-1]:
+				usable_Z_Row = usableCurrRow
+
+			sortedRows.append(usable_Z_Row)
+
+		print('gradientArrayTest = ', gradientArrayTest)
+		print('sortedRows = ', sortedRows)
+
 	def printGreyScaleGradient(self, steps):
+		# self.test_gradientRows(0, 5)
+
 		outputRatio = None
 		allOutputRatios = []
 
@@ -1898,71 +1924,77 @@ class ABJ_Shader_Debugger():
 		#####################
 		### each gradient face
 		#####################
-		locationMultiplierY = .5
-		locationMultiplierZ = -.5
+		# gradientScale = 0.1
+		# gradientScale = 0.15
+		gradientScale = 0.175
+		# rangeLength = 5
+		# rangeLength = 12
+		rangeLength = 15
 
-		rowStep = 5
-		rowMult = 1
-		myRow = 0
+		# locationMultiplierY = .5
+		# locationMultiplierY = .35
+		locationMultiplierY = .4
+		# locationMultiplierZ = -.5
+		locationMultiplierZ = -.6
+		# locationMultiplierZ = -.75
+		raiseLowerZ = 1
 		usable_Z_Row = 0
+
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
+
+
 
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
 		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
 
 		precisionVal = int(usableTextRGBPrecision_id)
-		precisionVal = 1 # DEBUG
-		# precisionVal = 2 # DEBUG
+
+		if precisionVal == -1:
+			precisionVal = 3
+
+		# precisionVal = 1 # DEBUG
+		precisionVal = 2 # DEBUG
 		# precisionVal = 3 # DEBUG
-
-		# if precisionVal == -1:
-		# 	pass
-
-		# else:
-		# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
 
 		val_text_gradient_rotate_x_prop = bpy.context.scene.text_gradient_rotate_x_prop
 		val_text_gradient_rotate_y_prop = bpy.context.scene.text_gradient_rotate_y_prop
 		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
 
-		# myRotation = self.myV * mathutils.Vector((math.radians(val_text_gradient_rotate_x_prop), math.radians(val_text_gradient_rotate_y_prop), math.radians(val_text_gradient_rotate_z_prop)))
-		# myRotation = mathutils.Vector((math.radians(val_text_gradient_rotate_x_prop), math.radians(val_text_gradient_rotate_y_prop), math.radians(val_text_gradient_rotate_z_prop)))
 		myRotation = mathutils.Vector((math.radians(90), math.radians(val_text_gradient_rotate_y_prop), math.radians(90)))
+
 
 		for idx, i in enumerate(gradientArray):
 			bpy.context.view_layer.objects.active = myInputMesh
 			myDupeGradient = self.copyObject()
 			myDupeGradient.name = 'dupeGradient_' + str(idx)
-			myDupeGradient.scale = mathutils.Vector((.1, .1, .1))
+			myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
 
-			# if (myRow * rowMult) < idx < (myRow * rowMult) + rowStep - 1:
-			# 	usable_Z_Row = 0
+			myRange = range(startIdx, startIdx + rangeLength)
+			usable_Z_Row = None
 
-			# if myRow < idx < myRow + rowStep:
-			# 	usable_Z_Row = 0
+			if idx > myRange[-1]:
+				startIdx = startIdx + rangeLength
+				myRange = range(startIdx, startIdx + rangeLength)
+				usableCurrLoc_Y = 0
+				usableCurrRow_Z += 1
+			
+			if myRange[0] <= idx <= myRange[-1]:
+				usable_Z_Row = usableCurrRow_Z
+				output_Y = usableCurrLoc_Y # * yMult # * idx)
+				usableCurrLoc_Y += 1
 
-			# if idx == myRow + rowStep - 1:
-			# 	myRow = myRow + rowStep
+			# gradient_startPos = mathutils.Vector((0, -2.5, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, .9)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.75, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, 1.1)) #top left
+			gradient_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
 
+			myDupeGradient.location = gradient_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
 
-
-			if 0 <= idx <= 4:
-				usable_Z_Row = 0
-			elif 5 <= idx <= 10:
-				usable_Z_Row = 1
-			# elif 10 < idx < 15:
-				# usable_Z_Row = 2	
-
-			# if 0 < idx < 4:
-			# 	usable_Z_Row = 0
-			# elif 4 < idx < 10:
-			# 	usable_Z_Row = 1
-			# elif 10 < idx < 15:
-			# 	usable_Z_Row = 2	
-
-			myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplierY * idx, locationMultiplierZ * usable_Z_Row))
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
-			# myDupeGradient.hide_set(1)
-			# myDupeGradient.hide_render = True
 
 			Ci_gc = mathutils.Vector((i, i, i))
 			if precisionVal == -1:
@@ -1971,8 +2003,6 @@ class ABJ_Shader_Debugger():
 				Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
 
 			bpy.context.view_layer.objects.active = myDupeGradient
-			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
-			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", i, i, i)
 			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
@@ -1991,11 +2021,24 @@ class ABJ_Shader_Debugger():
 				myFontOb.data.align_x = 'CENTER'
 				myFontOb.data.align_y = 'CENTER'
 
-				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, 0))
+				# textRaiseLower = 0.15
+				# textRaiseLower = 0.175
+				# textRaiseLower = 0.2
+				textRaiseLower = 0.12
+
+				if idx % 2 == 0:
+					#even
+					textRaiseLower *= 1
+				else:
+					#odd
+					textRaiseLower *= -1
+
+				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLower))
 				myFontOb.rotation_euler = myRotation
 
 				self.updateScene() # need
 
+				'''
 				bpy.context.view_layer.objects.active = myDupeGradient
 				me = bpy.context.active_object.data
 
@@ -2013,24 +2056,15 @@ class ABJ_Shader_Debugger():
 				val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
 
 				outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+				'''
 
-				# myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
-
-				myFontScale = 0.05
-				myFontScale = 0.075
+				# myFontScale = 0.075
+				myFontScale = 0.06
 				myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
 
 				myFontOb.data.body = t
 
-
-				# myFontOb.rotation_euler = myRotation
-
 				bpy.context.collection.objects.link(myFontOb)
-
-				# myInputMesh = bpy.context.active_object
-				# bpy.context.view_layer.objects.active = myFontOb
-				# myFontOb.select_set(1)
-				# bpy.ops.transform.rotate(value=math.radians(90), orient_axis='Z', orient_type='GLOBAL')
 
 				myFontOb.show_in_front = True
 
@@ -2038,37 +2072,11 @@ class ABJ_Shader_Debugger():
 
 				bpy.context.view_layer.objects.active = myFontOb
 
-
-				# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
 				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
 				bpy.context.active_object.data.materials.clear()
 				bpy.context.active_object.data.materials.append(mat1)
 
-
-
-
 				bpy.context.view_layer.objects.active = myDupeGradient
-
-		'''
-		for idx, i in enumerate(gradientArray):
-			bpy.context.view_layer.objects.active = myInputMesh
-			myDupeGradient = self.copyObject()
-			myDupeGradient.name = 'dupeGradient_' + str(idx)
-			myDupeGradient.scale = mathutils.Vector((.1, .1, .1))
-			# myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplier * i, 0))
-			myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplier * idx, 0))
-			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
-			# myDupeGradient.hide_set(1)
-			# myDupeGradient.hide_render = True
-
-			bpy.context.view_layer.objects.active = myDupeGradient
-			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
-			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", i, i, i)
-			bpy.context.active_object.data.materials.clear()
-			bpy.context.active_object.data.materials.append(mat1)
-		'''
-
-
 
 	def gradient_UI(self):
 
@@ -2096,7 +2104,8 @@ class ABJ_Shader_Debugger():
 			usableSteps = 100
 
 		# self.printGreyScaleGradient(usableSteps)
-		self.printGreyScaleGradient(10)
+		# self.printGreyScaleGradient(10)
+		self.printGreyScaleGradient(100)
 
 
 		# self.printGreyScaleGradient(10)
