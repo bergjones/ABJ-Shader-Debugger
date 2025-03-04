@@ -61,6 +61,16 @@ class ABJ_Shader_Debugger():
 		self.text_radius_0_stored = 0.005
 		self.text_radius_1_stored = 0.6
 
+		self.text_rotate_x_stored = 0.0
+		self.text_rotate_y_stored = 0.0
+		self.text_rotate_z_stored = 0.0
+
+		self.text_gradient_rotate_x_stored = 0.0
+		self.text_gradient_rotate_y_stored = 0.0
+		self.text_gradient_rotate_z_stored = 0.0
+
+
+
 		self.changedSpecularEquation_variables = False
 		self.changedDiffuseEquation_variables = False
 		self.skip_showing_visibility_raycast_check = True
@@ -608,6 +618,27 @@ class ABJ_Shader_Debugger():
 		self.stereo_retinal_rivalry_fix('cubeR_instance')
 		self.stereo_retinal_rivalry_fix('light_instance')
 
+	def defaultColorSettings_UI(self):
+		bpy.context.scene.view_settings.view_transform = 'Standard'
+		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
+		bpy.context.scene.view_settings.look = 'None'
+		bpy.context.scene.render.use_multiview = False
+
+		self.adjustedColors = False
+		try:
+			self.stereo_retinal_rivalry_fix('cubeCam')
+			self.stereo_retinal_rivalry_fix('cubeN_instance')
+			self.stereo_retinal_rivalry_fix('cubeR_instance')
+			self.stereo_retinal_rivalry_fix('light_instance')
+		except:
+			pass
+
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						space.shading.type = 'MATERIAL'		
+
 	################
 	def restoreCameraView_UI(self):
 		restoredCamMatrix = mathutils.Matrix(self.world_mat_cam_stored_np.tolist())
@@ -1098,6 +1129,27 @@ class ABJ_Shader_Debugger():
 
 		val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
 		self.text_radius_1_stored = val_text_radius_1_prop
+
+
+		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
+		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
+		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
+
+		self.text_rotate_x_stored = val_text_rotate_x_prop
+		self.text_rotate_y_stored = val_text_rotate_y_prop
+		self.text_rotate_z_stored = val_text_rotate_z_prop
+
+		val_text_gradient_rotate_x_prop = bpy.context.scene.text_gradient_rotate_x_prop
+		val_text_gradient_rotate_y_prop = bpy.context.scene.text_gradient_rotate_y_prop
+		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
+
+		self.text_gradient_rotate_x_stored = val_text_gradient_rotate_x_prop
+		self.text_gradient_rotate_y_stored = val_text_gradient_rotate_y_prop
+		self.text_gradient_rotate_z_stored = val_text_gradient_rotate_z_prop
+
+
+
+
 
 		if self.debugStageIterPlusMinus == True:
 			self.shadingStages_selectedFaces.clear()
@@ -1614,6 +1666,25 @@ class ABJ_Shader_Debugger():
 			self.text_radius_1_stored = val_text_radius_1_prop
 			self.changedSpecularEquation_variables = True
 
+
+
+
+		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
+		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
+		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
+		
+		if self.text_rotate_x_stored != val_text_rotate_x_prop:
+			self.text_rotate_x_stored = val_text_rotate_x_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.text_rotate_y_stored != val_text_rotate_y_prop:
+			self.text_rotate_y_stored = val_text_rotate_y_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.text_rotate_z_stored != val_text_rotate_z_prop:
+			self.text_rotate_z_stored = val_text_rotate_z_prop
+			self.changedSpecularEquation_variables = True
+
 		#########################
 
 		if self.runOnce_part2_preProcess == False or self.changedSpecularEquation_variables == True:
@@ -1736,7 +1807,8 @@ class ABJ_Shader_Debugger():
 		precisionVal = int(usableTextRGBPrecision_id)
 
 		if precisionVal == -1:
-			precisionVal = 5
+			# precisionVal = 5
+			precisionVal = 3 # temp
 
 		for i in range(steps + 1):
 			if i == 0:
@@ -1751,17 +1823,22 @@ class ABJ_Shader_Debugger():
 
 		self.makeGradientGrid(allOutputRatios)
 
+		self.defaultColorSettings_UI()
+
 		print(allOutputRatios)
-		reversed_allOutputRatios = list(reversed(allOutputRatios))
-		print(reversed_allOutputRatios)
+		# reversed_allOutputRatios = list(reversed(allOutputRatios))
+		# print(reversed_allOutputRatios)
 
 	def makeGradientGrid(self, gradientArray):
-		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
-		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
 
 		self.deselectAll()
 		self.deleteAllObjects()
 		self.mega_purge()
+		
+		self.textRef_all.clear()
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
 
 		###########
 		#DEFAULT CAMERA
@@ -1777,19 +1854,26 @@ class ABJ_Shader_Debugger():
 
 		# self.myCam.location = self.pos_camera_global
 		self.myCam.location = mathutils.Vector((20, 0, 0))
+
+
 		# bpy.context.object.data.type = 'ORTHO'
 		self.myCam.data.type = 'ORTHO'
+
+		#near 8.5x11 printable ratio
+		bpy.context.scene.render.resolution_x = 3900
+		bpy.context.scene.render.resolution_y = 3000
 
 		self.updateScene() # need
 
 		self.look_at(self.myCam, self.myOrigin)
 
+		self.myV = self.myCam.matrix_world.to_translation()
+		self.myV.normalize()
 
 		usablePrimitiveType_gradient_id = 'grid'
 
 		if usablePrimitiveType_gradient_id == 'grid':
 			bpy.ops.mesh.primitive_grid_add()
-
 
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
@@ -1814,9 +1898,158 @@ class ABJ_Shader_Debugger():
 		#####################
 		### each gradient face
 		#####################
-		locationMultiplier = .5
-		# for i in range(10):
-		# for i in gradientArray:
+		locationMultiplierY = .5
+		locationMultiplierZ = -.5
+
+		rowStep = 5
+		rowMult = 1
+		myRow = 0
+		usable_Z_Row = 0
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+		precisionVal = 1 # DEBUG
+		# precisionVal = 2 # DEBUG
+		# precisionVal = 3 # DEBUG
+
+		# if precisionVal == -1:
+		# 	pass
+
+		# else:
+		# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
+
+		val_text_gradient_rotate_x_prop = bpy.context.scene.text_gradient_rotate_x_prop
+		val_text_gradient_rotate_y_prop = bpy.context.scene.text_gradient_rotate_y_prop
+		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
+
+		# myRotation = self.myV * mathutils.Vector((math.radians(val_text_gradient_rotate_x_prop), math.radians(val_text_gradient_rotate_y_prop), math.radians(val_text_gradient_rotate_z_prop)))
+		# myRotation = mathutils.Vector((math.radians(val_text_gradient_rotate_x_prop), math.radians(val_text_gradient_rotate_y_prop), math.radians(val_text_gradient_rotate_z_prop)))
+		myRotation = mathutils.Vector((math.radians(90), math.radians(val_text_gradient_rotate_y_prop), math.radians(90)))
+
+		for idx, i in enumerate(gradientArray):
+			bpy.context.view_layer.objects.active = myInputMesh
+			myDupeGradient = self.copyObject()
+			myDupeGradient.name = 'dupeGradient_' + str(idx)
+			myDupeGradient.scale = mathutils.Vector((.1, .1, .1))
+
+			# if (myRow * rowMult) < idx < (myRow * rowMult) + rowStep - 1:
+			# 	usable_Z_Row = 0
+
+			# if myRow < idx < myRow + rowStep:
+			# 	usable_Z_Row = 0
+
+			# if idx == myRow + rowStep - 1:
+			# 	myRow = myRow + rowStep
+
+
+
+			if 0 <= idx <= 4:
+				usable_Z_Row = 0
+			elif 5 <= idx <= 10:
+				usable_Z_Row = 1
+			# elif 10 < idx < 15:
+				# usable_Z_Row = 2	
+
+			# if 0 < idx < 4:
+			# 	usable_Z_Row = 0
+			# elif 4 < idx < 10:
+			# 	usable_Z_Row = 1
+			# elif 10 < idx < 15:
+			# 	usable_Z_Row = 2	
+
+			myDupeGradient.location = mathutils.Vector((0, -2.5, 0)) + mathutils.Vector((0, locationMultiplierY * idx, locationMultiplierZ * usable_Z_Row))
+			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+			# myDupeGradient.hide_set(1)
+			# myDupeGradient.hide_render = True
+
+			Ci_gc = mathutils.Vector((i, i, i))
+			if precisionVal == -1:
+				pass
+			else:
+				Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+
+			bpy.context.view_layer.objects.active = myDupeGradient
+			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
+			# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", i, i, i)
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+			#####################
+			### text_add() (better text placement)
+			#####################
+			if precisionVal != -1:
+				# precisionVal = 3
+				t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+
+				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+				myFontCurve.body = t
+
+				myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
+				myFontOb.data.align_x = 'CENTER'
+				myFontOb.data.align_y = 'CENTER'
+
+				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, 0))
+				myFontOb.rotation_euler = myRotation
+
+				self.updateScene() # need
+
+				bpy.context.view_layer.objects.active = myDupeGradient
+				me = bpy.context.active_object.data
+
+				bm = bmesh.new()   # create an empty BMesh
+				bm.from_mesh(me)   # fill it in from a Mesh
+
+				outputSize = 0
+				for f in bm.faces:
+					# normalDir = f.normal
+					# f = f 
+					outputSize = f.calc_area()
+					outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
+
+				val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+				val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+				outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+
+				# myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
+
+				myFontScale = 0.05
+				myFontScale = 0.075
+				myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
+
+				myFontOb.data.body = t
+
+
+				# myFontOb.rotation_euler = myRotation
+
+				bpy.context.collection.objects.link(myFontOb)
+
+				# myInputMesh = bpy.context.active_object
+				# bpy.context.view_layer.objects.active = myFontOb
+				# myFontOb.select_set(1)
+				# bpy.ops.transform.rotate(value=math.radians(90), orient_axis='Z', orient_type='GLOBAL')
+
+				myFontOb.show_in_front = True
+
+				self.textRef_all.append(myFontOb.name)
+
+				bpy.context.view_layer.objects.active = myFontOb
+
+
+				# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", 0.5, 0.5, 0.5)
+				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+				bpy.context.active_object.data.materials.clear()
+				bpy.context.active_object.data.materials.append(mat1)
+
+
+
+
+				bpy.context.view_layer.objects.active = myDupeGradient
+
+		'''
 		for idx, i in enumerate(gradientArray):
 			bpy.context.view_layer.objects.active = myInputMesh
 			myDupeGradient = self.copyObject()
@@ -1833,6 +2066,7 @@ class ABJ_Shader_Debugger():
 			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", i, i, i)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
+		'''
 
 
 
@@ -1841,7 +2075,31 @@ class ABJ_Shader_Debugger():
 		#####################
 		##### GRADIENT
 		#####################
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+		usableSteps = None
+
+		if precisionVal == -1:
+			usableSteps = 100
+
+		elif precisionVal == 1:
+			usableSteps = 10
+
+		elif precisionVal == 2:
+			usableSteps = 100
+
+		elif precisionVal == 3:
+			# usableSteps = 1000
+			usableSteps = 100
+
+		# self.printGreyScaleGradient(usableSteps)
 		self.printGreyScaleGradient(10)
+
+
+		# self.printGreyScaleGradient(10)
 		# self.printGreyScaleGradient(20)
 
 		# print(round(Ci_gc.x, precisionVal))
@@ -1912,7 +2170,21 @@ class ABJ_Shader_Debugger():
 		else:
 			Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
 
-		myRotation = self.myV * mathutils.Vector((0, 0, 180))
+
+
+		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
+		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
+		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
+
+
+
+		# myRotation = self.myV * mathutils.Vector((0, 0, 180))
+		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(180)))
+		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(90)))
+
+
+
+		myRotation = self.myV * mathutils.Vector((math.radians(val_text_rotate_x_prop), math.radians(val_text_rotate_y_prop), math.radians(val_text_rotate_z_prop)))
 		
 		if self.specTesterMatToggle == -1:
 			for j in bpy.context.scene.objects:
@@ -2801,7 +3073,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 1.0 ###
 		row.prop(bpy.context.scene, 'r_dot_v_pow_enum_prop', text="")
 
-		layout.label(text='camera')
+		layout.label(text='Camera')
 		row = layout.row()
 		row.operator('shader.abj_shader_debugger_restorecameraview_operator')
 
@@ -2825,7 +3097,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		# row = layout.row()
 		
 		#show / hide arrows
-		layout.label(text='toggle 0')
+		layout.label(text='Toggle 0')
 		row = layout.row()
 		row.scale_y = 1.0 ###
 		row.operator('shader.abj_shader_debugger_showhidearrow_operator')
@@ -2837,7 +3109,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		###### TEXT
 		######################################
 		layout.label(text='TEXT')
-		layout.label(text='precision')
+		layout.label(text='Precision')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'text_rgb_precision_enum_prop', text="")
 
@@ -2847,6 +3119,12 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.prop(bpy.context.scene, 'text_radius_1_prop')
 
+		layout.label(text='Text Rxyz')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'text_rotate_x_prop')
+		row.prop(bpy.context.scene, 'text_rotate_y_prop')
+		row.prop(bpy.context.scene, 'text_rotate_z_prop')
+
 		######################################
 		###### COLOR PRESETS
 		######################################
@@ -2855,7 +3133,10 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_agx_color_operator')
 		row.operator('shader.abj_shader_debugger_text_color_operator')
+		row = layout.row()
+		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_stereoscopic_color_operator')
+		row.operator('shader.abj_shader_debugger_default_color_operator')
 
 		######################################
 		###### CONVIENENCE REDUNDANT CONTROLS
@@ -2878,6 +3159,11 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_gradient_operator')
 
+		layout.label(text='Gradient Text Rxyz')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'text_gradient_rotate_x_prop')
+		row.prop(bpy.context.scene, 'text_gradient_rotate_y_prop')
+		row.prop(bpy.context.scene, 'text_gradient_rotate_z_prop')
 
 		######################################
 		###### BREAKPOINTS
@@ -3123,6 +3409,14 @@ class SHADER_OT_STEREOSCOPICCOLORSETTINGS(bpy.types.Operator):
 
 	def execute(self, context):
 		myABJ_SD_B.stereoscopicColorSettings_UI()
+		return {'FINISHED'}
+
+class SHADER_OT_DEFAULTCOLORSETTINGS(bpy.types.Operator):
+	bl_label = 'default'
+	bl_idname = 'shader.abj_shader_debugger_default_color_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.defaultColorSettings_UI()
 		return {'FINISHED'}
 
 #################

@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENT
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENT
 
 
 if "bpy" in locals():
@@ -71,11 +71,11 @@ classes = [
 	SHADER_OT_AGXCOLORSETTINGS,
 	SHADER_OT_TEXTCOLORSETTINGS,
 	SHADER_OT_STEREOSCOPICCOLORSETTINGS,
+	SHADER_OT_DEFAULTCOLORSETTINGS,
 	
 	SHADER_OT_TOGGLEEXTRAS,
 	SHADER_OT_GRADIENT,
 ]
-
 
 def register():
 	for c in classes:
@@ -84,14 +84,22 @@ def register():
 
 	# '''
 	
-	bpy.types.Scene.min_shaded_prop = bpy.props.IntProperty(min=0, max=200, default=50)
+	bpy.types.Scene.min_shaded_prop = bpy.props.IntProperty(min=0, max=200, default=50, name='min_shaded')
 
-	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5)
-	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1)
-	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15)
+	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5, name='oren_roughness')
+	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_roughness')
+	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15, name='ggx_fresnel')
 
-	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005)
-	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6)
+	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005, name='text_radius_0')
+	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6, name='text_radius_1')
+
+	bpy.types.Scene.text_rotate_x_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='rx')
+	bpy.types.Scene.text_rotate_y_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='ry')
+	bpy.types.Scene.text_rotate_z_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=270.0, name='rz')
+
+	bpy.types.Scene.text_gradient_rotate_x_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='rx')
+	bpy.types.Scene.text_gradient_rotate_y_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='ry')
+	bpy.types.Scene.text_gradient_rotate_z_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='rz')
 
 	# [(identifier, name, description, icon, number), ...].
 	r_dot_v_pow_enum_items = (
@@ -449,6 +457,13 @@ def unregister():
 
 	del bpy.types.Scene.text_radius_0_prop
 	del bpy.types.Scene.text_radius_1_prop
+	del bpy.types.Scene.text_rotate_x_prop
+	del bpy.types.Scene.text_rotate_y_prop
+	del bpy.types.Scene.text_rotate_z_prop
+
+	del bpy.types.Scene.text_gradient_rotate_x_prop
+	del bpy.types.Scene.text_gradient_rotate_y_prop
+	del bpy.types.Scene.text_gradient_rotate_z_prop
 
 	del bpy.types.Scene.breakpoint_000_enum_prop
 	del bpy.types.Scene.breakpoint_001_enum_prop
