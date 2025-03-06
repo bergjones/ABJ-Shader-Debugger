@@ -1855,7 +1855,50 @@ class ABJ_Shader_Debugger():
 		# reversed_allOutputRatios = list(reversed(allOutputRatios))
 		# print(reversed_allOutputRatios)
 
-	def makeGradientGrid(self, gradientArray):
+	def printColorGradient(self, steps, startColor, endColor):
+
+		outputRatio_x = None
+		outputRatio_y = None
+		outputRatio_z = None
+		allOutputRatios = []
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		if precisionVal == -1:
+			# precisionVal = 5
+			precisionVal = 3 # temp
+
+		for i in range(steps + 1):
+			lerpIter = None
+			if i == 0:
+				lerpIter = 1
+
+			else:
+				lerpIter = 1 - (i / steps)
+
+			outputRatio_x = self.lerp(startColor.x, endColor.x, lerpIter)
+			outputRatio_y = self.lerp(startColor.y, endColor.y, lerpIter)
+			outputRatio_z = self.lerp(startColor.z, endColor.z, lerpIter)
+
+			outputRatio_x = self.lerp(endColor.x, startColor.x, lerpIter)
+			outputRatio_y = self.lerp(endColor.y, startColor.y, lerpIter)
+			outputRatio_z = self.lerp(endColor.z, startColor.z, lerpIter)
+
+			comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
+			allOutputRatios.append(comboRatio_xyz)
+
+		self.makeGradientGrid_color(allOutputRatios)
+
+		self.defaultColorSettings_UI()
+
+		print(allOutputRatios)
+		# reversed_allOutputRatios = list(reversed(allOutputRatios))
+		# print(reversed_allOutputRatios)
+
+	def makeGradientGrid_color(self, gradientArray):
 
 		self.deselectAll()
 		self.deleteAllObjects()
@@ -1999,11 +2042,243 @@ class ABJ_Shader_Debugger():
 
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
+			# Ci_gc = mathutils.Vector((i, i, i))
+			Ci_gc = mathutils.Vector((i))
+			# Ci_gc = mathutils.Vector((gradientArray[i]))
+			# Ci_gc = mathutils.Vector((gradientArray[i].x, gradientArray[i].y, gradientArray[i].z))
+
+			# if precisionVal == -1:
+			# 	pass
+			# else:
+			# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+
+			bpy.context.view_layer.objects.active = myDupeGradient
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+			#####################
+			### text_add() (better text placement)
+			#####################
+			if precisionVal != -1:
+				# precisionVal = 3
+				t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+
+				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+				myFontCurve.body = t
+
+				myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
+				myFontOb.data.align_x = 'CENTER'
+				myFontOb.data.align_y = 'CENTER'
+
+				# textRaiseLower = 0.15
+				# textRaiseLower = 0.175
+				# textRaiseLower = 0.2
+				textRaiseLower = 0.12
+
+				if idx % 2 == 0:
+					#even
+					textRaiseLower *= 1
+				else:
+					#odd
+					textRaiseLower *= -1
+
+				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLower))
+				myFontOb.rotation_euler = myRotation
+
+				self.updateScene() # need
+
+				'''
+				bpy.context.view_layer.objects.active = myDupeGradient
+				me = bpy.context.active_object.data
+
+				bm = bmesh.new()   # create an empty BMesh
+				bm.from_mesh(me)   # fill it in from a Mesh
+
+				outputSize = 0
+				for f in bm.faces:
+					# normalDir = f.normal
+					# f = f 
+					outputSize = f.calc_area()
+					outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
+
+				val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+				val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+				outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+				'''
+
+				# myFontScale = 0.075
+				myFontScale = 0.06
+				myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
+
+				myFontOb.data.body = t
+
+				bpy.context.collection.objects.link(myFontOb)
+
+				myFontOb.show_in_front = True
+
+				self.textRef_all.append(myFontOb.name)
+
+				bpy.context.view_layer.objects.active = myFontOb
+
+				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+				bpy.context.active_object.data.materials.clear()
+				bpy.context.active_object.data.materials.append(mat1)
+
+				bpy.context.view_layer.objects.active = myDupeGradient
+
+		myInputMesh.hide_render = True
+
+
+	def makeGradientGrid(self, gradientArray):
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+		
+		self.textRef_all.clear()
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		cam1_data = bpy.data.cameras.new('Camera')
+		cam = bpy.data.objects.new('Camera', cam1_data)
+		bpy.context.collection.objects.link(cam)
+
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+
+
+		# bpy.context.object.data.type = 'ORTHO'
+		self.myCam.data.type = 'ORTHO'
+
+		#near 8.5x11 printable ratio
+		# bpy.context.scene.render.resolution_x = 3900
+		# bpy.context.scene.render.resolution_y = 3000
+
+		bpy.context.scene.render.resolution_x = 2550
+		bpy.context.scene.render.resolution_y = 1970
+
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		self.myV = self.myCam.matrix_world.to_translation()
+		self.myV.normalize()
+
+		usablePrimitiveType_gradient_id = 'grid'
+
+		if usablePrimitiveType_gradient_id == 'grid':
+			bpy.ops.mesh.primitive_grid_add()
+
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.hide_set(1)
+		# myInputMesh.hide_render = True
+
+		#####################
+		### grey background
+		#####################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		#####################
+		### each gradient face
+		#####################
+		# gradientScale = 0.1
+		# gradientScale = 0.15
+		gradientScale = 0.175
+		# rangeLength = 5
+		# rangeLength = 12
+		rangeLength = 15
+
+		# locationMultiplierY = .5
+		# locationMultiplierY = .35
+		locationMultiplierY = .4
+		# locationMultiplierZ = -.5
+		locationMultiplierZ = -.6
+		# locationMultiplierZ = -.75
+		raiseLowerZ = 1
+		usable_Z_Row = 0
+
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		if precisionVal == -1:
+			precisionVal = 3
+
+		# precisionVal = 1 # DEBUG
+		precisionVal = 2 # DEBUG
+		# precisionVal = 3 # DEBUG
+
+		val_text_gradient_rotate_x_prop = bpy.context.scene.text_gradient_rotate_x_prop
+		val_text_gradient_rotate_y_prop = bpy.context.scene.text_gradient_rotate_y_prop
+		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
+
+		myRotation = mathutils.Vector((math.radians(90), math.radians(val_text_gradient_rotate_y_prop), math.radians(90)))
+
+
+		for idx, i in enumerate(gradientArray):
+			bpy.context.view_layer.objects.active = myInputMesh
+			myDupeGradient = self.copyObject()
+			myDupeGradient.name = 'dupeGradient_' + str(idx)
+			myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
+
+			myRange = range(startIdx, startIdx + rangeLength)
+			usable_Z_Row = None
+
+			if idx > myRange[-1]:
+				startIdx = startIdx + rangeLength
+				myRange = range(startIdx, startIdx + rangeLength)
+				usableCurrLoc_Y = 0
+				usableCurrRow_Z += 1
+			
+			if myRange[0] <= idx <= myRange[-1]:
+				usable_Z_Row = usableCurrRow_Z
+				output_Y = usableCurrLoc_Y # * yMult # * idx)
+				usableCurrLoc_Y += 1
+
+			# gradient_startPos = mathutils.Vector((0, -2.5, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, .9)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.75, 1)) #top left
+			# gradient_startPos = mathutils.Vector((0, -2.6, 1.1)) #top left
+			gradient_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
+
+			myDupeGradient.location = gradient_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
+
+			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
 			Ci_gc = mathutils.Vector((i, i, i))
-			if precisionVal == -1:
-				pass
-			else:
-				Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+
+			# if precisionVal == -1:
+			# 	pass
+			# else:
+			# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
 
 			bpy.context.view_layer.objects.active = myDupeGradient
 			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
@@ -2110,14 +2385,15 @@ class ABJ_Shader_Debugger():
 
 		# self.printGreyScaleGradient(usableSteps)
 		# self.printGreyScaleGradient(10)
-		self.printGreyScaleGradient(100)
+		# self.printGreyScaleGradient(100)
 
+		startColor = mathutils.Vector((1.0, 0.0, 0.0))
+		endColor = mathutils.Vector((0.0, 1.0, 0.0))
 
-		# self.printGreyScaleGradient(10)
-		# self.printGreyScaleGradient(20)
+		# self.printColorGradient(10, startColor, endColor)
+		self.printColorGradient(100, startColor, endColor)
 
 		# print(round(Ci_gc.x, precisionVal))
-
 
 	def step(self, edge, x):
 		myOutput = None
@@ -3462,5 +3738,7 @@ myABJ_SD_B = ABJ_Shader_Debugger() ######################
 - Multiple lights
 
 - gradient mixer (pencil, pen, greyscale paint, color pencil, color paint)
+
+- subdivision gradient lerping blending sim
 
 '''

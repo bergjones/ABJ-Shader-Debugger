@@ -826,6 +826,61 @@ class myEquation_GGX:
 
 	# This function is based on a public domain algorithm found at [http://filmicworlds.com/blog/optimizing-ggx-shaders-with-dotlh/ or https://gist.github.com/alvalau/c4aa35069ff339da5e59e5ed9c4db192]
 	def equation_notes_for_study(self, abj_sd_b_instance):
+		printableVersion = True
+
+		if printableVersion == True:
+			pass
+
+			'''
+			
+			# if NdotV < 0.1 (ortho -> persp fix), spec = 0
+			############## D......dotNH, roughness^3
+			if items_id_currentStage == 0:
+					("'N....show N arrow (cubeN)'")
+			elif items_id_currentStage == 1:
+					("'V + L....show V arrow and L arrow'")
+			elif items_id_currentStage == 2:
+					("V + L + H....show V arrow and L arrow and H arrow'")
+					("'H = mathutils.Vector(V + L).normalized()")
+			elif items_id_currentStage == 3:
+					("'dotNH....show N and H arrows'")
+			elif items_id_currentStage == 4:
+					("'dotNH * dotNH'")
+			elif items_id_currentStage == 5:
+					("'roughness'")
+			elif items_id_currentStage == 6:
+					("'alpha = roughness * roughness'")
+			elif items_id_currentStage == 7:
+					("'alphaSqr = alpha * alpha'")
+			elif items_id_currentStage == 8:
+					("'denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
+			elif items_id_currentStage == 9:
+					("'D = alphaSqr / (pi * denom * denom)")
+			############## FRESNEL......dotLH, F0
+			elif items_id_currentStage == 10:
+					("'dotLH....show L arrow and H arrow")
+					("'H = mathutils.Vector(V + L).normalized()")
+			elif items_id_currentStage == 11:
+					("'dotLH5 = pow(1.0 - dotLH, 5)")
+			elif items_id_currentStage == 12:
+					("'F = F0 + (1.0 - F0) * (dotLH5)")
+			############## V - Shadowing......dotNL, dotNV, roughness^2
+			elif items_id_currentStage == 13:
+					("'k = alpha / 2.0")
+			elif items_id_currentStage == 14:
+					("'G1V(dotNL, k)")
+					("'1.0 / (dotNL * (1.0 - k) + k)")
+			elif items_id_currentStage == 15:
+					("'G1V(dotNV, k)")
+					("'1.0 / (dotNV * (1.0 - k) + k)")
+			elif items_id_currentStage == 16:
+					("'vis = G1V(dotNL, k) * G1V(dotNV, k)")
+			if items_id_currentStage == 17:
+					('output AOV = dotNL * D * F * vis')
+
+			'''
+
+
 		'''
 		if NdotV < 0.1 (ortho -> persp fix), spec = 0
 		if raycast from V to faceCenter = False : spec 0
