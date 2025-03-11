@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENT
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENT, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL
 
 
 if "bpy" in locals():
@@ -75,6 +75,8 @@ classes = [
 	
 	SHADER_OT_TOGGLEEXTRAS,
 	SHADER_OT_GRADIENT,
+	SHADER_OT_GRADIENTCOLOR,
+	SHADER_OT_GRADIENTCOLORWHEEL,
 ]
 
 def register():
@@ -83,7 +85,19 @@ def register():
 		bpy.utils.register_class(c)
 
 	# '''
+	default_gradientColor_0 = (0, 0, 0)
+	min_gradientColor_0 = 0
+	max_gradientColor_0 = 1
+	bpy.types.Scene.gradient_color0_prop = bpy.props.FloatVectorProperty(default=default_gradientColor_0, min=min_gradientColor_0, max=max_gradientColor_0, name='gradient_color_0')
+
+	default_gradientColor_1 = (0, 0, 0)
+	min_gradientColor_1 = 0
+	max_gradientColor_1 = 1
+	bpy.types.Scene.gradient_color1_prop = bpy.props.FloatVectorProperty(default=default_gradientColor_1, min=min_gradientColor_1, max=max_gradientColor_1, name='gradient_color_1')
 	
+	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
+	bpy.types.Scene.gradient_inner_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='inner_circle_steps')
+
 	bpy.types.Scene.min_shaded_prop = bpy.props.IntProperty(min=0, max=200, default=50, name='min_shaded')
 
 	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5, name='oren_roughness')
@@ -435,6 +449,12 @@ def unregister():
 		bpy.utils.unregister_class(c)
 
 	# '''
+	
+	del bpy.types.Scene.gradient_color0_prop
+	del bpy.types.Scene.gradient_color1_prop
+
+	del bpy.types.Scene.gradient_outer_circle_steps_prop
+	del bpy.types.Scene.gradient_inner_circle_steps_prop
 
 	del bpy.types.Scene.min_shaded_prop
 	del bpy.types.Scene.oren_roughness_prop
