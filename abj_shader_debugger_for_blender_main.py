@@ -2039,6 +2039,15 @@ class ABJ_Shader_Debugger():
 
 				comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
 
+				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+				gammaCorrect_r = pow(comboRatio_xyz.x, gammaCorrect.x)
+				gammaCorrect_g = pow(comboRatio_xyz.y, gammaCorrect.y)
+				gammaCorrect_b = pow(comboRatio_xyz.z, gammaCorrect.z)
+
+				comboRatio_xyz = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+				# comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
+
 			elif usableAdditiveOrSubtractiveColorBlending_id == 'subtractive':
 				outputRatio_x = spectral.spectral_mix(endColor, startColor, lerpIter)
 				comboRatio_xyz = mathutils.Vector((outputRatio_x[0] / 255, outputRatio_x[1] / 255, outputRatio_x[2] / 255))
