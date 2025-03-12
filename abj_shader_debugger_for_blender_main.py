@@ -1976,6 +1976,7 @@ class ABJ_Shader_Debugger():
 
 		steps = 100
 		steps = usableSteps
+		# steps = 25
 
 		val_gradient_color0_prop = bpy.context.scene.gradient_color0_prop
 		val_gradient_color1_prop = bpy.context.scene.gradient_color1_prop
@@ -2108,6 +2109,12 @@ class ABJ_Shader_Debugger():
 			outputRatio_x_01 = self.lerp(endColor_black.x, outputRatio_x, lerpIter_inner)
 			outputRatio_y_01 = self.lerp(endColor_black.y, outputRatio_y, lerpIter_inner)
 			outputRatio_z_01 = self.lerp(endColor_black.z, outputRatio_z, lerpIter_inner)
+
+			# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+			# outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
+			# outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
+			# outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
+
 
 			#always up down
 			# textRaiseLowerZ = 0.05 * lerpIter_inner
@@ -2640,8 +2647,36 @@ class ABJ_Shader_Debugger():
 
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
+
+
+
+
 			# Ci_gc = mathutils.Vector((i, i, i))
 			Ci_gc = mathutils.Vector((i))
+
+
+
+
+
+			# gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+			# # gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+			# gammaCorrect_r = pow(Ci_gc.x, gammaCorrect.x)
+			# gammaCorrect_g = pow(Ci_gc.y, gammaCorrect.y)
+			# gammaCorrect_b = pow(Ci_gc.z, gammaCorrect.z)
+
+			# Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+
+
+
+
+
+
+
+
+
+
+
 			# Ci_gc = mathutils.Vector((gradientArray[i]))
 			# Ci_gc = mathutils.Vector((gradientArray[i].x, gradientArray[i].y, gradientArray[i].z))
 
@@ -2659,8 +2694,21 @@ class ABJ_Shader_Debugger():
 			### text_add() (better text placement)
 			#####################
 			if precisionVal != -1:
+
+				gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+				# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+				gammaCorrect_r = pow(Ci_gc.x, gammaCorrect.x)
+				gammaCorrect_g = pow(Ci_gc.y, gammaCorrect.y)
+				gammaCorrect_b = pow(Ci_gc.z, gammaCorrect.z)
+
+				Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+
+
+
 				# precisionVal = 3
-				t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+				# t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+				t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
 
 				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 				myFontCurve.body = t
@@ -2675,12 +2723,15 @@ class ABJ_Shader_Debugger():
 				# textRaiseLower = 0.12
 				textRaiseLower = 0.23
 
-				# if idx % 2 == 0:
-				# 	#even
-				# 	textRaiseLower *= 1
-				# else:
-				# 	#odd
-				# 	textRaiseLower *= -1
+				if idx % 2 == 0:
+					#even
+					# textRaiseLower *= 1
+					# textRaiseLower *= 1
+					pass
+				else:
+					#odd
+					# textRaiseLower *= -1
+					textRaiseLower += .06
 
 				textRaiseLower *= -1
 
