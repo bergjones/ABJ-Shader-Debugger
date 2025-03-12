@@ -2018,7 +2018,6 @@ class ABJ_Shader_Debugger():
 		# endColor = (255, 255, 0)
 		# startColor = (0, 0, 255)
 
-		# startColor = (0.0, 0.0, .99)
 
 		for i in range(steps + 1):
 			lerpIter = None
@@ -2031,6 +2030,8 @@ class ABJ_Shader_Debugger():
 			else:
 				lerpIter = 1 - (i / steps)
 
+			# lerpIter = 0.5
+
 			if usableAdditiveOrSubtractiveColorBlending_id == 'additive':
 				outputRatio_x = self.lerp(endColor[0], startColor[0], lerpIter)
 				outputRatio_y = self.lerp(endColor[1], startColor[1], lerpIter)
@@ -2042,6 +2043,13 @@ class ABJ_Shader_Debugger():
 				outputRatio_x = spectral.spectral_mix(endColor, startColor, lerpIter)
 				comboRatio_xyz = mathutils.Vector((outputRatio_x[0] / 255, outputRatio_x[1] / 255, outputRatio_x[2] / 255))
 
+				# gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+				gammaCorrect_r = pow(comboRatio_xyz.x, gammaCorrect.x)
+				gammaCorrect_g = pow(comboRatio_xyz.y, gammaCorrect.y)
+				gammaCorrect_b = pow(comboRatio_xyz.z, gammaCorrect.z)
+
+				comboRatio_xyz = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
 			allOutputRatios.append(comboRatio_xyz)
 
@@ -2574,8 +2582,6 @@ class ABJ_Shader_Debugger():
 		usableCurrRow_Z = 0
 		startIdx = 0
 
-
-
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
 		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
 
@@ -2593,7 +2599,6 @@ class ABJ_Shader_Debugger():
 		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
 
 		myRotation = mathutils.Vector((math.radians(90), math.radians(val_text_gradient_rotate_y_prop), math.radians(90)))
-
 
 		for idx, i in enumerate(gradientArray):
 			bpy.context.view_layer.objects.active = myInputMesh
@@ -2658,19 +2663,20 @@ class ABJ_Shader_Debugger():
 				# textRaiseLower = 0.15
 				# textRaiseLower = 0.175
 				# textRaiseLower = 0.2
-				textRaiseLower = 0.12
+				# textRaiseLower = 0.12
+				textRaiseLower = 0.23
 
-				if idx % 2 == 0:
-					#even
-					textRaiseLower *= 1
-				else:
-					#odd
-					textRaiseLower *= -1
+				# if idx % 2 == 0:
+				# 	#even
+				# 	textRaiseLower *= 1
+				# else:
+				# 	#odd
+				# 	textRaiseLower *= -1
+
+				textRaiseLower *= -1
 
 				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLower))
 				myFontOb.rotation_euler = myRotation
-
-				self.updateScene() # need
 
 				'''
 				bpy.context.view_layer.objects.active = myDupeGradient
@@ -2707,6 +2713,7 @@ class ABJ_Shader_Debugger():
 				bpy.context.view_layer.objects.active = myFontOb
 
 				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+				# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
 				bpy.context.active_object.data.materials.clear()
 				bpy.context.active_object.data.materials.append(mat1)
 
