@@ -115,7 +115,19 @@ def register():
 	bpy.types.Scene.text_gradient_rotate_y_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='ry')
 	bpy.types.Scene.text_gradient_rotate_z_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.0, name='rz')
 
-	# [(identifier, name, description, icon, number), ...].
+	# [(identifier, name, description, icon, number), ...]
+	additive_or_subtractive_color_blending_enum_items = (
+			('additive', 'additive', 'additive'),
+			('subtractive', 'subtractive', 'subtractive'),
+		)
+	
+	bpy.types.Scene.additive_or_subtractive_color_blending_enum_prop = bpy.props.EnumProperty(
+		name='additive_or_subtractive',
+		description="additive_or_subtractive",
+		items=additive_or_subtractive_color_blending_enum_items,
+		default='subtractive',
+	)
+
 	r_dot_v_pow_enum_items = (
 			('pow1', 'pow_1', 'R_dot_V pow 1'),
 			('pow2', 'pow_2', 'R_dot_V pow 2'),
@@ -461,6 +473,8 @@ def unregister():
 	
 	del bpy.types.Scene.ggx_roughness_prop
 	del bpy.types.Scene.ggx_fresnel_prop
+
+	del bpy.types.Scene.additive_or_subtractive_color_blending_enum_prop
 
 	del bpy.types.Scene.r_dot_v_pow_enum_prop
 	del bpy.types.Scene.primitive_enum_prop

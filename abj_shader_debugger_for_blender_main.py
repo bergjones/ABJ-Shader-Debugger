@@ -28,6 +28,7 @@ import copy
 
 from . import simple_spec_abj
 from . import GGX_hable_abj
+from . import spectral
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -1951,7 +1952,7 @@ class ABJ_Shader_Debugger():
 		# reversed_allOutputRatios = list(reversed(allOutputRatios))
 		# print(reversed_allOutputRatios)
 
-	# def printColorGradient(self, steps, startColor, endColor):
+	#This method calls a function from spectral.py, under MIT license (see file)
 	def printColorGradient(self):
 
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
@@ -1996,6 +1997,29 @@ class ABJ_Shader_Debugger():
 			# precisionVal = 5
 			precisionVal = 3 # temp
 
+
+		usableAdditiveOrSubtractiveColorBlending_items = bpy.context.scene.bl_rna.properties['additive_or_subtractive_color_blending_enum_prop'].enum_items
+		usableAdditiveOrSubtractiveColorBlending_id = usableAdditiveOrSubtractiveColorBlending_items[bpy.context.scene.additive_or_subtractive_color_blending_enum_prop].identifier
+
+		if usableAdditiveOrSubtractiveColorBlending_id == 'additive':
+			pass
+
+		elif usableAdditiveOrSubtractiveColorBlending_id == 'subtractive':
+			startColor = (startColor[0] * 255, startColor[1] * 255, startColor[2] * 255)
+			endColor = (endColor[0] * 255, endColor[1] * 255, endColor[2] * 255)
+
+
+		# endColor = (1, 1, 0)
+		# startColor = (0, 0, 1)
+
+		# endColor = (1.0, 1.0, 0.0)
+		# startColor = (0.0, 0.0, 1.0)
+
+		# endColor = (255, 255, 0)
+		# startColor = (0, 0, 255)
+
+		# startColor = (0.0, 0.0, .99)
+
 		for i in range(steps + 1):
 			lerpIter = None
 			if i == 0:
@@ -2007,11 +2031,18 @@ class ABJ_Shader_Debugger():
 			else:
 				lerpIter = 1 - (i / steps)
 
-			outputRatio_x = self.lerp(endColor[0], startColor[0], lerpIter)
-			outputRatio_y = self.lerp(endColor[1], startColor[1], lerpIter)
-			outputRatio_z = self.lerp(endColor[2], startColor[2], lerpIter)
+			if usableAdditiveOrSubtractiveColorBlending_id == 'additive':
+				outputRatio_x = self.lerp(endColor[0], startColor[0], lerpIter)
+				outputRatio_y = self.lerp(endColor[1], startColor[1], lerpIter)
+				outputRatio_z = self.lerp(endColor[2], startColor[2], lerpIter)
 
-			comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
+				comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
+
+			elif usableAdditiveOrSubtractiveColorBlending_id == 'subtractive':
+				outputRatio_x = spectral.spectral_mix(endColor, startColor, lerpIter)
+				comboRatio_xyz = mathutils.Vector((outputRatio_x[0] / 255, outputRatio_x[1] / 255, outputRatio_x[2] / 255))
+
+
 			allOutputRatios.append(comboRatio_xyz)
 
 		self.makeGradientGrid_color(allOutputRatios)
@@ -3987,6 +4018,9 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		######################################
 		###### GRADIENT
 		######################################
+		row = layout.row()
+		row.prop(bpy.context.scene, 'additive_or_subtractive_color_blending_enum_prop', text="")
+
 		layout.label(text='Gradients')
 		row = layout.row()
 		row.scale_y = 2.0 ###
