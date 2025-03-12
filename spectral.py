@@ -20,6 +20,15 @@
 ##  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 ##  DEALINGS IN THE SOFTWARE.
 
+'''
+This file contains code from spectral.js by Ronald van Wijnen
+
+spectral.js
+https://github.com/rvanwijnen/spectral.js
+
+'''
+
+
 SIZE = 38
 GAMMA = 2.4
 EPSILON = 0.00000001
