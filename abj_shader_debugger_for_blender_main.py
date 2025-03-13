@@ -2223,9 +2223,9 @@ class ABJ_Shader_Debugger():
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
 
 
-		gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+		gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 		greyBG = 0.5
-		if gamma_correct_gradient_greyscale_prop == True:
+		if gamma_correct_gradient_colorWheel_prop == True:
 			# lerpIter = pow(lerpIter, 1.0 / 2.2)
 			greyBG = pow(greyBG, 2.2)
 
@@ -2591,9 +2591,9 @@ class ABJ_Shader_Debugger():
 
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
 
-		gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_color_prop
+		gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
 		greyBG = 0.5
-		if gamma_correct_gradient_greyscale_prop == True:
+		if gamma_correct_gradient_color_prop == True:
 			# lerpIter = pow(lerpIter, 1.0 / 2.2)
 			greyBG = pow(greyBG, 2.2)
 
