@@ -85,6 +85,11 @@ def register():
 		bpy.utils.register_class(c)
 
 	# '''
+
+	bpy.types.Scene.gamma_correct_gradient_greyscale_prop = bpy.props.BoolProperty(default=(False), name='gamma_correct_greyscale')
+	bpy.types.Scene.gamma_correct_gradient_color_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_color')
+	bpy.types.Scene.gamma_correct_gradient_colorWheel_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_colorWheel')
+
 	default_gradientColor_0 = (0, 0, 0)
 	min_gradientColor_0 = 0
 	max_gradientColor_0 = 1
@@ -462,6 +467,10 @@ def unregister():
 
 	# '''
 	
+	del bpy.types.Scene.gamma_correct_gradient_greyscale_prop
+	del bpy.types.Scene.gamma_correct_gradient_color_prop
+	del bpy.types.Scene.gamma_correct_gradient_colorWheel_prop
+
 	del bpy.types.Scene.gradient_color0_prop
 	del bpy.types.Scene.gradient_color1_prop
 

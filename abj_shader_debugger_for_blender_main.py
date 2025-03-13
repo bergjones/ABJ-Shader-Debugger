@@ -1942,6 +1942,12 @@ class ABJ_Shader_Debugger():
 
 			lerpIter = round(lerpIter, precisionVal)
 
+			gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+
+			if gamma_correct_gradient_greyscale_prop == True:
+				# lerpIter = pow(lerpIter, 1.0 / 2.2)
+				lerpIter = pow(lerpIter, 2.2)
+
 			allOutputRatios.append(lerpIter)
 
 		self.makeGradientGrid(allOutputRatios)
@@ -2033,6 +2039,8 @@ class ABJ_Shader_Debugger():
 
 			# lerpIter = 0.5
 
+			comboRatio_xyz = None
+
 			if usableAdditiveOrSubtractiveColorBlending_id == 'additive':
 				outputRatio_x = self.lerp(endColor[0], startColor[0], lerpIter)
 				outputRatio_y = self.lerp(endColor[1], startColor[1], lerpIter)
@@ -2040,20 +2048,13 @@ class ABJ_Shader_Debugger():
 
 				comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
 
-				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-				gammaCorrect_r = pow(comboRatio_xyz.x, gammaCorrect.x)
-				gammaCorrect_g = pow(comboRatio_xyz.y, gammaCorrect.y)
-				gammaCorrect_b = pow(comboRatio_xyz.z, gammaCorrect.z)
-
-				comboRatio_xyz = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
-
-				# comboRatio_xyz = mathutils.Vector((outputRatio_x, outputRatio_y, outputRatio_z))
-
 			elif usableAdditiveOrSubtractiveColorBlending_id == 'subtractive':
 				outputRatio_x = spectral.spectral_mix(endColor, startColor, lerpIter)
 				comboRatio_xyz = mathutils.Vector((outputRatio_x[0] / 255, outputRatio_x[1] / 255, outputRatio_x[2] / 255))
 
-				# gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+			val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
+
+			if val_gamma_correct_gradient_color_prop == True:
 				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
 				gammaCorrect_r = pow(comboRatio_xyz.x, gammaCorrect.x)
 				gammaCorrect_g = pow(comboRatio_xyz.y, gammaCorrect.y)
@@ -2110,11 +2111,13 @@ class ABJ_Shader_Debugger():
 			outputRatio_y_01 = self.lerp(endColor_black.y, outputRatio_y, lerpIter_inner)
 			outputRatio_z_01 = self.lerp(endColor_black.z, outputRatio_z, lerpIter_inner)
 
-			# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-			# outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
-			# outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
-			# outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
+			val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 
+			if val_gamma_correct_gradient_colorWheel_prop == True:
+				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+				outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
+				outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
+				outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
 
 			#always up down
 			# textRaiseLowerZ = 0.05 * lerpIter_inner
@@ -2218,7 +2221,17 @@ class ABJ_Shader_Debugger():
 		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
-		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+
+
+		gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+		greyBG = 0.5
+		if gamma_correct_gradient_greyscale_prop == True:
+			# lerpIter = pow(lerpIter, 1.0 / 2.2)
+			greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 
@@ -2412,15 +2425,10 @@ class ABJ_Shader_Debugger():
 	
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
-			Ci_gc = mathutils.Vector((i))
-
-			# if precisionVal == -1:
-			# 	pass
-			# else:
-			# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+			Ci = mathutils.Vector((i))	
 
 			bpy.context.view_layer.objects.active = myDupeGradient
-			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci.x, Ci.y, Ci.z)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
@@ -2429,9 +2437,25 @@ class ABJ_Shader_Debugger():
 			#####################
 			if precisionVal != -1:
 				if lerpIter_inner >= (.25):
+					val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 
-					# precisionVal = 3
-					t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+					t = None
+
+					Ci_gc_text = Ci
+
+					if val_gamma_correct_gradient_colorWheel_prop == True:
+						gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+						# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+						gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+						gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+						gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
+
+						Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+						t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
+
+					elif val_gamma_correct_gradient_colorWheel_prop == False:
+						t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
 					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 					myFontCurve.body = t
@@ -2488,19 +2512,14 @@ class ABJ_Shader_Debugger():
 					mat_output_color_y = self.lerp(endColor.y, startColor.y, lerpIter_inner)
 					mat_output_color_z = self.lerp(endColor.z, startColor.z, lerpIter_inner)
 
-					# if lerpIter_inner <= (3/10):
-					# 	combo_mat_output_color = mathutils.Vector((1, 1, 1))
+					minValue = 0.3
+					# if Ci.x < minValue or Ci.y < minValue or Ci.z < minValue:
+					# if (Ci_gc_text.x + Ci_gc_text.y + Ci_gc_text.z) < minValue:
+					if (Ci_gc_text.y) < minValue:
+						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+					else:
+						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
 
-					# else:
-					# 	combo_mat_output_color = mathutils.Vector((0, 0, 0))
-
-					combo_mat_output_color = mathutils.Vector((0, 0, 0))
-					
-					# combo_mat_output_color = mathutils.Vector((mat_output_color_x, mat_output_color_y, mat_output_color_z))
-
-					mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", combo_mat_output_color.x, combo_mat_output_color.y, combo_mat_output_color.z)
-					# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
-					# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 0)
 					bpy.context.active_object.data.materials.clear()
 					bpy.context.active_object.data.materials.append(mat1)
 
@@ -2571,7 +2590,16 @@ class ABJ_Shader_Debugger():
 		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
-		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+
+		gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+		greyBG = 0.5
+		if gamma_correct_gradient_greyscale_prop == True:
+			# lerpIter = pow(lerpIter, 1.0 / 2.2)
+			greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 
@@ -2636,57 +2664,16 @@ class ABJ_Shader_Debugger():
 				output_Y = usableCurrLoc_Y # * yMult # * idx)
 				usableCurrLoc_Y += 1
 
-			# gradient_startPos = mathutils.Vector((0, -2.5, 1)) #top left
-			# gradient_startPos = mathutils.Vector((0, -2.6, 1)) #top left
-			# gradient_startPos = mathutils.Vector((0, -2.6, .9)) #top left
-			# gradient_startPos = mathutils.Vector((0, -2.75, 1)) #top left
-			# gradient_startPos = mathutils.Vector((0, -2.6, 1.1)) #top left
 			gradient_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
 
 			myDupeGradient.location = gradient_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
 
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
-
-
-
-
-			# Ci_gc = mathutils.Vector((i, i, i))
-			Ci_gc = mathutils.Vector((i))
-
-
-
-
-
-			# gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
-			# # gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-			# gammaCorrect_r = pow(Ci_gc.x, gammaCorrect.x)
-			# gammaCorrect_g = pow(Ci_gc.y, gammaCorrect.y)
-			# gammaCorrect_b = pow(Ci_gc.z, gammaCorrect.z)
-
-			# Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
-
-
-
-
-
-
-
-
-
-
-
-
-			# Ci_gc = mathutils.Vector((gradientArray[i]))
-			# Ci_gc = mathutils.Vector((gradientArray[i].x, gradientArray[i].y, gradientArray[i].z))
-
-			# if precisionVal == -1:
-			# 	pass
-			# else:
-			# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+			Ci = mathutils.Vector((i))
 
 			bpy.context.view_layer.objects.active = myDupeGradient
-			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci.x, Ci.y, Ci.z)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
@@ -2694,21 +2681,23 @@ class ABJ_Shader_Debugger():
 			### text_add() (better text placement)
 			#####################
 			if precisionVal != -1:
+				val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
 
-				gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
-				# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-				gammaCorrect_r = pow(Ci_gc.x, gammaCorrect.x)
-				gammaCorrect_g = pow(Ci_gc.y, gammaCorrect.y)
-				gammaCorrect_b = pow(Ci_gc.z, gammaCorrect.z)
+				t = None
 
-				Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+				if val_gamma_correct_gradient_color_prop == True:
+					gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+					# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+					gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+					gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+					gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
 
+					Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
+					t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
 
-
-				# precisionVal = 3
-				# t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
-				t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
+				elif val_gamma_correct_gradient_color_prop == False:
+					t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
 				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 				myFontCurve.body = t
@@ -2781,7 +2770,6 @@ class ABJ_Shader_Debugger():
 
 		myInputMesh.hide_render = True
 
-
 	def makeGradientGrid(self, gradientArray):
 
 		self.deselectAll()
@@ -2847,7 +2835,15 @@ class ABJ_Shader_Debugger():
 		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
-		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+
+		gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+		greyBG = 0.5
+		if gamma_correct_gradient_greyscale_prop == True:
+			# lerpIter = pow(lerpIter, 1.0 / 2.2)
+			greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 
@@ -2923,15 +2919,10 @@ class ABJ_Shader_Debugger():
 
 			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
-			Ci_gc = mathutils.Vector((i, i, i))
-
-			# if precisionVal == -1:
-			# 	pass
-			# else:
-			# 	Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))	
+			Ci = mathutils.Vector((i, i, i))
 
 			bpy.context.view_layer.objects.active = myDupeGradient
-			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci.x, Ci.y, Ci.z)
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
@@ -2939,8 +2930,24 @@ class ABJ_Shader_Debugger():
 			### text_add() (better text placement)
 			#####################
 			if precisionVal != -1:
-				# precisionVal = 3
-				t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+
+				gamma_correct_gradient_greyscale_prop = bpy.context.scene.gamma_correct_gradient_greyscale_prop
+
+				t = None
+
+				if gamma_correct_gradient_greyscale_prop == True:
+					gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+					# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+					gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+					gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+					gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
+
+					Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+					t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
+
+				elif gamma_correct_gradient_greyscale_prop == False:
+					t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
 				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 				myFontCurve.body = t
@@ -2949,17 +2956,19 @@ class ABJ_Shader_Debugger():
 				myFontOb.data.align_x = 'CENTER'
 				myFontOb.data.align_y = 'CENTER'
 
-				# textRaiseLower = 0.15
-				# textRaiseLower = 0.175
-				# textRaiseLower = 0.2
-				textRaiseLower = 0.12
+				textRaiseLower = 0.23
 
 				if idx % 2 == 0:
 					#even
-					textRaiseLower *= 1
+					# textRaiseLower *= 1
+					# textRaiseLower *= 1
+					pass
 				else:
 					#odd
-					textRaiseLower *= -1
+					# textRaiseLower *= -1
+					textRaiseLower += .06
+
+				textRaiseLower *= -1
 
 				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLower))
 				myFontOb.rotation_euler = myRotation
@@ -2999,6 +3008,7 @@ class ABJ_Shader_Debugger():
 				bpy.context.view_layer.objects.active = myFontOb
 
 				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+				# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
 				bpy.context.active_object.data.materials.clear()
 				bpy.context.active_object.data.materials.append(mat1)
 
@@ -4088,6 +4098,14 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.prop(bpy.context.scene, 'additive_or_subtractive_color_blending_enum_prop', text="")
 
+		layout.label(text='Gradients Gamma Correct')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gamma_correct_gradient_greyscale_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gamma_correct_gradient_color_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gamma_correct_gradient_colorWheel_prop')
+
 		layout.label(text='Gradients')
 		row = layout.row()
 		row.scale_y = 2.0 ###
@@ -4106,11 +4124,9 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 
 		layout.label(text='Color Wheel')
 		row = layout.row()
-		# row.prop(bpy.context.scene, 'gradient_outer_circle_steps_prop', text="")
 		row.prop(bpy.context.scene, 'gradient_outer_circle_steps_prop')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'gradient_inner_circle_steps_prop')
-		# row.prop(bpy.context.scene, 'gradient_inner_circle_steps_prop', text="")
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_gradientcolorwheel_operator')
