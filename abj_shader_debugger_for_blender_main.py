@@ -3786,16 +3786,11 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 
 		layout.label(text='Gradients Gamma Correct')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'gamma_correct_gradient_greyscale_prop')
-		row = layout.row()
 		row.prop(bpy.context.scene, 'gamma_correct_gradient_color_prop')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'gamma_correct_gradient_colorWheel_prop')
 
 		layout.label(text='Gradients')
-		row = layout.row()
-		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_gradient_operator')
 
 		row = layout.row()
 		row.scale_y = 2.0 ###
