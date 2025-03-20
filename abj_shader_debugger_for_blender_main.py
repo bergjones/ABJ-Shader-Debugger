@@ -2038,9 +2038,6 @@ class ABJ_Shader_Debugger():
 		gradient_inner_circle_steps_usable = gradient_inner_circle_steps - 1
 
 		for j in range(gradient_inner_circle_steps):
-			
-			print('inner_steps_0 j ', j)
-
 			finalOutputColors = []
 
 			lerpIter_inner = None
@@ -2053,9 +2050,6 @@ class ABJ_Shader_Debugger():
 
 			else:
 				lerpIter_inner = 1 - (j / gradient_inner_circle_steps_usable)
-
-			print('lerpIter_inner ', lerpIter_inner)
-			
 
 			angle = 2 * math.pi * i / segments
 			# x = radius * math.cos(angle) + center_x
@@ -2213,7 +2207,8 @@ class ABJ_Shader_Debugger():
 		# val_gradient_inner_circle_steps_prop = 10
 		# val_gradient_inner_circle_steps_prop = 5
 
-		divisor = 7
+		# divisor = 7
+		divisor = 6
 		segments = val_gradient_outer_circle_steps_prop * divisor  # Adjust for smoother circle
 
 		countToDivisorMultiplier_list = []
@@ -2262,8 +2257,6 @@ class ABJ_Shader_Debugger():
 
 			lerpIter_outer = countToDivisorMultiplier_list[i]
 
-			print('lerpIter_outer = ', lerpIter_outer)
-
 			if 0 <= i < (segments / divisor): 
 				#RED TO ORANGE
 				startColor = mathutils.Vector((1.0, 0.0, 0.0))
@@ -2303,27 +2296,19 @@ class ABJ_Shader_Debugger():
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
+
 			elif (segments / (divisor / 4)) <= i < (segments / (divisor / 5)):
 				# print('5 divisor : ', i)
 
-				#BLUE TO INDIGO
+				#BLUE TO VIOLET
 				startColor = mathutils.Vector((0.0, 0.0, 1.0))
-				endColor = mathutils.Vector((0.3 - (1.0 / val_gradient_outer_circle_steps_prop), 0, 0.7 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
+				endColor = mathutils.Vector((0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
+
 
 			elif (segments / (divisor / 5)) <= i < (segments / (divisor / 6)):
-				# print('6 divisor : ', i)
-
-				#INDIGO TO VIOLET
-				startColor = mathutils.Vector((0.3, 0.0, 0.7))
-				endColor = mathutils.Vector((0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
-				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
-
-				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
-
-			elif (segments / (divisor / 6)) <= i < (segments / (divisor / 7)):
 				# print('7 divisor : ', i)
 
 				#VIOLET TO RED
@@ -2399,6 +2384,8 @@ class ABJ_Shader_Debugger():
 			# continue
 
 			if precisionVal != -1:
+				# continue
+
 				# if lerpIter_inner >= (.25):
 				if lerpIter_inner >= (.4):
 					val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
@@ -2407,18 +2394,11 @@ class ABJ_Shader_Debugger():
 
 					Ci_gc_text = Ci
 
-					primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 0.5, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0)), mathutils.Vector((0.3, 0.0, 0.7)), mathutils.Vector((0.5, 0.0, 0.5))]
+					# primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 0.5, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0)), mathutils.Vector((0.3, 0.0, 0.7)), mathutils.Vector((0.5, 0.0, 0.5))]
 
+					primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0))]
 
-					
-
-					# if Ci_gc_text in primaryColorList:
-					# if Ci in primaryColorList:
-					# 	print('hit for Ci : ', Ci)
-					# 	pass
-					# else:
-					# 	print('miss for Ci : ', Ci)
-					# 	continue
+					alterTextLocation = mathutils.Vector((0.0, 0.0, 0.0))
 
 					if val_gamma_correct_gradient_colorWheel_prop == True:
 						gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
@@ -2430,11 +2410,19 @@ class ABJ_Shader_Debugger():
 						Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
 						if Ci_gc_text in primaryColorList:
-							print('hit for Ci : ', Ci)
 							pass
 						else:
-							print('miss for Ci : ', Ci)
 							continue
+
+						if Ci_gc_text == mathutils.Vector((1.0, 0.0, 0.0)):
+							alterTextLocation = mathutils.Vector((0.0, 0.2, 0.03))
+
+						elif Ci_gc_text == mathutils.Vector((1.0, 1.0, 0.0)):
+							alterTextLocation = mathutils.Vector((0.0, -0.15, 0.2))
+
+						elif Ci_gc_text == mathutils.Vector((0.0, 0.0, 1.0)):
+							alterTextLocation = mathutils.Vector((0.0, -0.1, -0.15))
+
 
 						t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
 
@@ -2442,11 +2430,20 @@ class ABJ_Shader_Debugger():
 						t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
 						if Ci in primaryColorList:
-							print('hit for Ci : ', Ci)
 							pass
 						else:
-							print('miss for Ci : ', Ci)
 							continue
+
+
+						if Ci == mathutils.Vector((1.0, 0.0, 0.0)):
+							alterTextLocation = mathutils.Vector((0.0, 0.2, 0.03))
+
+						elif Ci == mathutils.Vector((1.0, 1.0, 0.0)):
+							alterTextLocation = mathutils.Vector((0.0, -0.15, 0.2))
+
+						elif Ci == mathutils.Vector((0.0, 0.0, 1.0)):
+							alterTextLocation = mathutils.Vector((0.0, -0.1, -0.15))
+
 
 					t = 'x'
 
@@ -2460,7 +2457,10 @@ class ABJ_Shader_Debugger():
 
 					textRaiseLowerZ = 0
 
-					myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ))
+
+
+					myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ)) + alterTextLocation
+					# myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ))
 					myFontOb.rotation_euler = myRotation
 
 					'''
@@ -2484,6 +2484,7 @@ class ABJ_Shader_Debugger():
 					'''
 
 					# myFontScale = 0.03 ####
+					# myFontScale = 0.3
 					myFontScale = 0.3
 
 					# myFontScale = 0.03 * lerpIter_inner
@@ -2504,19 +2505,22 @@ class ABJ_Shader_Debugger():
 
 					bpy.context.view_layer.objects.active = myFontOb
 
-					startColor = mathutils.Vector((0.0, 0.0, 0.0))
-					endColor = mathutils.Vector((1.0, 1.0, 1.0))
-					mat_output_color_x = self.lerp(endColor.x, startColor.x, lerpIter_inner)
-					mat_output_color_y = self.lerp(endColor.y, startColor.y, lerpIter_inner)
-					mat_output_color_z = self.lerp(endColor.z, startColor.z, lerpIter_inner)
+					# startColor = mathutils.Vector((0.0, 0.0, 0.0))
+					# endColor = mathutils.Vector((1.0, 1.0, 1.0))
+					# mat_output_color_x = self.lerp(endColor.x, startColor.x, lerpIter_inner)
+					# mat_output_color_y = self.lerp(endColor.y, startColor.y, lerpIter_inner)
+					# mat_output_color_z = self.lerp(endColor.z, startColor.z, lerpIter_inner)
 
-					minValue = 0.3
+					# minValue = 0.3
 					# if Ci.x < minValue or Ci.y < minValue or Ci.z < minValue:
 					# if (Ci_gc_text.x + Ci_gc_text.y + Ci_gc_text.z) < minValue:
-					if (Ci_gc_text.y) < minValue:
-						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
-					else:
-						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+					# if (Ci_gc_text.y) < minValue:
+						# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+					# else:
+						# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+
+					mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+					
 
 					bpy.context.active_object.data.materials.clear()
 					bpy.context.active_object.data.materials.append(mat1)
