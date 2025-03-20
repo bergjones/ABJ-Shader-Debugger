@@ -105,7 +105,7 @@ def register():
 
 	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5, name='oren_roughness')
 	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_roughness')
-	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.15, name='ggx_fresnel')
+	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_fresnel')
 
 	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005, name='text_radius_0')
 	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6, name='text_radius_1')

@@ -2363,7 +2363,8 @@ class ABJ_Shader_Debugger():
 			myDupeGradient.name = 'dupeGradient_' + str(idx)
 
 			# myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale)) #####
-			gradientScale_lerped = self.clamp(gradientScale * lerpIter_inner, 0.01, 1)
+			# gradientScale_lerped = self.clamp(gradientScale * lerpIter_inner, 0.01, 1) #######
+			gradientScale_lerped = self.clamp(gradientScale * lerpIter_inner, 0.025, 1)
 			myDupeGradient.scale = mathutils.Vector((gradientScale_lerped, gradientScale_lerped, gradientScale_lerped))
 
 			gradient_startPos = mathutils.Vector((0, xPos, raiseLowerZ + yPos))
