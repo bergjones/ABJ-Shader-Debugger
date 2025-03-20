@@ -2030,6 +2030,7 @@ class ABJ_Shader_Debugger():
 		# print(reversed_allOutputRatios)
 
 	def colorWheel_dynamic_inner(self, i, segments, center_x, center_y, lerpIter_outer, gradient_inner_circle_steps, myInputMesh, startColor, endColor, endColor_black):
+
 		outputRatio_x = self.lerp(endColor.x, startColor.x, lerpIter_outer)
 		outputRatio_y = self.lerp(endColor.y, startColor.y, lerpIter_outer)
 		outputRatio_z = self.lerp(endColor.z, startColor.z, lerpIter_outer)
@@ -2037,6 +2038,9 @@ class ABJ_Shader_Debugger():
 		gradient_inner_circle_steps_usable = gradient_inner_circle_steps - 1
 
 		for j in range(gradient_inner_circle_steps):
+			
+			print('inner_steps_0 j ', j)
+
 			finalOutputColors = []
 
 			lerpIter_inner = None
@@ -2049,6 +2053,9 @@ class ABJ_Shader_Debugger():
 
 			else:
 				lerpIter_inner = 1 - (j / gradient_inner_circle_steps_usable)
+
+			print('lerpIter_inner ', lerpIter_inner)
+			
 
 			angle = 2 * math.pi * i / segments
 			# x = radius * math.cos(angle) + center_x
@@ -2255,11 +2262,12 @@ class ABJ_Shader_Debugger():
 
 			lerpIter_outer = countToDivisorMultiplier_list[i]
 
+			print('lerpIter_outer = ', lerpIter_outer)
+
 			if 0 <= i < (segments / divisor): 
 				#RED TO ORANGE
 				startColor = mathutils.Vector((1.0, 0.0, 0.0))
-				# endColor = mathutils.Vector((1.0, 0.5, 0.0))
-				endColor = mathutils.Vector((1 - (1.0 / 7.0), 0.5 - (1.0 / 7.0), 0.0))
+				endColor = mathutils.Vector((1, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0))
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2269,8 +2277,7 @@ class ABJ_Shader_Debugger():
 
 				#ORANGE TO YELLOW
 				startColor = mathutils.Vector((1.0, 0.5, 0.0))
-				# endColor = mathutils.Vector((1.0, 1.0, 0.0))
-				endColor = mathutils.Vector((1 - (1.0 / 7.0), 1 - (1.0 / 7.0), 0.0))
+				endColor = mathutils.Vector((1, 1 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0)) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2280,8 +2287,8 @@ class ABJ_Shader_Debugger():
 
 				#YELLOW TO GREEN
 				startColor = mathutils.Vector((1.0, 1.0, 0.0))
-				# endColor = mathutils.Vector((0.0, 1.0, 0.0))
-				endColor = mathutils.Vector((0, 1 - (1.0 / 7.0), 0.0))
+				endColor = mathutils.Vector((1.0 / val_gradient_outer_circle_steps_prop, 1, 0.0)) #####
+				# endColor = mathutils.Vector((0, 1 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0)) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2291,8 +2298,7 @@ class ABJ_Shader_Debugger():
 
 				#GREEN TO BLUE
 				startColor = mathutils.Vector((0.0, 1.0, 0.0))
-				# endColor = mathutils.Vector((0.0, 0.0, 1.0))
-				endColor = mathutils.Vector((0, 0, 1 - (1.0 / 7.0)))
+				endColor = mathutils.Vector((0, 1.0 / val_gradient_outer_circle_steps_prop, 1 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2302,8 +2308,7 @@ class ABJ_Shader_Debugger():
 
 				#BLUE TO INDIGO
 				startColor = mathutils.Vector((0.0, 0.0, 1.0))
-				# endColor = mathutils.Vector((0.3, 0.0, 0.7))
-				endColor = mathutils.Vector((0.3 - (1.0 / 7.0), 0, 0.7 - (1.0 / 7.0)))
+				endColor = mathutils.Vector((0.3 - (1.0 / val_gradient_outer_circle_steps_prop), 0, 0.7 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2313,8 +2318,7 @@ class ABJ_Shader_Debugger():
 
 				#INDIGO TO VIOLET
 				startColor = mathutils.Vector((0.3, 0.0, 0.7))
-				# endColor = mathutils.Vector((0.5, 0.0, 0.5))
-				endColor = mathutils.Vector((0.5 - (1.0 / 7.0), 0.0, 0.5 - (1.0 / 7.0)))
+				endColor = mathutils.Vector((0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop))) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2324,8 +2328,8 @@ class ABJ_Shader_Debugger():
 
 				#VIOLET TO RED
 				startColor = mathutils.Vector((0.5, 0.0, 0.5))
-				# endColor = mathutils.Vector((1.0, 0.0, 0.0))
-				endColor = mathutils.Vector((1 - (1.0 / 7.0), 0.0, 0.0))
+				# endColor = mathutils.Vector((1 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0, 0.0)) #####
+				endColor = mathutils.Vector((1 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0, 1.0 / val_gradient_outer_circle_steps_prop)) #####
 				endColor_black = mathutils.Vector((0.0, 0.0, 0.0))
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
@@ -2392,13 +2396,29 @@ class ABJ_Shader_Debugger():
 			#####################
 			### text_add() (better text placement)
 			#####################
+			# continue
+
 			if precisionVal != -1:
-				if lerpIter_inner >= (.25):
+				# if lerpIter_inner >= (.25):
+				if lerpIter_inner >= (.4):
 					val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 
 					t = None
 
 					Ci_gc_text = Ci
+
+					primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 0.5, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0)), mathutils.Vector((0.3, 0.0, 0.7)), mathutils.Vector((0.5, 0.0, 0.5))]
+
+
+					
+
+					# if Ci_gc_text in primaryColorList:
+					# if Ci in primaryColorList:
+					# 	print('hit for Ci : ', Ci)
+					# 	pass
+					# else:
+					# 	print('miss for Ci : ', Ci)
+					# 	continue
 
 					if val_gamma_correct_gradient_colorWheel_prop == True:
 						gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
@@ -2409,10 +2429,27 @@ class ABJ_Shader_Debugger():
 
 						Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
+						if Ci_gc_text in primaryColorList:
+							print('hit for Ci : ', Ci)
+							pass
+						else:
+							print('miss for Ci : ', Ci)
+							continue
+
 						t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
 
 					elif val_gamma_correct_gradient_colorWheel_prop == False:
 						t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
+
+						if Ci in primaryColorList:
+							print('hit for Ci : ', Ci)
+							pass
+						else:
+							print('miss for Ci : ', Ci)
+							continue
+
+					t = 'x'
+
 
 					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 					myFontCurve.body = t
@@ -2420,6 +2457,8 @@ class ABJ_Shader_Debugger():
 					myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
 					myFontOb.data.align_x = 'CENTER'
 					myFontOb.data.align_y = 'CENTER'
+
+					textRaiseLowerZ = 0
 
 					myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ))
 					myFontOb.rotation_euler = myRotation
@@ -2444,7 +2483,9 @@ class ABJ_Shader_Debugger():
 					outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
 					'''
 
-					myFontScale = 0.03
+					# myFontScale = 0.03 ####
+					myFontScale = 0.3
+
 					# myFontScale = 0.03 * lerpIter_inner
 
 					# myFontOb_scale_clamped = self.clamp(myFontScale, 0.02, 1)
