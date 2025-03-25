@@ -1939,7 +1939,7 @@ class ABJ_Shader_Debugger():
 
 		steps = 100
 		steps = usableSteps
-		# steps = 25
+		# steps = 10
 
 		val_gradient_color0_prop = bpy.context.scene.gradient_color0_prop
 		val_gradient_color1_prop = bpy.context.scene.gradient_color1_prop
@@ -2921,6 +2921,234 @@ class ABJ_Shader_Debugger():
 			bpy.context.active_object.data.materials.clear()
 			bpy.context.active_object.data.materials.append(mat1)
 
+	def renderPasses(self):
+		#simple spec 7 steps
+		simple_renderViewList_0 = ['N', 'L', 'NdotL']
+		simple_renderViewList_1 = ['V', 'R', 'RdotV']
+		simple_renderViewList_2 = ['RdotV + NdotL']
+
+		#GGX 14 steps
+		GGX_renderViewList_0 = ['N', 'L', 'NdotL']
+		GGX_renderViewList_1 = ['V', 'H', 'HdotN', 'HdotL']
+		GGX_renderViewList_1 = ['NdotV', 'ruff']
+		GGX_renderViewList_1 = ['D', 'F', 'vis', 'GGX', 'GGX + NdotL']
+
+		self.DoIt_part1_preprocess()
+		self.doIt_part2_render()
+
+
+		#####################
+		### SAVE RENDERS
+		#####################
+		mypath_N = "//compositing_files/N.png"
+		mypath_L = "//compositing_files/L.png"
+		mypath_NdotL = "//compositing_files/NdotL.png"
+		mypath_NdotL_zero = "//compositing_files/NdotL_zero.png"
+		mypath_V = "//compositing_files/V.png"
+		
+		#simple
+		mypath_simple_R = "//compositing_files/simple_R.png"
+		mypath_simple_RdotV = "//compositing_files/simple_RdotV.png"
+		mypath_simple_combo_diffuse = "//compositing_files/simple_combo_diffuse.png"
+
+		#GGX
+		mypath_GGX_H = "//compositing_files/GGX_H.png"
+		mypath_GGX_HdotN = "//compositing_files/GGX_HdotN.png"
+		mypath_GGX_HdotL = "//compositing_files/GGX_HdotL.png"
+		mypath_GGX_NdotV = "//compositing_files/GGX_NdotV.png"
+
+		mypath_GGX_ruff = "//compositing_files/GGX_ruff.png"
+		mypath_GGX_D = "//compositing_files/GGX_D.png"
+		mypath_GGX_F = "//compositing_files/GGX_F.png"
+		mypath_GGX_Vis = "//compositing_files/GGX_Vis.png"
+		mypath_GGX_GGX = "//compositing_files/GGX_GGX.png"
+		mypath_GGX_combo_diffuse = "//compositing_files/GGX_combo_diffuse.png"
+
+		all_render_paths = [ mypath_N, mypath_L, mypath_NdotL, mypath_NdotL_zero, mypath_V, 
+					  
+			mypath_simple_R, mypath_simple_RdotV, mypath_simple_combo_diffuse, 
+
+			mypath_GGX_H, mypath_GGX_HdotN, mypath_GGX_HdotL, mypath_GGX_NdotV, mypath_GGX_ruff, mypath_GGX_D, mypath_GGX_F, mypath_GGX_Vis, mypath_GGX_GGX, mypath_GGX_combo_diffuse
+		]
+
+
+
+		#####################
+		### TEST RENDERS
+		#####################
+		bpy.context.scene.camera = self.myCam
+
+		mypath0 = "//compositing_files/rotate0.png"
+		bpy.context.scene.render.filepath = mypath0
+		bpy.ops.render.render(write_still=True)
+
+		self.myCam.location = mathutils.Vector((5, 0, 0))
+		self.updateScene() # need
+		self.look_at(self.myCam, self.myOrigin)
+
+		mypath1 = "//compositing_files/rotate1.png"
+		bpy.context.scene.render.filepath = mypath1
+		bpy.ops.render.render(write_still=True)
+
+
+		self.myCam.location = mathutils.Vector((0, 0, 0))
+		self.updateScene() # need
+		self.look_at(self.myCam, self.myOrigin)
+
+		mypath1 = "//compositing_files/rotate1.png"
+		bpy.context.scene.render.filepath = mypath1
+		bpy.ops.render.render(write_still=True)
+
+
+
+
+
+
+
+
+
+
+
+		####################
+		###FINAL COMPOSITE
+		####################
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		cam1_data = bpy.data.cameras.new('Camera')
+		cam = bpy.data.objects.new('Camera', cam1_data)
+		bpy.context.collection.objects.link(cam)
+
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+		self.myCam.data.type = 'ORTHO'
+
+		bpy.context.scene.render.resolution_x = 2550
+		bpy.context.scene.render.resolution_y = 1970
+
+		self.updateScene() # need
+		self.look_at(self.myCam, self.myOrigin)
+
+		#####################
+		### input mesh
+		#####################
+
+		usablePrimitiveType_gradient_id = 'grid'
+		if usablePrimitiveType_gradient_id == 'grid':
+			bpy.ops.mesh.primitive_grid_add()
+
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.hide_set(1)
+		# myInputMesh.hide_render = True
+
+		#####################
+		### grey background
+		#####################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+
+		gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
+		greyBG = 0.5
+		if gamma_correct_gradient_colorWheel_prop == True:
+			# lerpIter = pow(lerpIter, 1.0 / 2.2)
+			greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		#################
+		### input mesh tile 00
+		#################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+
+		# bpy.context.scene.render.resolution_x = 2550
+		# bpy.context.scene.render.resolution_y = 1970
+		tileScale = 10000
+
+		myDupeGradient_bg.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
+
+		myDupeGradient_bg.location = mathutils.Vector((2, 0, .1))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((math.radians(-90), math.radians(180), math.radians(-90)))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+		mat1 = self.newShader("ShaderVisualizer_renderPasses_00", "emission", 1, 1, 1)
+		
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		nodes = mat1.node_tree.nodes
+		links = mat1.node_tree.links
+
+		myImageTexture00 = nodes.new("ShaderNodeTexImage")
+		myImageTexture00.image = bpy.data.images.load(mypath0)
+		myImageTexture00.image.colorspace_settings.name = "sRGB"
+		links.new(myImageTexture00.outputs['Color'], nodes["Emission"].inputs[0])
+
+
+
+		#################
+		### input mesh tile 01
+		#################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+
+		# bpy.context.scene.render.resolution_x = 2550
+		# bpy.context.scene.render.resolution_y = 1970
+		tileScale = 10000
+
+		myDupeGradient_bg.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
+
+		# myDupeGradient_bg.location = mathutils.Vector((2, 0, .1))
+		myDupeGradient_bg.location = mathutils.Vector((2, 0, 2))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((math.radians(-90), math.radians(180), math.radians(-90)))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+		mat1 = self.newShader("ShaderVisualizer_renderPasses_01", "emission", 1, 1, 1)
+		
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		nodes = mat1.node_tree.nodes
+		links = mat1.node_tree.links
+
+		myImageTexture00 = nodes.new("ShaderNodeTexImage")
+		myImageTexture00.image = bpy.data.images.load(mypath1)
+		myImageTexture00.image.colorspace_settings.name = "sRGB"
+		links.new(myImageTexture00.outputs['Color'], nodes["Emission"].inputs[0])
+
+
+
+
+
+
+
+
+
+
 	def skip_refresh_determine(self, mySplitFaceIndexUsable):
 		#################################################
 		#decide whether to continue and do a full refresh
@@ -3698,6 +3926,11 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_refreshstage2_operator')
 
+		layout.label(text='Render Passes')
+		row = layout.row()
+		row.scale_y = 1.0 ###
+		row.operator('shader.abj_shader_debugger_renderpasses_operator')
+
 		######################################
 		###### STAGE IDX
 		######################################
@@ -3823,6 +4056,11 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_refreshstage2_operator')
+
+		layout.label(text='Render Passes')
+		row = layout.row()
+		row.scale_y = 1.0 ###
+		row.operator('shader.abj_shader_debugger_renderpasses_operator')
 
 		######################################
 		###### GRADIENT
@@ -4007,6 +4245,16 @@ class SHADER_OT_GRADIENTCOLORWHEEL(bpy.types.Operator):
 
 	def execute(self, context):
 		myABJ_SD_B.printColorGradient_circular()
+		return {'FINISHED'}
+
+class SHADER_OT_RENDERPASSES(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'render passes'
+	bl_idname = 'shader.abj_shader_debugger_renderpasses_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.renderPasses()
 		return {'FINISHED'}
 
 ##############
