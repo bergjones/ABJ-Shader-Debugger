@@ -3309,7 +3309,8 @@ class ABJ_Shader_Debugger():
 		self.myCam.data.type = 'ORTHO'
 
 		bpy.context.scene.render.resolution_x = 2550
-		bpy.context.scene.render.resolution_y = 1970
+		# bpy.context.scene.render.resolution_y = 1970 #####
+		bpy.context.scene.render.resolution_y = 3300
 
 		self.updateScene() # need
 		self.look_at(self.myCam, self.myOrigin)
@@ -3354,6 +3355,8 @@ class ABJ_Shader_Debugger():
 		## LOCATION VARIABLES
 		#####################
 
+		'''
+		tileScale = 10000
 		rangeLength = 3
 		# locationMultiplierY = .4
 		locationMultiplierY = .5
@@ -3366,6 +3369,77 @@ class ABJ_Shader_Debugger():
 		usableCurrLoc_Y = 0
 		usableCurrRow_Z = 0
 		startIdx = 0
+		'''
+
+
+
+
+
+
+
+
+
+
+
+
+
+		'''
+
+		tileScale = 3000
+
+
+		rangeLength = 3
+		# locationMultiplierY = .4
+		locationMultiplierY = 1.5
+		# locationMultiplierZ = -.6
+		# locationMultiplierZ = -.15
+		locationMultiplierZ = -1.3
+		# raiseLowerZ = 1
+		raiseLowerZ = 0
+
+		usableCurrLoc_X = 0
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
+
+		# tile_startPos = mathutils.Vector((2, -2.0, 2.75)) #top left
+		# tile_startPos = mathutils.Vector((2, -2.0, 2.7)) #top left
+		tile_startPos = mathutils.Vector((2, -1.7, 2.6)) #top left
+
+		'''
+
+
+
+
+
+		# tileScale = 5000
+		# tileScale = 3000
+		# tileScale = 2000
+		# tileScale = 2250
+
+
+		rangeLength = 3
+		# locationMultiplierY = .4
+		locationMultiplierY = 1.5
+		# locationMultiplierZ = -.6
+		# locationMultiplierZ = -.15
+		# locationMultiplierZ = -1.3
+		locationMultiplierZ = -1.2
+		# raiseLowerZ = 1
+		raiseLowerZ = 0
+
+		usableCurrLoc_X = 0
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
+
+		# tile_startPos = mathutils.Vector((2, -2.0, 2.75)) #top left
+		# tile_startPos = mathutils.Vector((2, -2.0, 2.7)) #top left
+		tile_startPos = mathutils.Vector((2, -1.7, 2.4)) #top left
+
+		tileScale = 1.3
+
+
 
 		for idx, i in enumerate(singleArrow_render_paths):
 			bpy.context.view_layer.objects.active = myInputMesh
@@ -3377,9 +3451,13 @@ class ABJ_Shader_Debugger():
 
 			myTile.name = myTile_name_1
 
-			tileScale = 10000
 
-			myTile.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
+			# myTile.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
+
+			# myTile.scale *= mathutils.Vector((.5, .5, 1))
+			# myTile.scale *= mathutils.Vector((.75, .75, 1))
+			# myTile.scale *= mathutils.Vector((1, 1, 1))
+			myTile.scale *= mathutils.Vector((tileScale, tileScale, 1))
 
 			##############
 			## LOCATION
@@ -3406,8 +3484,8 @@ class ABJ_Shader_Debugger():
 			# myTile.location = mathutils.Vector((2, -2.5, 2)) ######
 
 			# tile_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
-			tile_startPos = mathutils.Vector((2, -2.5, 2)) #top left
 			# tile_startPos = mathutils.Vector((2, -2.5, 2)) #top left
+			# tile_startPos = mathutils.Vector((2, -2.0, 2.75)) #top left
 
 			# myTile.location = tile_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
 			myTile.location = tile_startPos + mathutils.Vector((usableCurrLoc_X, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
