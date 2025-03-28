@@ -75,6 +75,7 @@ class myEquation_GGX:
 		vis = self.G1V(dotNL, k) * self.G1V(dotNV, k)
 
 		specular = dotNL * D * F * vis
+		# specular = dotNL * D * F
 		# specular = abj_sd_b_instance.clamp(specular, 0, 1)
 
 		return specular
@@ -520,290 +521,352 @@ class myEquation_GGX:
 			# if N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
 				# if faceCenter_to_V_rayCast == True or faceCenter_to_L_rayCast == True: ####
 
-			if faceCenter_to_L_rayCast == True or override == True:
-					##############
-					### D
-					##############
+
+
+
+
+
+			if abj_sd_b_instance.renderPasses_simple == True:
+
+				# abj_sd_b_instance.myCubeCam.hide_set(1)
+				# abj_sd_b_instance.mySun.hide_set(1)
+				# abj_sd_b_instance.mySun.hide_render = True
+
+				if faceCenter_to_L_rayCast == False:
+					continue
+
+				else:
+
 					if items_id_currentStage == 0:
 						if printOnce_stage_000 == False:
-							print("'stage_000' : 'N....show N arrow (cubeN)'")
+							print("'stage_000' : 'show N'")
 							printOnce_stage_000 = True
 
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						myArrow = abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+						arrowScale = 0.1
+						myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
 
 					elif items_id_currentStage == 1:
 						if printOnce_stage_001 == False:
-							print("'stage_001' : 'V + L....show V arrow and L arrow'")
+							print("'stage_001' : 'show L'")
 							printOnce_stage_001 = True
 
-						abj_sd_b_instance.myCubeCam.hide_set(0) # V
-
 						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
 					elif items_id_currentStage == 2:
 						if printOnce_stage_002 == False:
-							print("'stage_002' : 'V + L + H....show V arrow and L arrow and H arrow'")
-							print("'stage_002' : 'H = mathutils.Vector(V + L).normalized()")
+							print("'stage_002' : 'show R'")
 							printOnce_stage_002 = True
 
-						abj_sd_b_instance.myCubeCam.hide_set(0) # V
+						myArrow = abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
 
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+						myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
 
 					elif items_id_currentStage == 3:
 						if printOnce_stage_003 == False:
-							print("'stage_003' : 'dotNH....show N and H arrows'")
+							print("'stage_003' : 'show H'")
 							printOnce_stage_003 = True
 
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
-
-						dotNH_temp = pow(dotNH_temp, (1.0 / 2.2))
-
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotNH_temp, dotNH_temp, dotNH_temp)
+						myArrow = abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						# myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
+						# myArrow.scale = mathutils.Vector((.2, .8, 1)) ####
+						# myArrow.scale = mathutils.Vector((1, 1, 1)) ####
+						myArrow.scale *= mathutils.Vector((.25, .25, .25)) ####
 
 					elif items_id_currentStage == 4:
 						if printOnce_stage_004 == False:
-							print("'stage_004' : 'dotNH * dotNH'")
+							print("'stage_004' : 'show V'")
 							printOnce_stage_004 = True
 
-						dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
-						dotNH2 = dotNH_temp * dotNH_temp
-						dotNH2 = pow(dotNH2, (1.0 / 2.2))
+							abj_sd_b_instance.myCubeCam.hide_set(0)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotNH2, dotNH2, dotNH2)
 
-					elif items_id_currentStage == 5:
-						if printOnce_stage_005 == False:
-							print("'stage_005' : 'roughness'")
-							printOnce_stage_005 = True
+			else:
+				if faceCenter_to_L_rayCast == True or override == True:
+						##############
+						### D
+						##############
+						if items_id_currentStage == 0:
+							if printOnce_stage_000 == False:
+								print("'stage_000' : 'N....show N arrow (cubeN)'")
+								printOnce_stage_000 = True
 
-						roughness_temp = bpy.context.scene.ggx_roughness_prop
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						roughness_temp = pow(roughness_temp, (1.0 / 2.2))
+							abj_sd_b_instance.myCubeCam.hide_set(1)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, roughness_temp, roughness_temp, roughness_temp)	
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-					elif items_id_currentStage == 6:
-						if printOnce_stage_006 == False:
-							print("'stage_006' : 'alpha = roughness * roughness'")
-							printOnce_stage_006 = True
+						elif items_id_currentStage == 1:
+							if printOnce_stage_001 == False:
+								print("'stage_001' : 'V + L....show V arrow and L arrow'")
+								printOnce_stage_001 = True
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
-						alpha_temp = pow(alpha_temp, (1.0 / 2.2))
+							abj_sd_b_instance.myCubeCam.hide_set(0) # V
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, alpha_temp, alpha_temp, alpha_temp)
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-					elif items_id_currentStage == 7:
-						if printOnce_stage_007 == False:
-							print("'stage_007' : 'alphaSqr = alpha * alpha'")
-							printOnce_stage_007 = True
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
-						alphaSqr = alpha_temp * alpha_temp
-						alphaSqr = pow(alphaSqr, (1.0 / 2.2))
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, alphaSqr, alphaSqr, alphaSqr)
+						elif items_id_currentStage == 2:
+							if printOnce_stage_002 == False:
+								print("'stage_002' : 'V + L + H....show V arrow and L arrow and H arrow'")
+								print("'stage_002' : 'H = mathutils.Vector(V + L).normalized()")
+								printOnce_stage_002 = True
 
-					elif items_id_currentStage == 8:
-						if printOnce_stage_008 == False:
-							print("'stage_008' : denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
-							printOnce_stage_008 = True
+							abj_sd_b_instance.myCubeCam.hide_set(0) # V
 
-						dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
-						dotNH2 = dotNH_temp * dotNH_temp
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
-						alphaSqr = alpha_temp * alpha_temp
+							abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						denom = dotNH2 * (alphaSqr - 1.0) + 1.0
-						denom = pow(denom, (1.0 / 2.2))
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, denom, denom, denom)
+						elif items_id_currentStage == 3:
+							if printOnce_stage_003 == False:
+								print("'stage_003' : 'dotNH....show N and H arrows'")
+								printOnce_stage_003 = True
 
-					elif items_id_currentStage == 9:
-						if printOnce_stage_009 == False:
-							print("'stage_009' : D = alphaSqr / (pi * denom * denom)")
-							printOnce_stage_009 = True
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
-						dotNH2 = dotNH_temp * dotNH_temp
+							abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
-						alphaSqr = alpha_temp * alpha_temp
+							abj_sd_b_instance.myCubeCam.hide_set(1)
 
-						denom = dotNH2 * (alphaSqr - 1.0) + 1.0
-						pi = 3.14159
-						D = alphaSqr / (pi * denom * denom)
-						D = pow(D, (1.0 / 2.2))
+							dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, D, D, D)
+							dotNH_temp = pow(dotNH_temp, (1.0 / 2.2))
 
-					##############
-					### FRESNEL
-					##############
-					elif items_id_currentStage == 10:
-						if printOnce_stage_010 == False:
-							print("'stage_010' : dotLH....show L arrow and H arrow")
-							print("'stage_010' : 'H = mathutils.Vector(V + L).normalized()")
-							printOnce_stage_010 = True
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotNH_temp, dotNH_temp, dotNH_temp)
 
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+						elif items_id_currentStage == 4:
+							if printOnce_stage_004 == False:
+								print("'stage_004' : 'dotNH * dotNH'")
+								printOnce_stage_004 = True
 
-						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+							dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
+							dotNH2 = dotNH_temp * dotNH_temp
+							dotNH2 = pow(dotNH2, (1.0 / 2.2))
 
-						dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
-						dotLH_temp = pow(dotLH_temp, (1.0 / 2.2))
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotNH2, dotNH2, dotNH2)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotLH_temp, dotLH_temp, dotLH_temp)
+						elif items_id_currentStage == 5:
+							if printOnce_stage_005 == False:
+								print("'stage_005' : 'roughness'")
+								printOnce_stage_005 = True
 
+							roughness_temp = bpy.context.scene.ggx_roughness_prop
 
-					elif items_id_currentStage == 11:
-						if printOnce_stage_011 == False:
-							print("'stage_011' : dotLH5 = pow(1.0 - dotLH, 5)")
-							printOnce_stage_011 = True
+							roughness_temp = pow(roughness_temp, (1.0 / 2.2))
 
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, roughness_temp, roughness_temp, roughness_temp)	
 
-						abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						elif items_id_currentStage == 6:
+							if printOnce_stage_006 == False:
+								print("'stage_006' : 'alpha = roughness * roughness'")
+								printOnce_stage_006 = True
 
-						dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
-						dotLH5_temp = pow(1.0 - dotLH_temp, 5)
-						dotLH5_temp = pow(dotLH5_temp, (1.0 / 2.2))
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							alpha_temp = pow(alpha_temp, (1.0 / 2.2))
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotLH5_temp, dotLH5_temp, dotLH5_temp)
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, alpha_temp, alpha_temp, alpha_temp)
 
-					elif items_id_currentStage == 12:
-						if printOnce_stage_012 == False:
-							print("'stage_012' : F = F0 + (1.0 - F0) * (dotLH5)")
-							printOnce_stage_012 = True
+						elif items_id_currentStage == 7:
+							if printOnce_stage_007 == False:
+								print("'stage_007' : 'alphaSqr = alpha * alpha'")
+								printOnce_stage_007 = True
 
-						dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
-						dotLH5_temp = pow(1.0 - dotLH_temp, 5)
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							alphaSqr = alpha_temp * alpha_temp
+							alphaSqr = pow(alphaSqr, (1.0 / 2.2))
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, alphaSqr, alphaSqr, alphaSqr)
 
-						F0 = bpy.context.scene.ggx_fresnel_prop
-						F = F0 + (1.0 - F0) * (dotLH5_temp)
-						F = pow(F, (1.0 / 2.2))
+						elif items_id_currentStage == 8:
+							if printOnce_stage_008 == False:
+								print("'stage_008' : denom = dotNH * dotNH * (alphaSqr - 1.0) + 1")
+								printOnce_stage_008 = True
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, F, F, F)
+							dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
+							dotNH2 = dotNH_temp * dotNH_temp
 
-					##############
-					### V - Shadowing
-					##############
-					elif items_id_currentStage == 13:
-						if printOnce_stage_013 == False:
-							print("'stage_013' : k = alpha / 2.0")
-							printOnce_stage_013 = True
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							alphaSqr = alpha_temp * alpha_temp
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							denom = dotNH2 * (alphaSqr - 1.0) + 1.0
+							denom = pow(denom, (1.0 / 2.2))
 
-						k = alpha_temp / 2.0
-						k = pow(k, (1.0 / 2.2))
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, denom, denom, denom)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, k, k, k)
+						elif items_id_currentStage == 9:
+							if printOnce_stage_009 == False:
+								print("'stage_009' : D = alphaSqr / (pi * denom * denom)")
+								printOnce_stage_009 = True
 
-					elif items_id_currentStage == 14:
-						if printOnce_stage_014 == False:
-							print("'stage_014' : G1V(dotNL, k)")
-							print("'stage_014' : 1.0 / (dotNL * (1.0 - k) + k)")
-							print("'stage_014' : k = alpha / 2.0")
-							printOnce_stage_014 = True
+							dotNH_temp = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
+							dotNH2 = dotNH_temp * dotNH_temp
 
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							alphaSqr = alpha_temp * alpha_temp
 
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+							denom = dotNH2 * (alphaSqr - 1.0) + 1.0
+							pi = 3.14159
+							D = alphaSqr / (pi * denom * denom)
+							D = pow(D, (1.0 / 2.2))
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, D, D, D)
 
-						k = alpha_temp / 2.0
+						##############
+						### FRESNEL
+						##############
+						elif items_id_currentStage == 10:
+							if printOnce_stage_010 == False:
+								print("'stage_010' : dotLH....show L arrow and H arrow")
+								print("'stage_010' : 'H = mathutils.Vector(V + L).normalized()")
+								printOnce_stage_010 = True
 
-						dotNL = abj_sd_b_instance.clamp(N.dot(L), 0, 1)
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-						myG1V_dotNL = self.G1V(dotNL, k)
-						myG1V_dotNL = pow(myG1V_dotNL, (1.0 / 2.2))
+							abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, myG1V_dotNL, myG1V_dotNL, myG1V_dotNL)
+							dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
+							dotLH_temp = pow(dotLH_temp, (1.0 / 2.2))
 
-					elif items_id_currentStage == 15:
-						if printOnce_stage_015 == False:
-							print("'stage_015' : G1V(dotNV, k)")
-							print("'stage_015' : 1.0 / (dotNV * (1.0 - k) + k)")
-							print("'stage_015' : k = alpha / 2.0")
-							printOnce_stage_015 = True
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotLH_temp, dotLH_temp, dotLH_temp)
 
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.myCubeCam.hide_set(0) # V
+						elif items_id_currentStage == 11:
+							if printOnce_stage_011 == False:
+								print("'stage_011' : dotLH5 = pow(1.0 - dotLH, 5)")
+								printOnce_stage_011 = True
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-						k = alpha_temp / 2.0
+							abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						dotNV = abj_sd_b_instance.clamp(N.dot(V), 0, 1)
+							dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
+							dotLH5_temp = pow(1.0 - dotLH_temp, 5)
+							dotLH5_temp = pow(dotLH5_temp, (1.0 / 2.2))
 
-						myG1V_dotNV = self.G1V(dotNV, k)
-						myG1V_dotNV = pow(myG1V_dotNV, (1.0 / 2.2))
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, dotLH5_temp, dotLH5_temp, dotLH5_temp)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, myG1V_dotNV, myG1V_dotNV, myG1V_dotNV)
+						elif items_id_currentStage == 12:
+							if printOnce_stage_012 == False:
+								print("'stage_012' : F = F0 + (1.0 - F0) * (dotLH5)")
+								printOnce_stage_012 = True
 
-					elif items_id_currentStage == 16:
-						if printOnce_stage_016 == False:
-							print("'stage_016' : vis = G1V(dotNL, k) * G1V(dotNV, k)")
-							printOnce_stage_016 = True
+							dotLH_temp = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
+							dotLH5_temp = pow(1.0 - dotLH_temp, 5)
 
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+							F0 = bpy.context.scene.ggx_fresnel_prop
+							F = F0 + (1.0 - F0) * (dotLH5_temp)
+							F = pow(F, (1.0 / 2.2))
 
-						abj_sd_b_instance.myCubeCam.hide_set(0) # V
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, F, F, F)
 
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+						##############
+						### V - Shadowing
+						##############
+						elif items_id_currentStage == 13:
+							if printOnce_stage_013 == False:
+								print("'stage_013' : k = alpha / 2.0")
+								printOnce_stage_013 = True
 
-						alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
 
-						k = alpha_temp / 2.0
+							k = alpha_temp / 2.0
+							k = pow(k, (1.0 / 2.2))
 
-						dotNL = abj_sd_b_instance.clamp(N.dot(L), 0, 1)
-						myG1V_dotNL = self.G1V(dotNL, k)
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, k, k, k)
 
-						dotNV = abj_sd_b_instance.clamp(N.dot(V), 0, 1)
-						myG1V_dotNV = self.G1V(dotNV, k)
+						elif items_id_currentStage == 14:
+							if printOnce_stage_014 == False:
+								print("'stage_014' : G1V(dotNL, k)")
+								print("'stage_014' : 1.0 / (dotNL * (1.0 - k) + k)")
+								print("'stage_014' : k = alpha / 2.0")
+								printOnce_stage_014 = True
 
-						vis = myG1V_dotNL * myG1V_dotNV
-						vis = pow(vis, (1.0 / 2.2))
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 
-						abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, vis, vis, vis)
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
 
-			if items_id_currentStage == 17:
-				if printOnce_stage_017 == False:
-					print('stage_017 output AOV = FINAL STAGE')
-					print('stage_017 output AOV = dotNL * D * F * vis')
-					print('stage_017 output AOV = ', aov_id)
-					printOnce_stage_017 = True
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
 
-				# abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
+							k = alpha_temp / 2.0
 
-				# abj_sd_b_instance.myCubeCam.hide_set(1)
+							dotNL = abj_sd_b_instance.clamp(N.dot(L), 0, 1)
 
-				abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+							myG1V_dotNL = self.G1V(dotNL, k)
+							myG1V_dotNL = pow(myG1V_dotNL, (1.0 / 2.2))
 
-				# abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
-				# abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, myG1V_dotNL, myG1V_dotNL, myG1V_dotNL)
 
-			# if abj_sd_b_instance.profileCode_part2 == True:
-				# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_03_b = ', abj_sd_b_instance.profile_stage2_03_b)
+						elif items_id_currentStage == 15:
+							if printOnce_stage_015 == False:
+								print("'stage_015' : G1V(dotNV, k)")
+								print("'stage_015' : 1.0 / (dotNV * (1.0 - k) + k)")
+								print("'stage_015' : k = alpha / 2.0")
+								printOnce_stage_015 = True
+
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.myCubeCam.hide_set(0) # V
+
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+
+							k = alpha_temp / 2.0
+
+							dotNV = abj_sd_b_instance.clamp(N.dot(V), 0, 1)
+
+							myG1V_dotNV = self.G1V(dotNV, k)
+							myG1V_dotNV = pow(myG1V_dotNV, (1.0 / 2.2))
+
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, myG1V_dotNV, myG1V_dotNV, myG1V_dotNV)
+
+						elif items_id_currentStage == 16:
+							if printOnce_stage_016 == False:
+								print("'stage_016' : vis = G1V(dotNL, k) * G1V(dotNV, k)")
+								printOnce_stage_016 = True
+
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.myCubeCam.hide_set(0) # V
+
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+							alpha_temp = bpy.context.scene.ggx_roughness_prop * bpy.context.scene.ggx_roughness_prop
+
+							k = alpha_temp / 2.0
+
+							dotNL = abj_sd_b_instance.clamp(N.dot(L), 0, 1)
+							myG1V_dotNL = self.G1V(dotNL, k)
+
+							dotNV = abj_sd_b_instance.clamp(N.dot(V), 0, 1)
+							myG1V_dotNV = self.G1V(dotNV, k)
+
+							vis = myG1V_dotNL * myG1V_dotNV
+							vis = pow(vis, (1.0 / 2.2))
+
+							abj_sd_b_instance.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, vis, vis, vis)
+
+				if items_id_currentStage == 17:
+					if printOnce_stage_017 == False:
+						print('stage_017 output AOV = FINAL STAGE')
+						print('stage_017 output AOV = dotNL * D * F * vis')
+						print('stage_017 output AOV = ', aov_id)
+						printOnce_stage_017 = True
+
+					# abj_sd_b_instance.profile_stage2_06_a = datetime.now() ################
+
+					# abj_sd_b_instance.myCubeCam.hide_set(1)
+
+					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+					# abj_sd_b_instance.profile_stage2_06_b = datetime.now() - abj_sd_b_instance.profile_stage2_06_a
+					# abj_sd_b_instance.profile_stage2_06_final += abj_sd_b_instance.profile_stage2_06_b
+
+				# if abj_sd_b_instance.profileCode_part2 == True:
+					# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_03_b = ', abj_sd_b_instance.profile_stage2_03_b)
 
 		if abj_sd_b_instance.profileCode_part2 == True:
 			# print('~~~~~~~~~ abj_sd_b_instance.profile_stage2_00_final = ', abj_sd_b_instance.profile_stage2_00_final)

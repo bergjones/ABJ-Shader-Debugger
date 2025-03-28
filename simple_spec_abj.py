@@ -270,11 +270,13 @@ class myEquation_simple_spec:
 					# L = j['L']
 					# N = j['N']
 					R = j['R']
+					H = j['H']
 
 					N_M = abj_sd_b_instance.equation_dynamic_cubeN_creation(shadingPlane, faceCenter)
 					L_M = abj_sd_b_instance.equation_dynamic_cubeLight_creation(faceCenter, abj_sd_b_instance.mySun)
 					V_M = abj_sd_b_instance.equation_dynamic_cubeV_creation(faceCenter, abj_sd_b_instance.myCam)
 					R_M = abj_sd_b_instance.equation_dynamic_cubeR_creation(N_M, R)
+					H_M = abj_sd_b_instance.equation_dynamic_cubeH_creation(faceCenter, H, abj_sd_b_instance.myCam)
 
 					abj_sd_b_instance.updateScene() # need
 
@@ -282,6 +284,7 @@ class myEquation_simple_spec:
 					L_M_np = np.array(L_M)
 					V_M_np = np.array(V_M)
 					R_M_np = np.array(R_M)
+					H_M_np = np.array(H_M)
 
 					arrow_dynamic_instance_M_dict = {
 						'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
@@ -289,6 +292,7 @@ class myEquation_simple_spec:
 						'L_M_np' : L_M_np,
 						'V_M_np' : V_M_np,
 						'R_M_np' : R_M_np,
+						'H_M_np' : H_M_np,
 					}
 
 					abj_sd_b_instance.arrow_dynamic_instance_M_all_list_matrixOnly.append(arrow_dynamic_instance_M_dict) ##########
@@ -384,36 +388,200 @@ class myEquation_simple_spec:
 			###############
 			### Simple Specular Breakdown
 			##############
+			if abj_sd_b_instance.renderPasses_simple == True:
 
-			if abj_sd_b_instance.skip_showing_visibility_raycast_check == True:
-				if items_id_currentStage == 0:
-					if printOnce_stage_000 == False:
-						print("'stage_000' : 'N_dot_V......show both myCubeN and myCubeCam (V)'")
-						printOnce_stage_000 = True
+				continue
 
-					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-					abj_sd_b_instance.myCubeCam.hide_set(0)
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+				# abj_sd_b_instance.myCubeCam.hide_set(1)
+				# abj_sd_b_instance.mySun.hide_set(1)
+				# abj_sd_b_instance.mySun.hide_render = True
 
-				elif items_id_currentStage == 1:
-					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
-						# if abj_sd_b_instance.printDetailedInfo == True:
-							# print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+				if faceCenter_to_L_rayCast == False:
+					continue
 
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+				else:
 
-					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
-						if faceCenter_to_V_rayCast == False or faceCenter_to_L_rayCast == False: ####
+					if items_id_currentStage == 0:
+						if printOnce_stage_000 == False:
+							print("'stage_000' : 'show N'")
+							printOnce_stage_000 = True
+
+						myArrow = abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						arrowScale = 0.1
+						myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
+
+					elif items_id_currentStage == 1:
+						if printOnce_stage_001 == False:
+							print("'stage_001' : 'show L'")
+							printOnce_stage_001 = True
+
+						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 2:
+						if printOnce_stage_002 == False:
+							print("'stage_002' : 'show R'")
+							printOnce_stage_002 = True
+
+						myArrow = abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
+
+						myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
+
+					elif items_id_currentStage == 3:
+						if printOnce_stage_003 == False:
+							print("'stage_003' : 'show H'")
+							printOnce_stage_003 = True
+
+						myArrow = abj_sd_b_instance.show_arrow_H(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						# myArrow.scale = mathutils.Vector((.05, .2, 1)) ####
+						# myArrow.scale = mathutils.Vector((.2, .8, 1)) ####
+						myArrow.scale = mathutils.Vector((1, 1, 1)) ####
+
+					elif items_id_currentStage == 4:
+						if printOnce_stage_004 == False:
+							print("'stage_004' : 'show V'")
+							printOnce_stage_004 = True
+
+							abj_sd_b_instance.myCubeCam.hide_set(0)
+
+			else:
+				if abj_sd_b_instance.skip_showing_visibility_raycast_check == True:
+					if items_id_currentStage == 0:
+						if printOnce_stage_000 == False:
+							print("'stage_000' : 'N_dot_V......show both myCubeN and myCubeCam (V)'")
+							printOnce_stage_000 = True
+
+						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+						abj_sd_b_instance.myCubeCam.hide_set(0)
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 1:
+						if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
 							# if abj_sd_b_instance.printDetailedInfo == True:
-								# print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
+								# print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
 
 							abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
-						else:
-							if printOnce_stage_001 == False:
+						elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
+							if faceCenter_to_V_rayCast == False or faceCenter_to_L_rayCast == False: ####
+								# if abj_sd_b_instance.printDetailedInfo == True:
+									# print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
+
+								abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+							else:
+								if printOnce_stage_001 == False:
+									print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
+									print("'stage_001' : 'R.....show R arrow (cubeR) along with N and L'")
+									printOnce_stage_001 = True
+
+								abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+								abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+								abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
+
+								abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 2:
+						if printOnce_stage_002 == False:
+							print('stage_002 output AOV = ', aov_id)
+							printOnce_stage_002 = True
+
+						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+				else:
+					if items_id_currentStage == 0:
+						if printOnce_stage_000 == False:
+							print("'stage_000' : 'N....show N arrow (cubeN)'")
+							printOnce_stage_000 = True
+
+						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.myCubeCam.hide_set(1)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 1:
+						if printOnce_stage_001 == False:
+							print("'stage_001' : 'V....show V arrow (myCubeCam)'")
+							printOnce_stage_001 = True
+
+						abj_sd_b_instance.myCubeCam.hide_set(0)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 2:
+						if printOnce_stage_002 == False:
+							print("'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam'")
+							printOnce_stage_002 = True
+
+						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+						abj_sd_b_instance.myCubeCam.hide_set(0)
+
+						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 3:
+						if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
+							if abj_sd_b_instance.printDetailedInfo == True:
+								print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+						elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
+							if printOnce_stage_003 == False:
 								print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
-								print("'stage_001' : 'R.....show R arrow (cubeR) along with N and L'")
-								printOnce_stage_001 = True
+								print("'stage_003' : 'raycast from faceCenter to V'")
+								printOnce_stage_003 = True
+
+							abj_sd_b_instance.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.myCubeCam.hide_set(1)
+
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 4:
+						if faceCenter_to_V_rayCast == False: ####
+							if abj_sd_b_instance.printDetailedInfo == True:
+								print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+						elif faceCenter_to_V_rayCast == True or override == True:
+								if printOnce_stage_004 == False:
+									print('faceCenter_to_V_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
+									print("'stage_004' : 'raycast from faceCenter to L'")
+									printOnce_stage_004 = True
+
+								abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+								abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 5:
+						if faceCenter_to_L_rayCast == False: ####
+							if abj_sd_b_instance.printDetailedInfo == True:
+								print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
+
+						elif faceCenter_to_L_rayCast == True or override == True:
+							if printOnce_stage_005 == False:
+								print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
+								print("'stage_005' : 'show arrows (N, L)'")
+								printOnce_stage_005 = True
+
+							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
+
+							##############
+
+							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
+
+							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
+
+					elif items_id_currentStage == 6:
+						if faceCenter_to_L_rayCast == True or override == True:
+							if printOnce_stage_006 == False:
+								print("'stage_006' : 'R.....show R arrow (cubeR) along with N and L'")
+								printOnce_stage_006 = True
 
 							abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
 							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
@@ -421,122 +589,14 @@ class myEquation_simple_spec:
 
 							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
 
-				elif items_id_currentStage == 2:
-					if printOnce_stage_002 == False:
-						print('stage_002 output AOV = ', aov_id)
-						printOnce_stage_002 = True
+					elif items_id_currentStage == 7:
+						if printOnce_stage_007 == False:
+							print('stage_007 output AOV = ', aov_id)
+							printOnce_stage_007 = True
 
-					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-			else:
-				if items_id_currentStage == 0:
-					if printOnce_stage_000 == False:
-						print("'stage_000' : 'N....show N arrow (cubeN)'")
-						printOnce_stage_000 = True
-
-					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-					abj_sd_b_instance.myCubeCam.hide_set(1)
-
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 1:
-					if printOnce_stage_001 == False:
-						print("'stage_001' : 'V....show V arrow (myCubeCam)'")
-						printOnce_stage_001 = True
-
-					abj_sd_b_instance.myCubeCam.hide_set(0)
-
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 2:
-					if printOnce_stage_002 == False:
-						print("'stage_002' : 'N_dot_V......show both myCubeN and myCubeCam'")
-						printOnce_stage_002 = True
-
-					abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-					abj_sd_b_instance.myCubeCam.hide_set(0)
-
-					abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 3:
-					if N_dot_V_over_threshold_with_ortho_compensateTrick == False: #####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('N_dot_V_over_threshold_with_ortho_compensateTrick FAIL for ', mySplitFaceIndexUsable)
+						# abj_sd_b_instance.myCubeCam.hide_set(1)
 
 						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif N_dot_V_over_threshold_with_ortho_compensateTrick == True or override == True:
-						if printOnce_stage_003 == False:
-							print('N_dot_V over ortho compensate trick, so continue...', N_dot_V_over_threshold_with_ortho_compensateTrick)
-							print("'stage_003' : 'raycast from faceCenter to V'")
-							printOnce_stage_003 = True
-
-						abj_sd_b_instance.show_arrow_V_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.myCubeCam.hide_set(1)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 4:
-					if faceCenter_to_V_rayCast == False: ####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('faceCenter_to_V_rayCast FAIL for ', mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif faceCenter_to_V_rayCast == True or override == True:
-							if printOnce_stage_004 == False:
-								print('faceCenter_to_V_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
-								print("'stage_004' : 'raycast from faceCenter to L'")
-								printOnce_stage_004 = True
-
-							abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-							abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 5:
-					if faceCenter_to_L_rayCast == False: ####
-						if abj_sd_b_instance.printDetailedInfo == True:
-							print('faceCenter_to_L_rayCast FAIL for ', mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
-
-					elif faceCenter_to_L_rayCast == True or override == True:
-						if printOnce_stage_005 == False:
-							print('faceCenter_to_L_rayCast was TRUE so continue... ', faceCenter_to_V_rayCast)
-							print("'stage_005' : 'show arrows (N, L)'")
-							printOnce_stage_005 = True
-
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-
-						##############
-
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 6:
-					if faceCenter_to_L_rayCast == True or override == True:
-						if printOnce_stage_006 == False:
-							print("'stage_006' : 'R.....show R arrow (cubeR) along with N and L'")
-							printOnce_stage_006 = True
-
-						abj_sd_b_instance.show_arrow_N(shadingPlane, faceCenter, mySplitFaceIndexUsable)
-						abj_sd_b_instance.show_arrow_L_to_faceCenter(faceCenter, mySplitFaceIndexUsable)
-						abj_sd_b_instance.show_arrow_R(faceCenter, mySplitFaceIndexUsable, L, N)
-
-						abj_sd_b_instance.selectedFaceMat_temp_list.append(mySplitFaceIndexUsable)
-
-				elif items_id_currentStage == 7:
-					if printOnce_stage_007 == False:
-						print('stage_007 output AOV = ', aov_id)
-						printOnce_stage_007 = True
-
-					# abj_sd_b_instance.myCubeCam.hide_set(1)
-
-					abj_sd_b_instance.Ci_render_temp_list.append(mySplitFaceIndexUsable)
 
 
 

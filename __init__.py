@@ -234,8 +234,8 @@ def register():
 	)
 
 	subdivision_toggle_items = (
-		('subd_1', 'subd_1', 'subd_1'),
 		('subd_0', 'subd_0', 'subd_0'),
+		('subd_1', 'subd_1', 'subd_1'),
 	)
 
 	bpy.types.Scene.subdivision_toggle_enum_prop = bpy.props.EnumProperty(

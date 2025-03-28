@@ -47,6 +47,9 @@ myEquation_simple_spec_class = myEquation_simple_spec()
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
+		self.renderPasses_simple = False
+		self.renderPasses_GGX = False
+
 		self.useRestoredRxyzValues = True
 		self.breakEarlyForRandomLightAndRxyz = False
 
@@ -88,7 +91,6 @@ class ABJ_Shader_Debugger():
 		self.shadingStages_perFace_stepList = []
 		self.shadingStages_selectedFaces = []
 		self.textRef_all = []
-		self.specTesterMatToggle = -1
 		self.objectsToToggleOnOffLater = []
 		self.debugStageIterPlusMinus = False
 		self.recently_cleared_selFaces = False
@@ -363,6 +365,9 @@ class ABJ_Shader_Debugger():
 					maxRange_usable = 17
 
 				if self.chosen_specular_equation == 'simple':
+
+					if self.renderPasses_simple == True:
+						maxRange_usable = 4
 
 					if self.skip_showing_visibility_raycast_check == True:
 						maxRange_usable = 2
@@ -1200,6 +1205,9 @@ class ABJ_Shader_Debugger():
 		self.textRef_all.clear()
 		self.myDebugFaces.clear()
 
+		self.renderPasses_simple = False
+		self.renderPasses_GGX = False
+
 		self.runOnce_part2_preProcess = False
 
 		aov_items = bpy.context.scene.bl_rna.properties['aov_enum_prop'].enum_items
@@ -1341,6 +1349,23 @@ class ABJ_Shader_Debugger():
 			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
 			bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
 
+
+
+
+
+
+		# bpy.ops.object.modifier_add(type='WIREFRAME')
+
+		# myInputMesh.modifiers["Subdivision"].levels = 1
+		# myInputMesh.modifiers["Subdivision"].subdivision_type = 'SIMPLE'
+		# myInputMesh.modifiers["Subdivision"].show_only_control_edges = False
+		# # myInputMesh.modifiers["Subdivision"].levels = 2
+		# myInputMesh.modifiers["Subdivision"].levels = 3
+
+		# bpy.ops.object.modifier_apply(modifier="Subdivision")
+
+	
+
 		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
 		# # bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
 		# # bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
@@ -1392,7 +1417,7 @@ class ABJ_Shader_Debugger():
 		#####################
 		bpy.ops.object.light_add(type='SUN', radius=1, align='WORLD', location=(self.pos_light_global_v), scale=(1, 1, 1))
 		self.mySun = bpy.context.active_object
-		self.mySun.name = "self.mySun"
+		self.mySun.name = "mySun"
 		# self.mySun.hide_set(1)
 
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1) ##### thursday debug
@@ -1716,6 +1741,12 @@ class ABJ_Shader_Debugger():
 		usableSpecularEquationType_items = bpy.context.scene.bl_rna.properties['specular_equation_enum_prop'].enum_items
 		usableSpecularEquationType_id = usableSpecularEquationType_items[bpy.context.scene.specular_equation_enum_prop].identifier
 
+		if self.renderPasses_simple == True:
+			# usableSpecularEquationType_id = 'simple'
+			usableSpecularEquationType_id = 'GGX'
+		elif self.renderPasses_GGX == True:
+			usableSpecularEquationType_id = 'GGX'
+
 		if usableSpecularEquationType_id != self.chosen_specular_equation:
 			self.changedSpecularEquation_variables = True
 			self.chosen_specular_equation = usableSpecularEquationType_id
@@ -1858,6 +1889,7 @@ class ABJ_Shader_Debugger():
 				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast)
 
 			elif mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
+				if self.renderPasses_simple == False and self.renderPasses_GGX == False:
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
 		# bpy.ops.object.mode_set(mode="OBJECT")
@@ -2843,83 +2875,76 @@ class ABJ_Shader_Debugger():
 		else:
 			Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
 
-
-
 		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
 		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
 		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
-
-
 
 		# myRotation = self.myV * mathutils.Vector((0, 0, 180))
 		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(180)))
 		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(90)))
 
-
-
 		myRotation = self.myV * mathutils.Vector((math.radians(val_text_rotate_x_prop), math.radians(val_text_rotate_y_prop), math.radians(val_text_rotate_z_prop)))
 		
-		if self.specTesterMatToggle == -1:
-			for j in bpy.context.scene.objects:
-				if j.name == shadingPlane:
+		for j in bpy.context.scene.objects:
+			if j.name == shadingPlane:
 
-					#####################
-					### text_add() (better text placement)
-					#####################
-					if precisionVal != -1:
-						# precisionVal = 3
-						t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+				#####################
+				### text_add() (better text placement)
+				#####################
+				if precisionVal != -1:
+					# precisionVal = 3
+					t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
 
-						myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
-						myFontCurve.body = t
+					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+					myFontCurve.body = t
 
-						myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
-						myFontOb.data.align_x = 'CENTER'
-						myFontOb.data.align_y = 'CENTER'
+					myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
+					myFontOb.data.align_x = 'CENTER'
+					myFontOb.data.align_y = 'CENTER'
 
-						myFontOb.location = j.location
-						myFontOb.rotation_euler = myRotation
-
-						bpy.context.view_layer.objects.active = j
-						me = bpy.context.active_object.data
-
-						bm = bmesh.new()   # create an empty BMesh
-						bm.from_mesh(me)   # fill it in from a Mesh
-
-						outputSize = 0
-						for f in bm.faces:
-							# normalDir = f.normal
-							# f = f 
-							outputSize = f.calc_area()
-							outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
-
-						val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
-						val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
-
-						outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
-
-						myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
-
-						if Ci > mathutils.Vector((0, 0, 0)):
-							myFontOb.data.body = t
-
-						else:
-							myFontOb.data.body = 'x'
-
-						bpy.context.collection.objects.link(myFontOb)
-
-						if faceCenter_to_V_rayCast == True:
-							myFontOb.show_in_front = True
-
-						self.textRef_all.append(myFontOb.name)
+					myFontOb.location = j.location
+					myFontOb.rotation_euler = myRotation
 
 					bpy.context.view_layer.objects.active = j
+					me = bpy.context.active_object.data
 
-			# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci.x, Ci.y, Ci.z)
-			mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
-			# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", 1, 0, 0)
-			bpy.context.active_object.data.materials.clear()
-			bpy.context.active_object.data.materials.append(mat1)
+					bm = bmesh.new()   # create an empty BMesh
+					bm.from_mesh(me)   # fill it in from a Mesh
+
+					outputSize = 0
+					for f in bm.faces:
+						# normalDir = f.normal
+						# f = f 
+						outputSize = f.calc_area()
+						outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
+
+					val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+					val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+					outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+
+					myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
+
+					if Ci > mathutils.Vector((0, 0, 0)):
+						myFontOb.data.body = t
+
+					else:
+						myFontOb.data.body = 'x'
+
+					bpy.context.collection.objects.link(myFontOb)
+
+					if faceCenter_to_V_rayCast == True:
+						myFontOb.show_in_front = True
+
+					self.textRef_all.append(myFontOb.name)
+
+				bpy.context.view_layer.objects.active = j
+
+		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci.x, Ci.y, Ci.z)
+		mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
 
 	def renderPasses(self):
 		#simple spec 7 steps
@@ -2934,83 +2959,331 @@ class ABJ_Shader_Debugger():
 		GGX_renderViewList_1 = ['D', 'F', 'vis', 'GGX', 'GGX + NdotL']
 
 		self.DoIt_part1_preprocess()
-		self.doIt_part2_render()
-
-
+		
 		#####################
 		### SAVE RENDERS
 		#####################
-		mypath_N = "//compositing_files/N.png"
-		mypath_L = "//compositing_files/L.png"
-		mypath_NdotL = "//compositing_files/NdotL.png"
-		mypath_NdotL_zero = "//compositing_files/NdotL_zero.png"
-		mypath_V = "//compositing_files/V.png"
+		mypath_N_persp = "//compositing_files/N_persp.png"
+		mypath_N_view2 = "//compositing_files/N_view2.png"
+		mypath_N_view3 = "//compositing_files/N_view3.png"
+
+		mypath_L_persp = "//compositing_files/L_persp.png"
+		mypath_L_view2 = "//compositing_files/L_view2.png"
+		mypath_L_view3 = "//compositing_files/L_view3.png"
+
+		mypath_NdotL_persp = "//compositing_files/NdotL_persp.png"
+		mypath_NdotL_view2 = "//compositing_files/NdotL_view2.png"
+		mypath_NdotL_view3 = "//compositing_files/NdotL_view3.png"
+		
+		mypath_V_persp = "//compositing_files/V_persp.png"
+		mypath_V_view2 = "//compositing_files/V_view2.png"
+		mypath_V_view3 = "//compositing_files/V_view3.png"
 		
 		#simple
-		mypath_simple_R = "//compositing_files/simple_R.png"
-		mypath_simple_RdotV = "//compositing_files/simple_RdotV.png"
-		mypath_simple_combo_diffuse = "//compositing_files/simple_combo_diffuse.png"
+		mypath_simple_R_persp = "//compositing_files/simple_R_persp.png"
+		mypath_simple_R_view2 = "//compositing_files/simple_R_view2.png"
+		mypath_simple_R_view3 = "//compositing_files/simple_R_view3.png"
+
+		mypath_simple_RdotV_persp = "//compositing_files/simple_RdotV_persp.png"
+		mypath_simple_RdotV_view2 = "//compositing_files/simple_RdotV_view2.png"
+		mypath_simple_RdotV_view3 = "//compositing_files/simple_RdotV_view3.png"
+		
+		mypath_simple_combo_diffuse_persp = "//compositing_files/simple_combo_diffuse_persp.png"
+		mypath_simple_combo_diffuse_view2 = "//compositing_files/simple_combo_diffuse_view2.png"
+		mypath_simple_combo_diffuse_view3 = "//compositing_files/simple_combo_diffuse_view3.png"
 
 		#GGX
-		mypath_GGX_H = "//compositing_files/GGX_H.png"
-		mypath_GGX_HdotN = "//compositing_files/GGX_HdotN.png"
-		mypath_GGX_HdotL = "//compositing_files/GGX_HdotL.png"
-		mypath_GGX_NdotV = "//compositing_files/GGX_NdotV.png"
+		mypath_GGX_H_persp = "//compositing_files/GGX_H_persp.png"
+		mypath_GGX_H_view2 = "//compositing_files/GGX_H_view2.png"
+		mypath_GGX_H_view3 = "//compositing_files/GGX_H_view3.png"
+		
+		mypath_GGX_HdotN_persp = "//compositing_files/GGX_HdotN_persp.png"
+		mypath_GGX_HdotN_view2 = "//compositing_files/GGX_HdotN_view2.png"
+		mypath_GGX_HdotN_view3 = "//compositing_files/GGX_HdotN_view3.png"
+		
+		mypath_GGX_HdotL_persp = "//compositing_files/GGX_HdotL_persp.png"
+		mypath_GGX_HdotL_view2 = "//compositing_files/GGX_HdotL_view2.png"
+		mypath_GGX_HdotL_view3 = "//compositing_files/GGX_HdotL_view3.png"
+		
+		mypath_GGX_NdotV_persp = "//compositing_files/GGX_NdotV_persp.png"
+		mypath_GGX_NdotV_view2 = "//compositing_files/GGX_NdotV_view2.png"
+		mypath_GGX_NdotV_view3 = "//compositing_files/GGX_NdotV_view3.png"
+		
+		mypath_GGX_ruff_persp = "//compositing_files/GGX_ruff_persp.png"
+		mypath_GGX_ruff_view2 = "//compositing_files/GGX_ruff_view2.png"
+		mypath_GGX_ruff_view3 = "//compositing_files/GGX_ruff_view3.png"
 
-		mypath_GGX_ruff = "//compositing_files/GGX_ruff.png"
-		mypath_GGX_D = "//compositing_files/GGX_D.png"
-		mypath_GGX_F = "//compositing_files/GGX_F.png"
-		mypath_GGX_Vis = "//compositing_files/GGX_Vis.png"
-		mypath_GGX_GGX = "//compositing_files/GGX_GGX.png"
-		mypath_GGX_combo_diffuse = "//compositing_files/GGX_combo_diffuse.png"
+		mypath_GGX_D_persp = "//compositing_files/GGX_D_persp.png"
+		mypath_GGX_D_view2 = "//compositing_files/GGX_D_view2.png"
+		mypath_GGX_D_view3 = "//compositing_files/GGX_D_view3.png"
+		
+		mypath_GGX_F_persp = "//compositing_files/GGX_F_persp.png"
+		mypath_GGX_F_view2 = "//compositing_files/GGX_F_view2.png"
+		mypath_GGX_F_view3 = "//compositing_files/GGX_F_view3.png"
+		
+		mypath_GGX_Vis_persp = "//compositing_files/GGX_Vis_persp.png"
+		mypath_GGX_Vis_view2 = "//compositing_files/GGX_Vis_view2.png"
+		mypath_GGX_Vis_view3 = "//compositing_files/GGX_Vis_view3.png"
+		
+		mypath_GGX_GGX_persp = "//compositing_files/GGX_GGX_persp.png"
+		mypath_GGX_GGX_view2 = "//compositing_files/GGX_GGX_view2.png"
+		mypath_GGX_GGX_view3 = "//compositing_files/GGX_GGX_view3.png"
+		
+		mypath_GGX_combo_diffuse_persp = "//compositing_files/GGX_combo_diffuse_persp.png"
+		mypath_GGX_combo_diffuse_view2 = "//compositing_files/GGX_combo_diffuse_view2.png"
+		mypath_GGX_combo_diffuse_view3 = "//compositing_files/GGX_combo_diffuse_view3.png"
 
-		all_render_paths = [ mypath_N, mypath_L, mypath_NdotL, mypath_NdotL_zero, mypath_V, 
+		all_render_paths = [ 
+			
+			mypath_N_persp, 
+			mypath_N_view2, 
+			mypath_N_view3, 
+		
+			mypath_L_persp, 
+			mypath_L_view2, 
+			mypath_L_view3, 
+			
+			mypath_NdotL_persp,
+			mypath_NdotL_view2,
+			mypath_NdotL_view3,
 					  
-			mypath_simple_R, mypath_simple_RdotV, mypath_simple_combo_diffuse, 
+			mypath_simple_R_persp,
+			mypath_simple_R_view2,
+			mypath_simple_R_view3,
 
-			mypath_GGX_H, mypath_GGX_HdotN, mypath_GGX_HdotL, mypath_GGX_NdotV, mypath_GGX_ruff, mypath_GGX_D, mypath_GGX_F, mypath_GGX_Vis, mypath_GGX_GGX, mypath_GGX_combo_diffuse
+			mypath_simple_RdotV_persp, 
+			mypath_simple_RdotV_view2, 
+			mypath_simple_RdotV_view3, 
+			
+			mypath_simple_combo_diffuse_persp, 
+			mypath_simple_combo_diffuse_view2, 
+			mypath_simple_combo_diffuse_view3, 
+
+			mypath_GGX_H_persp,
+			mypath_GGX_H_view2,
+			mypath_GGX_H_view3,
+
+			mypath_GGX_HdotN_persp, 
+			mypath_GGX_HdotN_view2, 
+			mypath_GGX_HdotN_view3, 
+			
+			mypath_GGX_HdotL_persp, 
+			mypath_GGX_HdotL_view2, 
+			mypath_GGX_HdotL_view3, 
+			
+			mypath_GGX_NdotV_persp, 
+			mypath_GGX_NdotV_view2, 
+			mypath_GGX_NdotV_view3, 
+			
+			mypath_GGX_ruff_persp, 
+			mypath_GGX_ruff_view2, 
+			mypath_GGX_ruff_view3, 
+			
+			mypath_GGX_D_persp, 
+			mypath_GGX_D_view2, 
+			mypath_GGX_D_view3, 
+			
+			mypath_GGX_F_persp, 
+			mypath_GGX_F_view2, 
+			mypath_GGX_F_view3, 
+			
+			mypath_GGX_Vis_persp, 
+			mypath_GGX_Vis_view2, 
+			mypath_GGX_Vis_view3, 
+			
+			mypath_GGX_GGX_persp, 
+			mypath_GGX_GGX_view2, 
+			mypath_GGX_GGX_view3, 
+			
+			mypath_GGX_combo_diffuse_persp,
+			mypath_GGX_combo_diffuse_view2,
+			mypath_GGX_combo_diffuse_view3,
+
+			mypath_V_persp, 
+			mypath_V_view2, 
+			mypath_V_view3, 
 		]
 
+		singleArrow_render_paths = [ 
+			mypath_N_persp, 
+			mypath_N_view2, 
+			mypath_N_view3, 
 
+			mypath_L_persp, 
+			mypath_L_view2, 
+			mypath_L_view3, 
+			
+			mypath_simple_R_persp, 
+			mypath_simple_R_view2, 
+			mypath_simple_R_view3, 
+			
+			mypath_GGX_H_persp,
+			mypath_GGX_H_view2,
+			mypath_GGX_H_view3,
+
+			mypath_V_persp, 
+			mypath_V_view2, 
+			mypath_V_view3, 
+		]
 
 		#####################
-		### TEST RENDERS
+		### SIMPLE SPEC RENDERS
 		#####################
 		bpy.context.scene.camera = self.myCam
 
-		mypath0 = "//compositing_files/rotate0.png"
-		bpy.context.scene.render.filepath = mypath0
-		bpy.ops.render.render(write_still=True)
+		# self.renderPasses_simple = True
 
-		self.myCam.location = mathutils.Vector((5, 0, 0))
-		self.updateScene() # need
-		self.look_at(self.myCam, self.myOrigin)
+		camLocStored = self.myCam.location
 
-		mypath1 = "//compositing_files/rotate1.png"
-		bpy.context.scene.render.filepath = mypath1
-		bpy.ops.render.render(write_still=True)
+		#select all faces
+		bpy.ops.object.mode_set(mode="OBJECT")
+		bpy.ops.object.select_all(action='SELECT')
+		self.stages_selectfaces_UI()
 
+		self.deselectAll()
 
-		self.myCam.location = mathutils.Vector((0, 0, 0))
-		self.updateScene() # need
-		self.look_at(self.myCam, self.myOrigin)
-
-		mypath1 = "//compositing_files/rotate1.png"
-		bpy.context.scene.render.filepath = mypath1
-		bpy.ops.render.render(write_still=True)
-
-
-
+		#######
+		#Normal
+		#######
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						# space.shading.type = 'WIREFRAME'
+						space.shading.type = 'MATERIAL'
+						# space.shading.type = 'SOLID'
 
 
 
+		# for area in bpy.data.screens["Scripting"].areas:
+		for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens[bpy.context.window.screen].areas:
+			if area.type == 'VIEW_3D':
+				for space in area.spaces:
+					if space.type == 'VIEW_3D':
+
+						# space.overlay.grid_scale = 2
+
+						usableToggle = None
+						if space.overlay.show_floor == True:
+							usableToggle = False
+
+							space.overlay.show_floor = usableToggle
+							space.overlay.show_axis_x = usableToggle
+							space.overlay.show_axis_y = usableToggle
+							space.overlay.show_axis_z = usableToggle
+							space.overlay.show_cursor = usableToggle
+
+		self.textColorSettings_UI()
+
+		bpy.context.scene.view_settings.view_transform = 'Standard'
+		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
+		bpy.context.scene.view_settings.look = 'None'
+		bpy.context.scene.render.use_multiview = False
+
+
+		self.renderPasses_simple = False
+		self.renderPasses_GGX = False
+
+		for idx, i in enumerate(singleArrow_render_paths):
+			
+			# bpy.context.scene.render.resolution_x = 2550
+
+			# bpy.context.scene.render.resolution_x = 1000
+			# bpy.context.scene.render.resolution_y = 1000
+
+			bpy.context.scene.render.resolution_x = 3000
+			bpy.context.scene.render.resolution_y = 3000
+
+			# bpy.context.scene.render.resolution_x = 2550
+			# bpy.context.scene.render.resolution_y = 1970
+
+			sideCamLoc = mathutils.Vector((-8, 0, 0))
+			topCamLoc = mathutils.Vector((0, 0, 8))
+
+
+			self.renderPasses_simple = True
+
+			if idx == 0: #persp cam
+				self.myCam.location = self.pos_camera_global
+				self.doIt_part2_render()
+
+			elif idx == 3 or idx == 6 or idx == 9 or idx == 12:
+				self.myCam.location = self.pos_camera_global
+				self.updateScene() # need
+				self.look_at(self.myCam, self.myOrigin)
+
+				self.stageIdx_plusMinus_UI(1)
+
+			# elif idx == 1: #side cam
+			elif idx == 1 or idx == 4 or idx == 7 or idx == 10 or idx == 13: #side cam
+				self.myCam.location = sideCamLoc
+				self.updateScene() # need
+				self.look_at(self.myCam, self.myOrigin)
+
+			elif idx == 2 or idx == 5 or idx == 8 or idx == 11 or idx == 14: #top cam
+				self.myCam.location = topCamLoc
+				self.updateScene() # need
+				self.look_at(self.myCam, self.myOrigin)
 
 
 
+			if idx != 1 or idx != 2 or idx != 3:
+				self.mySun.hide_set(1)
+				# self.myCubeCam.hide_set(1)
 
+
+
+			if idx == 0 or idx == 1 or idx == 2:
+				#show normal only, hide light
+				# self.mySun.hide_set(1)
+				self.myCubeCam.hide_set(1)
+
+			if idx == 3 or idx == 4 or idx == 5:
+				#show light
+				# self.mySun.hide_set(0)
+				self.myCubeCam.hide_set(1)
+
+			if idx == 6 or idx == 7 or idx == 8:
+				#show view
+				# self.mySun.hide_set(1)
+
+				if idx != 6:
+					self.myCubeCam.hide_set(0)
+
+			if idx == 9 or idx == 10 or idx == 11:
+				#show R
+				# self.mySun.hide_set(0)
+				self.myCubeCam.hide_set(1)
+
+			if idx == 12 or idx == 13 or idx == 14:
+				#show H
+				# self.mySun.hide_set(0)
+				# self.myCubeCam.hide_set(1)
+
+				if idx == 12:
+					self.myCubeCam.hide_set(1)
+				else:
+					self.myCubeCam.hide_set(0)
+
+			bpy.context.scene.render.filepath = i
+
+			for area in bpy.context.screen.areas:
+				if area.type == 'VIEW_3D':
+					area.spaces[0].region_3d.view_perspective = 'CAMERA'
+					break
+
+			bpy.context.scene.render.film_transparent = True
+			bpy.ops.render.opengl(write_still=True)
+
+			# if idx == 3:
+			# if idx == 10:
+				# return
+
+		bpy.context.scene.render.film_transparent = False
 
 		####################
-		###FINAL COMPOSITE
+		### FINAL COMPOSITE
 		####################
 		self.deselectAll()
 		self.deleteAllObjects()
@@ -3020,7 +3293,7 @@ class ABJ_Shader_Debugger():
 		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
 
 		###########
-		#DEFAULT CAMERA
+		# DEFAULT CAMERA
 		#############
 		cam1_data = bpy.data.cameras.new('Camera')
 		cam = bpy.data.objects.new('Camera', cam1_data)
@@ -3044,7 +3317,6 @@ class ABJ_Shader_Debugger():
 		#####################
 		### input mesh
 		#####################
-
 		usablePrimitiveType_gradient_id = 'grid'
 		if usablePrimitiveType_gradient_id == 'grid':
 			bpy.ops.mesh.primitive_grid_add()
@@ -3055,7 +3327,7 @@ class ABJ_Shader_Debugger():
 		# myInputMesh.hide_render = True
 
 		#####################
-		### grey background
+		### background
 		#####################
 		bpy.context.view_layer.objects.active = myInputMesh
 		myDupeGradient_bg = self.copyObject()
@@ -3067,87 +3339,151 @@ class ABJ_Shader_Debugger():
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
 
 		gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
-		greyBG = 0.5
-		if gamma_correct_gradient_colorWheel_prop == True:
-			# lerpIter = pow(lerpIter, 1.0 / 2.2)
-			greyBG = pow(greyBG, 2.2)
+		# greyBG = 0.5
+		# if gamma_correct_gradient_colorWheel_prop == True:
+		# 	# lerpIter = pow(lerpIter, 1.0 / 2.2)
+		# 	greyBG = pow(greyBG, 2.2)
 
-		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 1, 1, 1)
 
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 
-		#################
-		### input mesh tile 00
-		#################
-		bpy.context.view_layer.objects.active = myInputMesh
-		myDupeGradient_bg = self.copyObject()
-		myDupeGradient_bg.name = 'dupeGradient_background'
+		#####################
+		## LOCATION VARIABLES
+		#####################
 
-		# bpy.context.scene.render.resolution_x = 2550
-		# bpy.context.scene.render.resolution_y = 1970
-		tileScale = 10000
+		rangeLength = 3
+		# locationMultiplierY = .4
+		locationMultiplierY = .5
+		# locationMultiplierZ = -.6
+		locationMultiplierZ = -.15
+		# raiseLowerZ = 1
+		raiseLowerZ = 0
 
-		myDupeGradient_bg.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
+		usableCurrLoc_X = 0
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
 
-		myDupeGradient_bg.location = mathutils.Vector((2, 0, .1))
-		myDupeGradient_bg.rotation_euler = mathutils.Vector((math.radians(-90), math.radians(180), math.radians(-90)))
+		for idx, i in enumerate(singleArrow_render_paths):
+			bpy.context.view_layer.objects.active = myInputMesh
+			myTile = self.copyObject()
+			myTile_name_0 = i.split('.png')[0]
+			myTile_name_1 = myTile_name_0.split('/')[-1]
 
-		bpy.context.view_layer.objects.active = myDupeGradient_bg
-		mat1 = self.newShader("ShaderVisualizer_renderPasses_00", "emission", 1, 1, 1)
-		
-		bpy.context.active_object.data.materials.clear()
-		bpy.context.active_object.data.materials.append(mat1)
+			# print('myTile_name_1 = ', myTile_name_1)
 
-		nodes = mat1.node_tree.nodes
-		links = mat1.node_tree.links
+			myTile.name = myTile_name_1
 
-		myImageTexture00 = nodes.new("ShaderNodeTexImage")
-		myImageTexture00.image = bpy.data.images.load(mypath0)
-		myImageTexture00.image.colorspace_settings.name = "sRGB"
-		links.new(myImageTexture00.outputs['Color'], nodes["Emission"].inputs[0])
+			tileScale = 10000
 
+			myTile.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
 
+			##############
+			## LOCATION
+			##############
+			myRange = range(startIdx, startIdx + rangeLength)
+			usable_Z_Row = None
 
-		#################
-		### input mesh tile 01
-		#################
-		bpy.context.view_layer.objects.active = myInputMesh
-		myDupeGradient_bg = self.copyObject()
-		myDupeGradient_bg.name = 'dupeGradient_background'
+			if idx > myRange[-1]:
+				startIdx = startIdx + rangeLength
+				myRange = range(startIdx, startIdx + rangeLength)
+				usableCurrLoc_Y = 0
+				usableCurrRow_Z += 1
+			
+			if myRange[0] <= idx <= myRange[-1]:
+				usable_Z_Row = usableCurrRow_Z
+				output_Y = usableCurrLoc_Y # * yMult # * idx)
+				usableCurrLoc_Y += 1
 
-		# bpy.context.scene.render.resolution_x = 2550
-		# bpy.context.scene.render.resolution_y = 1970
-		tileScale = 10000
-
-		myDupeGradient_bg.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
-
-		# myDupeGradient_bg.location = mathutils.Vector((2, 0, .1))
-		myDupeGradient_bg.location = mathutils.Vector((2, 0, 2))
-		myDupeGradient_bg.rotation_euler = mathutils.Vector((math.radians(-90), math.radians(180), math.radians(-90)))
-
-		bpy.context.view_layer.objects.active = myDupeGradient_bg
-		mat1 = self.newShader("ShaderVisualizer_renderPasses_01", "emission", 1, 1, 1)
-		
-		bpy.context.active_object.data.materials.clear()
-		bpy.context.active_object.data.materials.append(mat1)
-
-		nodes = mat1.node_tree.nodes
-		links = mat1.node_tree.links
-
-		myImageTexture00 = nodes.new("ShaderNodeTexImage")
-		myImageTexture00.image = bpy.data.images.load(mypath1)
-		myImageTexture00.image.colorspace_settings.name = "sRGB"
-		links.new(myImageTexture00.outputs['Color'], nodes["Emission"].inputs[0])
+			if idx > 0:
+				usableCurrLoc_X -= .01
 
 
+			# myTile.location = mathutils.Vector((2, 0, .1))
+			# myTile.location = mathutils.Vector((2, -2.5, 2)) ######
+
+			# tile_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
+			tile_startPos = mathutils.Vector((2, -2.5, 2)) #top left
+			# tile_startPos = mathutils.Vector((2, -2.5, 2)) #top left
+
+			# myTile.location = tile_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
+			myTile.location = tile_startPos + mathutils.Vector((usableCurrLoc_X, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
+
+
+			#########
+
+			myTile.rotation_euler = mathutils.Vector((math.radians(-90), math.radians(180), math.radians(-90)))
+
+			bpy.context.view_layer.objects.active = myTile
+			# mat1 = self.newShader("ShaderVisualizer_renderPasses_mypath_N_persp", "emission", 1, 1, 1)
+			mat1 = self.newShader('ShaderVisualizer_renderPasses_' + myTile_name_1, 'emission', 1, 1, 1)
+			
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+			nodes = mat1.node_tree.nodes
+			links = mat1.node_tree.links
+
+			myImageTexture00 = nodes.new("ShaderNodeTexImage")
+			myImageTexture00.image = bpy.data.images.load(i)
+			myImageTexture00.image.colorspace_settings.name = "sRGB"
+
+			mySepColor = nodes.new("ShaderNodeSeparateColor")
+			links.new(myImageTexture00.outputs['Color'], nodes["Separate Color"].inputs[0])
+
+			# myMath0 = nodes.new("Math")
+			myMath0 = nodes.new("ShaderNodeMath")
+			myMath0.operation = 'POWER'
+
+			myMath1 = nodes.new("ShaderNodeMath")
+			myMath1.operation = 'POWER'
+
+			myMath2 = nodes.new("ShaderNodeMath")
+			myMath2.operation = 'POWER'
+
+			myMath0.inputs[1].default_value = 10
+			myMath1.inputs[1].default_value = 10
+			myMath2.inputs[1].default_value = 10
+
+			links.new(mySepColor.outputs[0], myMath0.inputs[0])
+			links.new(mySepColor.outputs[1], myMath1.inputs[0])
+			links.new(mySepColor.outputs[2], myMath2.inputs[0])
+
+			myCombineColor = nodes.new("ShaderNodeCombineColor")
+			links.new(myMath0.outputs[0], myCombineColor.inputs[0])
+			links.new(myMath1.outputs[0], myCombineColor.inputs[1])
+			links.new(myMath2.outputs[0], myCombineColor.inputs[2])
+
+			links.new(myCombineColor.outputs[0], nodes["Emission"].inputs[0])
 
 
 
 
 
 
+			myPrincipled = nodes.new("ShaderNodeBsdfPrincipled")
+			links.new(myCombineColor.outputs[0], myPrincipled.inputs[0])
+			links.new(myImageTexture00.outputs[1], myPrincipled.inputs[4])
+			links.new(myPrincipled.outputs[0], nodes['Material Output'].inputs[0])
 
+
+
+
+
+			for area in bpy.context.screen.areas: 
+				if area.type == 'VIEW_3D':
+					for space in area.spaces: 
+						if space.type == 'VIEW_3D':
+							space.shading.type = 'MATERIAL'
+							# space.shading.type = 'SOLID'
+
+			self.defaultColorSettings_UI()
+
+		self.renderPasses_simple = False
+		self.renderPasses_GGX = False
 
 	def skip_refresh_determine(self, mySplitFaceIndexUsable):
 		#################################################
@@ -3710,6 +4046,7 @@ class ABJ_Shader_Debugger():
 		myCubeH_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_H_M_np, 'cubeH_instance_', 'H')
 		self.objectsToToggleOnOffLater.append(myCubeH_instance)
 
+		return myCubeH_instance
 
 	def show_arrow_N(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
 		nameToLookFor = 'cubeN_instance_' + mySplitFaceIndexUsable
@@ -3731,6 +4068,8 @@ class ABJ_Shader_Debugger():
 
 		myCubeN_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_N_M_np, 'cubeN_instance_', 'N')
 		self.objectsToToggleOnOffLater.append(myCubeN_instance)
+
+		return myCubeN_instance
 
 	def show_arrow_V_to_faceCenter(self, faceCenter, mySplitFaceIndexUsable):
 		nameToLookFor = 'faceCenterToV_rc_instance_' + mySplitFaceIndexUsable
@@ -3806,16 +4145,17 @@ class ABJ_Shader_Debugger():
 		myCubeR_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_R_M_np, 'cubeR_instance_', 'R')
 		self.objectsToToggleOnOffLater.append(myCubeR_instance)
 
-	def setActiveStageMaterial(self, shadingPlane, idx, r, g, b):
-		if self.specTesterMatToggle == -1:
-			for j in bpy.context.scene.objects:
-				if j.name == shadingPlane:
-					bpy.context.view_layer.objects.active = j
+		return myCubeR_instance
 
-			# bpy.context.view_layer.objects.active = 
-			mat1 = self.newShader("ShaderVisualizer_" + str(idx), "emission", r, g, b)
-			bpy.context.active_object.data.materials.clear()
-			bpy.context.active_object.data.materials.append(mat1)
+	def setActiveStageMaterial(self, shadingPlane, idx, r, g, b):
+		for j in bpy.context.scene.objects:
+			if j.name == shadingPlane:
+				bpy.context.view_layer.objects.active = j
+
+		# bpy.context.view_layer.objects.active = 
+		mat1 = self.newShader("ShaderVisualizer_" + str(idx), "emission", r, g, b)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
 
 	def raycast_abj_scene(self, origin, direction, debugidx):
 		for j in self.allNamesToToggleDuringRaycast:
