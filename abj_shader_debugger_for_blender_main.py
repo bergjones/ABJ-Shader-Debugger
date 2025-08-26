@@ -71,7 +71,11 @@ class ABJ_Shader_Debugger():
 		self.text_gradient_rotate_y_stored = 0.0
 		self.text_gradient_rotate_z_stored = 0.0
 
+		self.myLoc_arrow_01 = None
 
+		self.cam1_debug = None
+		self.cam2_debug = None
+		self.vector_toEuler_debug = None
 
 		self.changedSpecularEquation_variables = False
 		self.changedDiffuseEquation_variables = False
@@ -80,11 +84,20 @@ class ABJ_Shader_Debugger():
 		self.Ci_render_temp_list = []
 		self.selectedFaceMat_temp_list = []
 
+		self.myPixel = None
+		self.fov = None
+		self.aspect = None
+		self.zNear = None
+		# self.zNear = 110
+		self.zFar = None
+		self.zFarScale = 1.53
+
 		self.runOnce_part2_preProcess = False
 		self.debugV_223 = None
 		self.myDebugFaces = []
 		self.allNamesToToggleDuringRaycast = []
 		self.arrow_dynamic_instance_M_all_list_matrixOnly = []
+		self.arrow_dynamic_instance_M_all_list_matrixOnly_debug = []
 		self.shadingDict_global = {}
 		self.shadingList_perFace = []
 		self.shadingStages_all = []
@@ -129,6 +142,53 @@ class ABJ_Shader_Debugger():
 		self.adjustedColors = False
 
 		#instance
+		##########
+		## NEW
+		##########
+		self.myCubeV_halfFov_LB_og = None
+		self.myCubeV_halfFov_LB_og_Matrix = None
+		self.myCubeV_halfFov_LB_og_Matrix_np = None
+		self.myCubeV_halfFov_LB_og_dupe = None
+
+		self.myCubeV_halfFov_LT_og = None
+		self.myCubeV_halfFov_LT_og_Matrix = None
+		self.myCubeV_halfFov_LT_og_Matrix_np = None
+		self.myCubeV_halfFov_LT_og_dupe = None
+
+		self.myCubeV_halfFov_RT_og = None
+		self.myCubeV_halfFov_RT_og_Matrix = None
+		self.myCubeV_halfFov_RT_og_Matrix_np = None
+		self.myCubeV_halfFov_RT_og_dupe = None
+
+		self.myCubeV_halfFov_RB_og = None
+		self.myCubeV_halfFov_RB_og_Matrix = None
+		self.myCubeV_halfFov_RB_og_Matrix_np = None
+		self.myCubeV_halfFov_RB_og_dupe = None
+
+
+		########
+		## OLD
+		########
+		self.myCubeV_halfFov_L_og = None
+		self.myCubeV_halfFov_L_og_Matrix = None
+		self.myCubeV_halfFov_L_og_Matrix_np = None
+		self.myCubeV_halfFov_L_og_dupe = None
+
+		self.myCubeV_halfFov_R_og = None
+		self.myCubeV_halfFov_R_og_Matrix = None
+		self.myCubeV_halfFov_R_og_Matrix_np = None
+		self.myCubeV_halfFov_R_og_dupe = None
+
+		self.dynamicM_halfFov_LB = None
+		self.dynamicM_halfFov_LT = None
+		self.dynamicM_halfFov_RT = None
+		self.dynamicM_halfFov_RB = None
+
+		self.dynamicM_halfFov_LB_vector = None
+		self.dynamicM_halfFov_LT_vector = None
+		self.dynamicM_halfFov_RT_vector = None
+		self.dynamicM_halfFov_RB_vector = None
+
 		self.myCubeLight_og = None
 		self.myCubeLight_og_Matrix = None
 		self.myCubeLight_og_Matrix_np = None
@@ -438,8 +498,806 @@ class ABJ_Shader_Debugger():
 		self.recently_cleared_selFaces = True
 
 		self.refreshPart2_UI()
+
+
+	def remap_range(self, value, old_min, old_max, new_min, new_max):
+		return new_min + (value - old_min) * (new_max - new_min) / (old_max - old_min)
+
+		# value = 5
+		# old_min = 0
+		# old_max = 10
+		# new_min = 0
+		# new_max = 100
+
+		# new_value = remap_range(value, old_min, old_max, new_min, new_max)
+		# print(new_value) # 50.0
+
+	def written_manual_cross(self, vector_a, vector_b):
+		# Define two 3D vectors as lists
+		# vector_a = [1, 2, 3]
+		# vector_b = [4, 5, 6]
+
+		# vector_a = mathutils.Vector((.8, .2, .3))
+		# vector_b = mathutils.Vector((.5, .5, .5))
+
+		# Calculate the components of the cross product manually
+		cross_product_x = (vector_a[1] * vector_b[2]) - (vector_a[2] * vector_b[1])
+		cross_product_y = (vector_a[2] * vector_b[0]) - (vector_a[0] * vector_b[2])
+		cross_product_z = (vector_a[0] * vector_b[1]) - (vector_a[1] * vector_b[0])
+
+		# Store the result in a new list
+		# cross_product_vector = [cross_product_x, cross_product_y, cross_product_z]
+
+		cross_product_vector = mathutils.Vector((cross_product_x, cross_product_y, cross_product_z))
+
+		return cross_product_vector
+
+	def written_manual_dotProduct(self):
+		# vector_a = [1, 2, 3]
+		# vector_b = [4, 5, 6]
+
+		# written_dot_product_result = 0
+		# for i in range(len(vec1)):
+			# written_dot_product_result += vec1[i] * vec2[i]
+		# return written_dot_product_result
+
+		myBPY_result_vec0 = mathutils.Vector((.8, .2, .3))
+		myBPY_result_vec1 = mathutils.Vector((.5, .5, .5))
+
+		myResult = mathutils.Vector.dot(myBPY_result_vec0, myBPY_result_vec1)
+		print('my bpy dot product result = ', myResult)
+		
+		#manual
+		len0 = .8 * .5
+		len1 = .2 * .5
+		len2 = .3 * .5
+
+		comboDot = len0 + len1 + len2
+		print('my manual dot product result = ', comboDot)
+
+	def written_render(self):
+		self.objectsToToggleOnOffLater.clear()
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+
+		for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens[bpy.context.window.screen].areas:
+			if area.type == 'VIEW_3D':
+				for space in area.spaces:
+					if space.type == 'VIEW_3D':
+
+						# space.overlay.grid_scale = 2
+
+						usableToggle = None
+						if space.overlay.show_floor == True:
+							usableToggle = False
+						else:
+							usableToggle = True
+
+						usableToggle = False
+
+						# space.overlay.show_floor = usableToggle
+						space.overlay.show_axis_x = usableToggle
+						space.overlay.show_axis_y = usableToggle
+						space.overlay.show_axis_z = usableToggle
+						space.overlay.show_cursor = usableToggle
+
+
+
+		startTime = datetime.now()
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		cam1_data = bpy.data.cameras.new('Camera')
+		cam = bpy.data.objects.new('Camera', cam1_data)
+		bpy.context.collection.objects.link(cam)
+
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+		# self.myCam.location = mathutils.Vector((20, 0, 10))
+		# self.myCam.location = mathutils.Vector((20, 0, -20))
+
+		self.myCam.location = mathutils.Vector((-2, 25, 13)) #OLD
+		# self.myCam.location = mathutils.Vector((-2, 110, 58))
+		# self.myCam.location = mathutils.Vector((-2, 40, 58))
+# 
+		# bpy.context.object.data.type = 'ORTHO'
+		self.myCam.data.type = 'PERSP'
+		self.myCam.data.lens = 35
+
+		#near 8.5x11 printable ratio
+		# bpy.context.scene.render.resolution_x = 3900
+		# bpy.context.scene.render.resolution_y = 3000
+
+		# bpy.context.scene.render.resolution_x = 2550
+		# bpy.context.scene.render.resolution_y = 1970
+
+		bpy.context.scene.render.resolution_x = 1000
+		bpy.context.scene.render.resolution_y = 1000
+
+		self.myCam.data.clip_start = 1
+		# self.myCam.data.clip_start = .1
+		# self.myCam.data.clip_start = .5
+		# self.myCam.data.clip_end = 100
+		self.myCam.data.clip_end = 500
+
+
+		self.myCam.data.lens_unit = 'FOV'
+		self.myCam.data.angle = 1.0472
+
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		# self.myV = self.myCam.matrix_world.to_translation()
+		# self.myV.normalize()
+
+		bpy.context.scene.camera = bpy.data.objects["Camera"]
+
+		# PM * VM * MM (T * R * S)
+
+		########
+		#SET WRITTEN UI SETTINGS
+		########
+		# usableAspect_items = bpy.context.scene.bl_rna.properties['written_aspect_prop'].enum_items
+		# usableAspectType_id = usableAspect_items[bpy.context.scene.written_aspect_prop].identifier
+		# self.aspect = usableAspectType_id
+
+		val_aspect_prop = bpy.context.scene.written_aspect_prop
+		self.aspect = val_aspect_prop
+
+		val_fov_prop = bpy.context.scene.written_fov_prop
+		self.fov = val_fov_prop
+
+		val_zNear_prop = bpy.context.scene.written_znear_prop
+		self.zNear = val_zNear_prop
+
+		val_zFar_prop = bpy.context.scene.written_zfar_prop
+		self.zFar = val_zFar_prop
+
+		# self.oren_roughness_stored = val_oren_roughness_prop
+
+
+		# usableFOV_items = bpy.context.scene.bl_rna.properties['written_fov_prop'].enum_items
+		# usableFovType_id = usableFOV_items[bpy.context.scene.written_fov_prop].identifier
+		# self.aspect = usableFovType_id
+
+		# usableZNear_items = bpy.context.scene.bl_rna.properties['written_znear_prop'].enum_items
+		# usableZNearType_id = usableZNear_items[bpy.context.scene.written_znear_prop].identifier
+		# self.zNear = usableZNearType_id
+
+		# usableZFar_items = bpy.context.scene.bl_rna.properties['written_zfar_prop'].enum_items
+		# usableZFarType_id = usableZFar_items[bpy.context.scene.written_zfar_prop].identifier
+		# self.zFar = usableZFarType_id
+
+		########
+		#PM
+		########
+		myPM = self.writtenMatrix_createPM()
+
+		###########
+		# VM
+		##########
+		myVM = self.writtenMatrix_createVM(self.myCam.location)
+
+		self.createArrowsForHalfFOV() #########
+
+		##########################
+		center = self.myOrigin
+		f = self.abjNormalize_written(center - self.myCam.location)
+
+		zNear_set = 1
+		zFar_set = 250
+
+		pt0 = f * (zNear_set / 2) ##
+		rad = (zFar_set / 4)
+
+		# mult = 1
+		# mult = 90
+		mult = 150
+		# mult = 250
+
+		pt_00 = mathutils.Vector((pt0.x - 30, pt0.y - mult, pt0.z - 15, 1)) ### START
+		pt_01 = mathutils.Vector((pt0.x - 30, pt0.y - mult, pt0.z + 15, 1)) ### START
+		pt_02 = mathutils.Vector((pt0.x + 30, pt0.y - mult, pt0.z + 15, 1)) ### START
+		pt_03 = mathutils.Vector((pt0.x + 30, pt0.y - mult, pt0.z - 15, 1)) ### START
+
+		pt_04 = mathutils.Vector((pt0.x - 30, pt0.y - mult, pt0.z - 15, 1)) ### START
+		pt_05 = mathutils.Vector((pt0.x - 30, pt0.y - mult, pt0.z + 15, 1)) ### START
+		pt_06 = mathutils.Vector((pt0.x + 30, pt0.y - mult, pt0.z + 15, 1)) ### START
+		pt_07 = mathutils.Vector((pt0.x + 30, pt0.y - mult, pt0.z - 15, 1)) ### START
+
+		pt_08 = mathutils.Vector((pt0.x - 90, pt0.y - mult, pt0.z - 65, 1)) ### START
+		pt_09 = mathutils.Vector((pt0.x - 60, pt0.y - mult, pt0.z + 45, 1)) ### START
+		pt_10 = mathutils.Vector((pt0.x + 60, pt0.y - mult, pt0.z + 45, 1)) ### START
+		pt_11 = mathutils.Vector((pt0.x + 90, pt0.y - mult, pt0.z - 65, 1)) ### START
+
+		allObjLocs = None
+
+		allObjLocs = []
+		allObjLocs.append(pt_00)
+		allObjLocs.append(pt_01)
+		allObjLocs.append(pt_02)
+		allObjLocs.append(pt_03)
+		allObjLocs.append(pt_04)
+
+		allObjLocs.append(pt_05)
+		allObjLocs.append(pt_06)
+		allObjLocs.append(pt_07)
+		allObjLocs.append(pt_08)
+		allObjLocs.append(pt_09)
+		allObjLocs.append(pt_10)
+		allObjLocs.append(pt_11)
+
+		bpy.ops.object.mode_set(mode="OBJECT")
+
+		myMVP = myPM @ myVM
+
+		scene = bpy.context.scene
+		camera = scene.camera
+
+		self.written_set_up_ortho_render()
+
+		for idx, i in enumerate(allObjLocs):
+			# bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4)
+			bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4, segments=8, ring_count=8)
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+			myInputMesh.location = i.xyz
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			# Get the active object, which must be a mesh
+			obj = bpy.context.view_layer.objects.active
+			world_space_verts = None
+			world_space_verts = []
+
+			for vertex in obj.data.vertices:
+				world_coord = obj.matrix_world @ vertex.co
+				world_space_verts.append(world_coord)
+
+			myInputMesh.hide_set(1)
+			myInputMesh.hide_render = True
+
+			for idx2, j in enumerate(world_space_verts):
+				bpy.context.view_layer.objects.active = self.myPixel
+				myDupeGradient = self.copyObject()
+				myDupeGradient.name = 'dupeGradient_' + str(idx) + '_' + str(idx2)
+
+				myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+				Ci = mathutils.Vector((0, 0, 0))	
+
+				bpy.context.view_layer.objects.active = myDupeGradient
+				mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
+				bpy.context.active_object.data.materials.clear()
+				bpy.context.active_object.data.materials.append(mat1)
+
+				gradientScale = 0.1
+
+				myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
+				
+				xMin = -5
+				xMax = 5
+				yMin = -5
+				yMax = 5
+
+				j4 = mathutils.Vector((j.x, j.y, j.z, 1))
+
+				myNDC = self.NDC_get(j4, myMVP)
+
+				if myNDC.x > 1 or myNDC.x < -1 or myNDC.y > 1 or myNDC.y < -1 or myNDC.z > 1 or myNDC.z < -1:
+					myDupeGradient.hide_set(1)
+					myDupeGradient.hide_render = True
+					continue
+
+				gradient_startPos = mathutils.Vector((-.9, myNDC.x * 5, myNDC.y * 5))
+
+				myDupeGradient.location = gradient_startPos
+
+
+
+		totalTime = datetime.now() - startTime
+		print('totalTime = ', totalTime)
+
+	def createArrowsForHalfFOV(self):
+		#############################################################################################
+		################################# (INSTANCE ORIGINALS) ###############################
+		#############################################################################################
+
+		###############################
+		######### CUBE HALF FOV LB ############
+		###############################
+		# self.myCubeV_halfFov_LB_og = self.createArrowFullProcess('myCubeV_halfFov_LB_og', 'back', False, self.myOrigin, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
+		self.myCubeV_halfFov_LB_og = self.createArrowFullProcess('myCubeV_halfFov_LB_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.5, 0.5, 0.5)
+
+		###############################
+		######### CUBE HALF FOV LT ############
+		###############################
+		# self.myCubeV_halfFov_LT_og = self.createArrowFullProcess('myCubeV_halfFov_LT_og', 'back', False, self.myOrigin, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
+		self.myCubeV_halfFov_LT_og = self.createArrowFullProcess('myCubeV_halfFov_LT_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.5, 0.5, 0.5)
+
+		###############################
+		######### CUBE HALF FOV RT ############
+		###############################
+		# self.myCubeV_halfFov_RT_og = self.createArrowFullProcess('myCubeV_halfFov_RT_og', 'back', False, self.myOrigin, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
+		self.myCubeV_halfFov_RT_og = self.createArrowFullProcess('myCubeV_halfFov_RT_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.5, 0.5, 0.5)
+
+		###############################
+		######### CUBE HALF FOV RB ############
+		###############################
+		# self.myCubeV_halfFov_RB_og = self.createArrowFullProcess('myCubeV_halfFov_RB_og', 'back', False, self.myOrigin, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
+		self.myCubeV_halfFov_RB_og = self.createArrowFullProcess('myCubeV_halfFov_RB_og', 'back', False, self.myOrigin, 1.0, 0.0, 0.0, 0.5, 0.5, 0.5)
+
+		#############
+		### CLEAN UP
+		############
+		self.deselectAll()
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og
+		self.myCubeV_halfFov_LB_og_dupe = self.copyObject()
+		self.myCubeV_halfFov_LB_og_dupe.name = 'myCubeV_halfFov_LB_og_dupe'
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LT_og
+		self.myCubeV_halfFov_LT_og_dupe = self.copyObject()
+		self.myCubeV_halfFov_LT_og_dupe.name = 'myCubeV_halfFov_LT_og_dupe'
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RT_og
+		self.myCubeV_halfFov_RT_og_dupe = self.copyObject()
+		self.myCubeV_halfFov_RT_og_dupe.name = 'myCubeV_halfFov_RT_og_dupe'
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RB_og
+		self.myCubeV_halfFov_RB_og_dupe = self.copyObject()
+		self.myCubeV_halfFov_RB_og_dupe.name = 'myCubeV_halfFov_RB_og_dupe'
+
+		#############
+		### RESET USABLE DUPES
+		#############
+		self.myCubeV_halfFov_LB_og_dupe.matrix_world = self.myCubeV_halfFov_LB_og_Matrix
+		self.myCubeV_halfFov_LT_og_dupe.matrix_world = self.myCubeV_halfFov_LT_og_Matrix
+		self.myCubeV_halfFov_RT_og_dupe.matrix_world = self.myCubeV_halfFov_RT_og_Matrix
+		self.myCubeV_halfFov_RB_og_dupe.matrix_world = self.myCubeV_halfFov_RB_og_Matrix
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og
+
+		self.dynamicM_halfFov_LB = None
+		self.dynamicM_halfFov_LT = None
+		self.dynamicM_halfFov_RT = None
+		self.dynamicM_halfFov_RB = None
+
+		self.equation_dynamic_cubeV_halfFov_all_creation()
+		HalfFov_LB_M = self.dynamicM_halfFov_LB
+		HalfFov_LT_M = self.dynamicM_halfFov_LT
+		HalfFov_RT_M = self.dynamicM_halfFov_RT
+		HalfFov_RB_M = self.dynamicM_halfFov_RB
+
+		self.updateScene()
+
+		HalfFov_LB_M_np = np.array(HalfFov_LB_M)
+		HalfFov_LT_M_np = np.array(HalfFov_LT_M)
+		HalfFov_RT_M_np = np.array(HalfFov_RT_M)
+		HalfFov_RB_M_np = np.array(HalfFov_RB_M)
+
+		mySplitFaceIndexUsable = '0'
+
+		arrow_dynamic_instance_M_dict = {
+			'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
+			# 'N_M_np' : N_M_np,
+			# 'L_M_np' : L_M_np,
+			# 'V_M_np' : V_M_np,
+			# 'R_M_np' : R_M_np,
+			# 'H_M_np' : H_M_np,
+			'HalfFov_LB_M_np' : HalfFov_LB_M_np,
+			'HalfFov_LT_M_np' : HalfFov_LT_M_np,
+			'HalfFov_RT_M_np' : HalfFov_RT_M_np,
+			'HalfFov_RB_M_np' : HalfFov_RB_M_np,
+		}
+
+		self.arrow_dynamic_instance_M_all_list_matrixOnly_debug.append(arrow_dynamic_instance_M_dict) ##########
+
+		myArrow_LB = self.show_arrow_halfFOV_LB(mySplitFaceIndexUsable)
+		myArrow_LT = self.show_arrow_halfFOV_LT(mySplitFaceIndexUsable)
+		myArrow_RT = self.show_arrow_halfFOV_RT(mySplitFaceIndexUsable)
+		myArrow_RB = self.show_arrow_halfFOV_RB(mySplitFaceIndexUsable)
+
+		self.myCubeV_halfFov_LB_og.hide_set(1)
+		self.myCubeV_halfFov_LB_og.hide_render = True
+
+		self.myCubeV_halfFov_LB_og_dupe.hide_set(1)
+		self.myCubeV_halfFov_LB_og_dupe.hide_render = True
+
+		self.myCubeV_halfFov_LT_og.hide_set(1)
+		self.myCubeV_halfFov_LT_og.hide_render = True
+
+		self.myCubeV_halfFov_LT_og_dupe.hide_set(1)
+		self.myCubeV_halfFov_LT_og_dupe.hide_render = True
+
+		self.myCubeV_halfFov_RT_og.hide_set(1)
+		self.myCubeV_halfFov_RT_og.hide_render = True
+
+		self.myCubeV_halfFov_RT_og_dupe.hide_set(1)
+		self.myCubeV_halfFov_RT_og_dupe.hide_render = True
+
+		self.myCubeV_halfFov_RB_og.hide_set(1)
+		self.myCubeV_halfFov_RB_og.hide_render = True
+
+		self.myCubeV_halfFov_RB_og_dupe.hide_set(1)
+		self.myCubeV_halfFov_RB_og_dupe.hide_render = True
+
+	def equation_dynamic_cubeV_halfFov_all_creation(self):
+		cam_forward = self.myCam.matrix_world.to_quaternion() @ mathutils.Vector((0, 0, -1))
+		cam_forward = self.myV
+
+		upW = mathutils.Vector((0, 0, 1))
+
+		center = mathutils.Vector((0, 0, 0))
+		camP = self.myCam.location
+		f = self.abjNormalize_written(center - camP)
+		u = self.abjNormalize_written(upW)
+		mySideV = self.abjNormalize_written(self.written_manual_cross(f, u))
+		objUp = self.written_manual_cross(mySideV, f)
+
+		my_vector = f
+		rotation_axis = objUp
+
+		##########################
+		######### LB #############
+		##########################
+		rotation_angle = math.radians(0.5 * self.fov)
+		# rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, rotation_axis)
+		rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, objUp)
+		rotated_vector = rotation_matrix @ my_vector
+
+		rotation_angle_upDown = -rotation_angle / self.aspect
+		rotation_matrix_upDown = mathutils.Matrix.Rotation(rotation_angle_upDown, 4, mySideV)
+		rotated_vector = rotation_matrix_upDown @ rotated_vector
+
+		rotated_vector = rotated_vector.normalized()
+
+		self.dynamicM_halfFov_LB_vector = rotated_vector
+
+		self.myCubeV_halfFov_LB_og_dupe.matrix_world = self.myCubeV_halfFov_LB_og_Matrix
+		
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og_dupe
+		self.myCubeV_halfFov_LB_og_dupe.location = self.myCam.location + (rotated_vector * self.zNear)
+
+		self.updateScene()
+
+		#look at direct
+		rot_quat = rotated_vector.to_track_quat('X', 'Z')
+		# rot_quat = rotated_vector
+
+		# assume we're using euler rotation
+		self.myCubeV_halfFov_LB_og_dupe.rotation_euler = rot_quat.to_euler()
+		# self.myCubeV_halfFov_LB_og_dupe.rotation_euler = rot_quat
+		# self.myCubeV_halfFov_LB_og_dupe.rotation_euler = rotated_vector
+
+		# # #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeV_halfFov_LB_og_dupe.select_set(1)
+
+		myCubeV_halfFov_LB_og_Matrix_np = np.array(self.myCubeV_halfFov_LB_og_dupe.matrix_world)
+
+		#################
+		scale_factor = self.dynamicM_halfFov_LB_vector * self.zFar * self.zFarScale
+
+		#scale to camera position
+		self.objScaling_toMatchPosition_localSolve(self.myCubeV_halfFov_LB_og_dupe, self.myCubeV_halfFov_LB_og.name, scale_factor, 1, 0, myCubeV_halfFov_LB_og_Matrix_np)
+
+		self.updateScene()
+
+		self.dynamicM_halfFov_LB = self.myCubeV_halfFov_LB_og_dupe.matrix_world
+
+		##########################
+		######### LT #############
+		##########################
+		rotation_angle = math.radians(0.5 * self.fov)
+		rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, objUp)
+		rotated_vector = rotation_matrix @ my_vector
+
+		rotation_angle_upDown = rotation_angle / self.aspect
+		rotation_matrix_upDown = mathutils.Matrix.Rotation(rotation_angle_upDown, 4, mySideV)
+		rotated_vector = rotation_matrix_upDown @ rotated_vector
+
+		rotated_vector = rotated_vector.normalized()
+
+		self.dynamicM_halfFov_LT_vector = rotated_vector
+
+		self.myCubeV_halfFov_LT_og_dupe.matrix_world = self.myCubeV_halfFov_LT_og_Matrix
+		
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LT_og_dupe
+		# self.myCubeV_halfFov_LT_og_dupe.location = self.myCam.location
+		self.myCubeV_halfFov_LT_og_dupe.location = self.myCam.location + (rotated_vector * self.zNear)
+
+		self.updateScene()
+
+		#look at direct
+		rot_quat = rotated_vector.to_track_quat('X', 'Z')
+		# rot_quat = rotated_vector
+
+		# assume we're using euler rotation
+		self.myCubeV_halfFov_LT_og_dupe.rotation_euler = rot_quat.to_euler()
+		# self.myCubeV_halfFov_LT_og_dupe.rotation_euler = rot_quat
+		# self.myCubeV_halfFov_LT_og_dupe.rotation_euler = rotated_vector
+
+		# # #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeV_halfFov_LT_og_dupe.select_set(1)
+
+		myCubeV_halfFov_LT_og_Matrix_np = np.array(self.myCubeV_halfFov_LT_og_dupe.matrix_world)
+
+		#################
+		scale_factor = self.dynamicM_halfFov_LT_vector * self.zFar * self.zFarScale
+
+		#scale to camera position
+		self.objScaling_toMatchPosition_localSolve(self.myCubeV_halfFov_LT_og_dupe, self.myCubeV_halfFov_LT_og_dupe.name, scale_factor, 1, 0, myCubeV_halfFov_LT_og_Matrix_np)
+
+		self.updateScene()
+
+		self.dynamicM_halfFov_LT = self.myCubeV_halfFov_LT_og_dupe.matrix_world
+
+		##########################
+		######### RT #############
+		##########################
+		rotation_angle = math.radians(-0.5 * self.fov)
+		# rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, rotation_axis)
+		rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, objUp)
+		rotated_vector = rotation_matrix @ my_vector
+
+		rotation_angle_upDown = rotation_angle / self.aspect
+		rotation_matrix_upDown = mathutils.Matrix.Rotation(rotation_angle_upDown, 4, mySideV)
+		rotated_vector = rotation_matrix_upDown @ rotated_vector
+
+		rotated_vector = rotated_vector.normalized()
+
+		self.dynamicM_halfFov_RT_vector = rotated_vector
+
+		self.myCubeV_halfFov_RT_og_dupe.matrix_world = self.myCubeV_halfFov_RT_og_Matrix
+		
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RT_og_dupe
+		# self.myCubeV_halfFov_RT_og_dupe.location = self.myCam.location
+		self.myCubeV_halfFov_RT_og_dupe.location = self.myCam.location + (rotated_vector * self.zNear)
+
+		self.updateScene()
+
+		#look at direct
+		rot_quat = rotated_vector.to_track_quat('X', 'Z')
+		# rot_quat = rotated_vector
+
+		# assume we're using euler rotation
+		self.myCubeV_halfFov_RT_og_dupe.rotation_euler = rot_quat.to_euler()
+		# self.myCubeV_halfFov_RT_og_dupe.rotation_euler = rot_quat
+		# self.myCubeV_halfFov_RT_og_dupe.rotation_euler = rotated_vector
+
+		# # #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeV_halfFov_RT_og_dupe.select_set(1)
+
+		myCubeV_halfFov_RT_og_Matrix = np.array(self.myCubeV_halfFov_RT_og_dupe.matrix_world)
+
+		#################
+		scale_factor = self.dynamicM_halfFov_RT_vector * self.zFar * self.zFarScale
+
+		#scale to camera position
+		self.objScaling_toMatchPosition_localSolve(self.myCubeV_halfFov_RT_og_dupe, self.myCubeV_halfFov_RT_og_dupe.name, scale_factor, 1, 0, myCubeV_halfFov_RT_og_Matrix)
+
+		self.updateScene()
+
+		self.dynamicM_halfFov_RT = self.myCubeV_halfFov_RT_og_dupe.matrix_world
+
+		##########################
+		######### RB #############
+		##########################
+		rotation_angle = math.radians(-0.5 * self.fov)
+		# rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, rotation_axis)
+		rotation_matrix = mathutils.Matrix.Rotation(rotation_angle, 4, objUp)
+		rotated_vector = rotation_matrix @ my_vector
+
+		rotation_angle_upDown = -rotation_angle / self.aspect
+		rotation_matrix_upDown = mathutils.Matrix.Rotation(rotation_angle_upDown, 4, mySideV)
+		rotated_vector = rotation_matrix_upDown @ rotated_vector
+
+		rotated_vector = rotated_vector.normalized()
+
+		self.dynamicM_halfFov_RB_vector = rotated_vector
+
+		self.myCubeV_halfFov_RB_og_dupe.matrix_world = self.myCubeV_halfFov_RB_og_Matrix
+		
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RB_og_dupe
+		# self.myCubeV_halfFov_RB_og_dupe.location = self.myCam.location
+		self.myCubeV_halfFov_RB_og_dupe.location = self.myCam.location + (rotated_vector * self.zNear)
+
+		self.updateScene()
+
+		#look at direct
+		rot_quat = rotated_vector.to_track_quat('X', 'Z')
+		# rot_quat = rotated_vector
+
+		# assume we're using euler rotation
+		self.myCubeV_halfFov_RB_og_dupe.rotation_euler = rot_quat.to_euler()
+		# self.myCubeV_halfFov_RB_og_dupe.rotation_euler = rot_quat
+		# self.myCubeV_halfFov_RB_og_dupe.rotation_euler = rotated_vector
+
+		# # #####################
+		bpy.ops.object.mode_set(mode="OBJECT")
+		self.deselectAll()
+		self.myCubeV_halfFov_RB_og_dupe.select_set(1)
+
+		myCubeV_halfFov_RB_og_Matrix = np.array(self.myCubeV_halfFov_RB_og_dupe.matrix_world)
+
+		#################
+		scale_factor = self.dynamicM_halfFov_RB_vector * self.zFar * self.zFarScale
+
+		#scale to camera position
+		self.objScaling_toMatchPosition_localSolve(self.myCubeV_halfFov_RB_og_dupe, self.myCubeV_halfFov_RB_og_dupe.name, scale_factor, 1, 0, myCubeV_halfFov_RB_og_Matrix)
+
+		self.updateScene()
+
+		self.dynamicM_halfFov_RB = self.myCubeV_halfFov_RB_og_dupe.matrix_world
+
+	def writtenMatrix_createPM(self):
+		#GL PM transposed
+
+		deg2rad = self.fov * (math.pi / 180)
+		tangent = math.tan(deg2rad / 2)
+	
+		myPM = mathutils.Matrix.Identity(4)
+		myPM.zero()
+		myPM[0][0] = 1 / (self.aspect * tangent)
+		myPM[1][1] = 1 / (tangent)
+		myPM[2][2] = -(self.zFar + self.zNear) / (self.zFar - self.zNear)
+		myPM[2][3] = -(2 * self.zFar * self.zNear) / (self.zFar - self.zNear)
+		myPM[3][2] = -1
+		myPM[3][3] = 0
+
+		return myPM
+
+	def writtenMatrix_createVM(self, camP):
+		center = self.myOrigin
+		upW = mathutils.Vector((0, 0, 1))
+
+		scene = bpy.context.scene
+		camera = scene.camera
+
+		f = self.abjNormalize_written(center - camP)
+		u = self.abjNormalize_written(upW)
+		s = self.abjNormalize_written(self.written_manual_cross(f, u))
+		u = self.written_manual_cross(s, f)
+
+		myVM = mathutils.Matrix.Identity(4)
+		myVM[0][0] = s.x
+		myVM[0][1] = s.y
+		myVM[0][2] = s.z
+		myVM[0][3] = -mathutils.Vector.dot(s, camP)
+
+		myVM[1][0] = u.x
+		myVM[1][1] = u.y
+		myVM[1][2] = u.z
+		myVM[1][3] = -mathutils.Vector.dot(u, camP) #13
+		
+		myVM[2][0] = -f.x
+		myVM[2][1] = -f.y
+		myVM[2][2] = -f.z
+		myVM[2][3] = mathutils.Vector.dot(f, camP) #14
+
+		myVM[3][0] = 0
+		myVM[3][1] = 0
+		myVM[3][2] = 0
+		myVM[3][3] = 1
+
+		return myVM
+
+	def NDC_get(self, pt, myMVP):
+		vert = myMVP @ pt
+		vert_NDC = mathutils.Vector((vert.xyz / vert.w))
+
+		return vert_NDC
+
+	def written_set_up_ortho_render(self):
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+
+		# bpy.context.object.data.type = 'ORTHO'
+		self.myCam.data.type = 'ORTHO'
+		self.myCam.data.ortho_scale = 10
+
+		bpy.context.scene.render.resolution_x = 1000
+		bpy.context.scene.render.resolution_y = 1000
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		self.myV = self.myCam.matrix_world.to_translation()
+		self.myV.normalize()
+
+		#####################
+		### input mesh
+		#####################
+
+		usablePrimitiveType_gradient_id = 'grid'
+		if usablePrimitiveType_gradient_id == 'grid':
+			bpy.ops.mesh.primitive_grid_add()
+
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.hide_set(1)
+		# myInputMesh.hide_render = True
+
+		#####################
+		### grey background
+		#####################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+
+		greyBG = 0.5
+		greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		self.myPixel = myInputMesh
+
+	def abjNormalize_written(self, inVec):
+		outVec0 = inVec * (1 / math.sqrt(mathutils.Vector.dot(inVec, inVec)))
+
+		return outVec0
 	
 	def stageIdx_print_UI(self):
+
+
+
+		for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens[bpy.context.window.screen].areas:
+			if area.type == 'VIEW_3D':
+				for space in area.spaces:
+					if space.type == 'VIEW_3D':
+
+						# space.overlay.grid_scale = 2
+
+						usableToggle = None
+						if space.overlay.show_floor == True:
+							usableToggle = False
+						else:
+							usableToggle = True
+
+						usableToggle = False
+
+						# space.overlay.show_floor = usableToggle
+						space.overlay.show_axis_x = usableToggle
+						space.overlay.show_axis_y = usableToggle
+						space.overlay.show_axis_z = usableToggle
+						space.overlay.show_cursor = usableToggle
+
+
+		return
+	
 		shadingDict_simple_specular_visualization = {
 			'description' : 'Simple Specular Visualization',
 			'stage_000' : 'N....show N arrow (cubeN)',
@@ -1016,6 +1874,34 @@ class ABJ_Shader_Debugger():
 		elif name == 'myCubeN_og':
 			self.myCubeN_og_Matrix = outputArrow.matrix_world
 			self.myCubeN_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+		elif name == 'myCubeV_halfFov_LB_og':
+			self.myCubeV_halfFov_LB_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_LB_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+
+		elif name == 'myCubeV_halfFov_LT_og':
+			self.myCubeV_halfFov_LT_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_LT_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+
+		elif name == 'myCubeV_halfFov_RB_og':
+			self.myCubeV_halfFov_RB_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_RB_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+
+		elif name == 'myCubeV_halfFov_RT_og':
+			self.myCubeV_halfFov_RT_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_RT_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+
+		elif name == 'myCubeV_halfFov_L_og':
+			self.myCubeV_halfFov_L_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_L_og_Matrix_np = np.array(outputArrow.matrix_world)
+
+		elif name == 'myCubeV_halfFov_R_og':
+			self.myCubeV_halfFov_R_og_Matrix = outputArrow.matrix_world
+			self.myCubeV_halfFov_R_og_Matrix_np = np.array(outputArrow.matrix_world)
 
 		if doLookAt == True:
 			outputArrow.location = self.myCam.location
@@ -4211,6 +5097,18 @@ class ABJ_Shader_Debugger():
 			bpy.context.view_layer.objects.active = self.myCubeLight_og
 		elif type == "H":
 			bpy.context.view_layer.objects.active = self.myCubeH_og
+		elif type == "halfFOV_L":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_L_og
+		elif type == "halfFOV_R":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_R_og
+		elif type == "halfFOV_LB":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og
+		elif type == "halfFOV_LT":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LT_og
+		elif type == "halfFOV_RT":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RT_og
+		elif type == "halfFOV_RB":
+			bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RB_og
 
 		arrow_instance = self.copyObject()
 
@@ -4221,6 +5119,156 @@ class ABJ_Shader_Debugger():
 		arrow_instance.matrix_world = matrix
 
 		return arrow_instance
+
+
+	def show_arrow_halfFOV_LB(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_LB_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_LB_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_LB_M_np = i['HalfFov_LB_M_np']
+				restored_HalfFov_LB_M_np = mathutils.Matrix(HalfFov_LB_M_np.tolist())
+
+		myCube_HalfFov_LB_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_LB_M_np, 'cube_half_FOV_LB_instance_', 'halfFOV_LB')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_LB_instance)
+
+		return myCube_HalfFov_LB_instance
+
+	def show_arrow_halfFOV_LT(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_LT_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_LT_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_LT_M_np = i['HalfFov_LT_M_np']
+				restored_HalfFov_LT_M_np = mathutils.Matrix(HalfFov_LT_M_np.tolist())
+
+		myCube_HalfFov_LT_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_LT_M_np, 'cube_half_FOV_LT_instance_', 'halfFOV_LT')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_LT_instance)
+
+		return myCube_HalfFov_LT_instance
+
+	def show_arrow_halfFOV_RT(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_RT_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_RT_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_RT_M_np = i['HalfFov_RT_M_np']
+				restored_HalfFov_RT_M_np = mathutils.Matrix(HalfFov_RT_M_np.tolist())
+
+		myCube_HalfFov_RT_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_RT_M_np, 'cube_half_FOV_RT_instance_', 'halfFOV_RT')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_RT_instance)
+
+		return myCube_HalfFov_RT_instance
+
+
+
+	def show_arrow_halfFOV_RB(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_RB_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_RB_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_RB_M_np = i['HalfFov_RB_M_np']
+				restored_HalfFov_RB_M_np = mathutils.Matrix(HalfFov_RB_M_np.tolist())
+
+		myCube_HalfFov_RB_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_RB_M_np, 'cube_half_FOV_RB_instance_', 'halfFOV_RB')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_RB_instance)
+
+		return myCube_HalfFov_RB_instance
+
+
+
+
+
+
+
+
+
+
+	def show_arrow_halfFOV_L(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_L_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_L_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_L_M_np = i['HalfFov_L_M_np']
+				restored_HalfFov_L_M_np = mathutils.Matrix(HalfFov_L_M_np.tolist())
+
+		myCube_HalfFov_L_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_L_M_np, 'cube_half_FOV_L_instance_', 'halfFOV_L')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_L_instance)
+
+		return myCube_HalfFov_L_instance
+	
+	def show_arrow_halfFOV_R(self, mySplitFaceIndexUsable):
+		nameToLookFor = 'cube_half_FOV_R_instance_' + mySplitFaceIndexUsable
+
+		for k in self.objectsToToggleOnOffLater:
+			if k.name == nameToLookFor:
+				# if k.hide_get() == 1:
+				k.hide_set(0)
+
+				return
+
+		restored_HalfFov_R_M_np = None
+
+		for i in self.arrow_dynamic_instance_M_all_list_matrixOnly_debug:
+			temp_idx = i['mySplitFaceIndexUsable']
+			if temp_idx == mySplitFaceIndexUsable:
+				HalfFov_R_M_np = i['HalfFov_R_M_np']
+				restored_HalfFov_R_M_np = mathutils.Matrix(HalfFov_R_M_np.tolist())
+
+		myCube_HalfFov_R_instance = self.copyAndSet_arrow(mySplitFaceIndexUsable, restored_HalfFov_R_M_np, 'cube_half_FOV_R_instance_', 'halfFOV_R')
+		self.objectsToToggleOnOffLater.append(myCube_HalfFov_R_instance)
+
+		return myCube_HalfFov_R_instance	
 
 	def show_arrow_H(self, shadingPlane, faceCenter, mySplitFaceIndexUsable):
 		nameToLookFor = 'cubeH_instance_' + mySplitFaceIndexUsable
@@ -4467,6 +5515,28 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 1.0 ###
 		row.operator('shader.abj_shader_debugger_renderpasses_operator')
+
+		######################################
+		###### WRITTEN
+		######################################
+		layout.label(text='WRITTEN')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_writtenrender_operator')
+
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'written_aspect_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'written_fov_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'written_znear_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'written_zfar_prop')
+
 
 		######################################
 		###### STAGE IDX
@@ -4792,6 +5862,19 @@ class SHADER_OT_RENDERPASSES(bpy.types.Operator):
 
 	def execute(self, context):
 		myABJ_SD_B.renderPasses()
+		return {'FINISHED'}
+
+##############
+# Written
+##############
+class SHADER_OT_WRITTENRENDER(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'written render'
+	bl_idname = 'shader.abj_shader_debugger_writtenrender_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.written_render()
 		return {'FINISHED'}
 
 ##############

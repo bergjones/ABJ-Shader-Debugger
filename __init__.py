@@ -32,8 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES
-
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES, SHADER_OT_WRITTENRENDER
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -78,6 +77,8 @@ classes = [
 	SHADER_OT_GRADIENTCOLORWHEEL,
 
 	SHADER_OT_RENDERPASSES,
+
+	SHADER_OT_WRITTENRENDER,
 ]
 
 def register():
@@ -86,6 +87,18 @@ def register():
 		bpy.utils.register_class(c)
 
 	# '''
+
+	bpy.types.Scene.written_aspect_prop = bpy.props.FloatProperty(min=0.0, max=4.0, default=1.0, name='aspect')
+
+	bpy.types.Scene.written_fov_prop = bpy.props.FloatProperty(min=0.0, max=180.0, default=60.0, name='fov')
+
+	bpy.types.Scene.written_znear_prop = bpy.props.FloatProperty(min=0.0, max=500, default=1.0, name='znear')
+
+	bpy.types.Scene.written_zfar_prop = bpy.props.FloatProperty(min=20, max=1000, default=250, name='zfar')
+
+
+	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
+
 
 	bpy.types.Scene.gamma_correct_gradient_color_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_color')
 	bpy.types.Scene.gamma_correct_gradient_colorWheel_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_colorWheel')
@@ -466,7 +479,12 @@ def unregister():
 		bpy.utils.unregister_class(c)
 
 	# '''
-	
+
+	del bpy.types.Scene.written_aspect_prop
+	del bpy.types.Scene.written_fov_prop
+	del bpy.types.Scene.written_znear_prop
+	del bpy.types.Scene.written_zfar_prop
+
 	del bpy.types.Scene.gamma_correct_gradient_color_prop
 	del bpy.types.Scene.gamma_correct_gradient_colorWheel_prop
 
