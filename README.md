@@ -8,4 +8,6 @@ To note : This debugger clears your entire scene each time you pre-process. This
 
 I made this debugger as a way to quiz myself on the stages of shaders and how they are solved so I can improve my traditional painting skills as I am very into painting. I also added stereoscopic color presets to help reduce retinal rivalry for use with anaglyph glasses so I can also look at this in 3d since there are many instances in traditional painting where I am looking at a 3d, not 2d, subject.
 
-I am looking to complete the shaders that I have and add more. This add on was developed on Blender 4.3.2
+*New * - This addon now includes a "handwritten" rendering path where the goal is to be able o perform the Perspective / View / Model Matrix transforms on a series of points in an easy enough way that it can be done with only a calculator in order to get accurate linework before the rest of the artwork is done.
+
+This add on was developed on Blender 4.5.2
