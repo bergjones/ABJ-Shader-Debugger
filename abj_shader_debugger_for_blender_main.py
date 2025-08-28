@@ -71,6 +71,9 @@ class ABJ_Shader_Debugger():
 		self.text_gradient_rotate_y_stored = 0.0
 		self.text_gradient_rotate_z_stored = 0.0
 
+		
+		self.val_gradient_circle_override = 0
+
 		self.myLoc_arrow_01 = None
 
 		self.cam1_debug = None
@@ -88,7 +91,6 @@ class ABJ_Shader_Debugger():
 		self.fov = None
 		self.aspect = None
 		self.zNear = None
-		# self.zNear = 110
 		self.zFar = None
 		self.zFarScale = 1.53
 
@@ -124,6 +126,8 @@ class ABJ_Shader_Debugger():
 		self.shadingPlane_sel_r = 0.0
 		self.shadingPlane_sel_g = 0.0
 		self.shadingPlane_sel_b = 1.0
+
+		self.circular_gradient_text_counter = 0
 
 		self.world_mat_cam_stored_np = None
 		self.shadingPlane = None
@@ -843,6 +847,33 @@ class ABJ_Shader_Debugger():
 		self.deselectAll()
 
 		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+
+		#apply emission shaders to arrows
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og
+		mat1 = self.newShader("HalfFOV_arrow_LB", "emission", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LT_og
+		mat1 = self.newShader("HalfFOV_arrow_LT", "emission", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RT_og
+		mat1 = self.newShader("HalfFOV_arrow_RT", "emission", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_RB_og
+		mat1 = self.newShader("HalfFOV_arrow_RB", "emission", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		bpy.data.materials["HalfFOV_arrow_LB"].node_tree.nodes["Emission"].inputs[1].default_value = 10
+		bpy.data.materials["HalfFOV_arrow_RB"].node_tree.nodes["Emission"].inputs[1].default_value = 10
+		bpy.data.materials["HalfFOV_arrow_RT"].node_tree.nodes["Emission"].inputs[1].default_value = 10
+		bpy.data.materials["HalfFOV_arrow_LT"].node_tree.nodes["Emission"].inputs[1].default_value = 10
+
 
 		bpy.context.view_layer.objects.active = self.myCubeV_halfFov_LB_og
 		self.myCubeV_halfFov_LB_og_dupe = self.copyObject()
@@ -2963,35 +2994,34 @@ class ABJ_Shader_Debugger():
 			finalOutputColors_outer = []
 
 			lerpIter_inner = None
-			lerpIter_outer = None
+			# lerpIter_outer = None
 
 			if j == 0:
+				if endColor_mix != mathutils.Vector((1.0, 1.0, 1.0)):
+					continue
 				lerpIter_inner = 1
-				lerpIter_outer = 1
 
 			elif j == gradient_inner_circle_steps:
 				lerpIter_inner = 0
-				lerpIter_outer = 0
 
 			else:
 				lerpIter_inner = 1 - (j / gradient_inner_circle_steps_usable)
-				lerpIter_outer = 1 + (j / gradient_inner_circle_steps_usable)
 
 			angle = 2 * math.pi * i / segments
-			# x = radius * math.cos(angle) + center_x
-			# y = radius * math.sin(angle) + center_y
 
-			# radius = 2.125
 			radius = 2
-			radius_outer = 2
 			lerpIter_inner_radius = radius * lerpIter_inner
-			lerpIter_outer_radius = radius_outer * lerpIter_inner
+			# radius_additional = 2.125
+			# radius_additional = 2.5
+			radius_additional = 2.35
+
+
+			lerpIter_inner_radius_additional = radius_additional * lerpIter_inner
+			x_additional = lerpIter_inner_radius_additional * math.cos(angle) + center_x
+			y_additional = lerpIter_inner_radius_additional * math.sin(angle) + center_y
 
 			x = lerpIter_inner_radius * math.cos(angle) + center_x
 			y = lerpIter_inner_radius * math.sin(angle) + center_y
-
-			x_outer = lerpIter_outer_radius * math.cos(angle) + center_x
-			y_outer = lerpIter_outer_radius * math.sin(angle) + center_y
 
 			if endColor_mix == mathutils.Vector((1.0, 1.0, 1.0)):
 				outputRatio_x_01 = self.lerp(outputRatio_x, endColor_mix.x, lerpIter_inner)
@@ -3010,10 +3040,6 @@ class ABJ_Shader_Debugger():
 				outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
 				outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
 				outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
-
-				# outputRatio_x_01_outer = pow(outputRatio_x_01_outer, gammaCorrect.x)
-				# outputRatio_y_01_outer = pow(outputRatio_y_01_outer, gammaCorrect.y)
-				# outputRatio_z_01_outer = pow(outputRatio_z_01_outer, gammaCorrect.z)
 
 			#always up down
 			# textRaiseLowerZ = 0.05 * lerpIter_inner
@@ -3047,18 +3073,90 @@ class ABJ_Shader_Debugger():
 			comboRatio_xyz_final = mathutils.Vector((outputRatio_x_01, outputRatio_y_01, outputRatio_z_01))
 			finalOutputColors.append(comboRatio_xyz_final)
 
-			# comboRatio_xyz_final_outer = mathutils.Vector((outputRatio_x_01_outer, outputRatio_y_01_outer, outputRatio_z_01_outer))
-			# finalOutputColors_outer.append(comboRatio_xyz_final_outer)
+			#color wheel match 18 value match
+			#3 outer
 
-			self.makeGradientGrid_color_circular(finalOutputColors, x, y, myInputMesh, lerpIter_inner, textRaiseLowerZ)
-			# self.makeGradientGrid_color_circular(finalOutputColors_outer, x_outer, y_outer, myInputMesh, lerpIter_outer, textRaiseLowerZ)
+			additionalText = None
+
+			if self.val_gradient_circle_override == 0:
+				additionalText = ''
+
+			elif self.val_gradient_circle_override == 1:
+				if i == 0:
+					additionalText = 'R'
+				elif i == 1:
+					additionalText = 'RO'
+				elif i == 2:
+					additionalText = 'OR'
+				elif i == 3:
+					additionalText = 'O'
+				elif i == 4:
+					additionalText = 'OY'
+				elif i == 5:
+					additionalText = 'YO'
+				elif i == 6:
+					additionalText = 'Y'
+				elif i == 7:
+					additionalText = 'YG'
+				elif i == 8:
+					additionalText = 'GY'
+				elif i == 9:
+					additionalText = 'G'
+				elif i == 10:
+					additionalText = 'GB'
+				elif i == 11:
+					additionalText = 'BG'
+				elif i == 12:
+					additionalText = 'B'
+				elif i == 13:
+					additionalText = 'BV'
+				elif i == 14:
+					additionalText = 'VB'
+				elif i == 15:
+					additionalText = 'V'
+				elif i == 16:
+					additionalText = 'VR'
+				elif i == 17:
+					additionalText = 'RV'
+
+			self.makeGradientGrid_color_circular(finalOutputColors, x, y, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalText, x_additional, y_additional)
+
+	def colorGradient_circular_preset1(self):
+		#make preset
+		self.val_gradient_circle_override = 1
+
+		self.printColorGradient_circular()
+
+		self.val_gradient_circle_override = 0
 
 	def printColorGradient_circular(self):
+		# outer circle steps 3
+		# inner_circle_steps 10
+		
 		self.deselectAll()
 		self.deleteAllObjects()
 		self.mega_purge()
 		
 		self.textRef_all.clear()
+
+		# for area in bpy.data.screens["Scripting"].areas:
+		for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens[bpy.context.window.screen].areas:
+			if area.type == 'VIEW_3D':
+				for space in area.spaces:
+					if space.type == 'VIEW_3D':
+
+						# space.overlay.grid_scale = 2
+
+						usableToggle = None
+						if space.overlay.show_floor == True:
+							usableToggle = False
+
+							space.overlay.show_floor = usableToggle
+							space.overlay.show_axis_x = usableToggle
+							space.overlay.show_axis_y = usableToggle
+							space.overlay.show_axis_z = usableToggle
+							space.overlay.show_cursor = usableToggle
 
 		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
 		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
@@ -3078,9 +3176,9 @@ class ABJ_Shader_Debugger():
 		# self.myCam.location = self.pos_camera_global
 		self.myCam.location = mathutils.Vector((20, 0, 0))
 
-
 		# bpy.context.object.data.type = 'ORTHO'
 		self.myCam.data.type = 'ORTHO'
+		self.myCam.data.ortho_scale = 11.7
 
 		#near 8.5x11 printable ratio
 		# bpy.context.scene.render.resolution_x = 3900
@@ -3115,12 +3213,12 @@ class ABJ_Shader_Debugger():
 		bpy.context.view_layer.objects.active = myInputMesh
 		myDupeGradient_bg = self.copyObject()
 		myDupeGradient_bg.name = 'dupeGradient_background'
-		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		# myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.scale = mathutils.Vector((5, 8.5, 11))
 		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
 		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
 
 		bpy.context.view_layer.objects.active = myDupeGradient_bg
-
 
 		gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 		greyBG = 0.5
@@ -3130,11 +3228,8 @@ class ABJ_Shader_Debugger():
 
 		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
 
-		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
-
-
 
 		# Define circle parameters
 		center_x = 0
@@ -3143,14 +3238,12 @@ class ABJ_Shader_Debugger():
 		val_gradient_outer_circle_steps_prop = bpy.context.scene.gradient_outer_circle_steps_prop
 		val_gradient_inner_circle_steps_prop = bpy.context.scene.gradient_inner_circle_steps_prop
 
-		# val_gradient_outer_circle_steps_prop = 10
-		# val_gradient_outer_circle_steps_prop = 5
+		if self.val_gradient_circle_override == 1:
+			val_gradient_outer_circle_steps_prop = 3
+			val_gradient_inner_circle_steps_prop = 10
 
-		# val_gradient_inner_circle_steps_prop = 25
-		# val_gradient_inner_circle_steps_prop = 10
-		# val_gradient_inner_circle_steps_prop = 5
+		#make preset
 
-		# divisor = 7
 		divisor = 6
 		segments = val_gradient_outer_circle_steps_prop * divisor  # Adjust for smoother circle
 
@@ -3207,7 +3300,11 @@ class ABJ_Shader_Debugger():
 			# center_x = radius * math.cos(angle) + center_x
 			# center_y = radius * math.sin(angle) + center_y
 
-			if 0 <= i < (segments / divisor): 
+			self.circular_gradient_text_counter = 0
+
+			if 0 <= i < (segments / divisor):
+				# continue
+
 				#RED TO ORANGE
 				startColor = mathutils.Vector((1.0, 0.0, 0.0))
 				endColor = mathutils.Vector((1, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0))
@@ -3229,6 +3326,8 @@ class ABJ_Shader_Debugger():
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
+			# '''
+			
 			elif (segments / divisor) <= i < (segments / (divisor / 2)):
 				# print('2 divisor : ', i, ' lerpIter01 ', lerpIter)
 
@@ -3351,6 +3450,8 @@ class ABJ_Shader_Debugger():
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
+			# '''
+
 		self.defaultColorSettings_UI()
 
 		myInputMesh.hide_render = True
@@ -3359,16 +3460,11 @@ class ABJ_Shader_Debugger():
 
 		myDupeGradient_bg.select_set(0)
 
-	def makeGradientGrid_color_circular(self, gradientArray, xPos, yPos, myInputMesh, lerpIter_inner, textRaiseLowerZ):
+	def makeGradientGrid_color_circular(self, gradientArray, xPos, yPos, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalText, x_additional, y_additional):
 		#####################
 		### each gradient face
 		#####################
-		# gradientScale = 0.175 ######
-		# gradientScale = 0.1
-		# gradientScale = 0.2
 		gradientScale = 0.05
-		# gradientScale = 0.03
-		# raiseLowerZ = 1
 		raiseLowerZ = 0
 
 		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
@@ -3392,14 +3488,17 @@ class ABJ_Shader_Debugger():
 		for idx, i in enumerate(gradientArray):
 			bpy.context.view_layer.objects.active = myInputMesh
 			myDupeGradient = self.copyObject()
-			myDupeGradient.name = 'dupeGradient_' + str(idx)
+			myDupeGradient.name = additionalText + '_' + str(self.circular_gradient_text_counter) + '_dupeGradient_'
 
-			# myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale)) #####
-			# gradientScale_lerped = self.clamp(gradientScale * lerpIter_inner, 0.01, 1) #######
 			gradientScale_lerped = self.clamp(gradientScale * lerpIter_inner, 0.025, 1)
 			
-			# gradientScale_lerped = 0.05 #constant
 			gradientScale_lerped = 0.075 #constant
+
+			if self.circular_gradient_text_counter > 15:
+				gradientScale_lerped = 0.045 #constant
+
+			if self.circular_gradient_text_counter >= 17:
+				gradientScale_lerped = 0.03 #constant
 
 			myDupeGradient.scale = mathutils.Vector((gradientScale_lerped, gradientScale_lerped, gradientScale_lerped))
 
@@ -3416,154 +3515,96 @@ class ABJ_Shader_Debugger():
 			bpy.context.active_object.data.materials.append(mat1)
 
 			#####################
-			### text_add() (better text placement)
+			### text_add()
 			#####################
-			# continue
-
 			if precisionVal != -1:
-				# continue
 
-				# if lerpIter_inner >= (.25):
-				if lerpIter_inner >= (.4):
-					val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
+				val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 
-					t = None
+				t = None
 
-					Ci_gc_text = Ci
+				Ci_gc_text = Ci
 
-					# primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 0.5, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0)), mathutils.Vector((0.3, 0.0, 0.7)), mathutils.Vector((0.5, 0.0, 0.5))]
+				primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0))]
 
-					primaryColorList = [mathutils.Vector((1.0, 0.0, 0.0)), mathutils.Vector((1.0, 1.0, 0.0)), mathutils.Vector((0.0, 0.0, 1.0))]
+				alterTextLocation = mathutils.Vector((0.0, 0.0, 0.0))
 
-					alterTextLocation = mathutils.Vector((0.0, 0.0, 0.0))
+				if val_gamma_correct_gradient_colorWheel_prop == True:
+					gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+					# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+					gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+					gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+					gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
 
-					if val_gamma_correct_gradient_colorWheel_prop == True:
-						gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
-						# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-						gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
-						gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
-						gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
+					Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
-						Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+				elif val_gamma_correct_gradient_colorWheel_prop == False:
+					t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
-						if Ci_gc_text in primaryColorList:
-							pass
-						else:
-							continue
+					Ci_gc_text = t
 
-						if Ci_gc_text == mathutils.Vector((1.0, 0.0, 0.0)):
-							# alterTextLocation = mathutils.Vector((0.0, 0.2, 0.03))
-							alterTextLocation = mathutils.Vector((0.0, 1.9, 0.03))
+				precisionVal = 1
+				myFontScale = None
+				t = ''
 
-						elif Ci_gc_text == mathutils.Vector((1.0, 1.0, 0.0)):
-							# alterTextLocation = mathutils.Vector((0.0, -0.15, 0.2))
-							alterTextLocation = mathutils.Vector((0.0, -1.0, 1.7))
+				if self.circular_gradient_text_counter == 0:
+					t = additionalText ########
 
-						elif Ci_gc_text == mathutils.Vector((0.0, 0.0, 1.0)):
-							# alterTextLocation = mathutils.Vector((0.0, -0.1, -0.15))
-							alterTextLocation = mathutils.Vector((0.0, -1.0, -1.7))
-
-						t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
-
-					elif val_gamma_correct_gradient_colorWheel_prop == False:
-						t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
-
-						if Ci in primaryColorList:
-							pass
-						else:
-							continue
-
-						if Ci_gc_text == mathutils.Vector((1.0, 0.0, 0.0)):
-							# alterTextLocation = mathutils.Vector((0.0, 0.2, 0.03))
-							alterTextLocation = mathutils.Vector((0.0, 1.9, 0.03))
-
-						elif Ci_gc_text == mathutils.Vector((1.0, 1.0, 0.0)):
-							# alterTextLocation = mathutils.Vector((0.0, -0.15, 0.2))
-							alterTextLocation = mathutils.Vector((0.0, -1.0, 1.7))
-
-						elif Ci_gc_text == mathutils.Vector((0.0, 0.0, 1.0)):
-							# alterTextLocation = mathutils.Vector((0.0, -0.1, -0.15))
-							alterTextLocation = mathutils.Vector((0.0, -1.0, -1.7))
-
-					t = 'x'
-
-
-					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
-					myFontCurve.body = t
-
-					myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
-					myFontOb.data.align_x = 'CENTER'
-					myFontOb.data.align_y = 'CENTER'
-
-					textRaiseLowerZ = 0
-
-					myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ)) + alterTextLocation
-					# myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLowerZ))
-					myFontOb.rotation_euler = myRotation
-
-					'''
-					bpy.context.view_layer.objects.active = myDupeGradient
-					me = bpy.context.active_object.data
-
-					bm = bmesh.new()   # create an empty BMesh
-					bm.from_mesh(me)   # fill it in from a Mesh
-
-					outputSize = 0
-					for f in bm.faces:
-						# normalDir = f.normal
-						# f = f 
-						outputSize = f.calc_area()
-						outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
-
-					val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
-					val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
-
-					outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
-					'''
-
-					# myFontScale = 0.03 ####
-					# myFontScale = 0.3
 					myFontScale = 0.3
 
-					# myFontScale = 0.03 * lerpIter_inner
+				else:
+					myFontScale = 0.06
 
-					# myFontOb_scale_clamped = self.clamp(myFontScale, 0.02, 1)
-					# myFontOb_scale_clamped = self.clamp(myFontScale, 0.02, 1)
+					if (self.circular_gradient_text_counter + 1) % 5 == 0:
+						t = 'X'
+						myFontScale = 0.06 #####
 
-					myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
-					# myFontOb.scale = mathutils.Vector((myFontOb_scale_clamped, myFontOb_scale_clamped, myFontOb_scale_clamped))
+				#FONT OBJECT NUMBER IDX
+				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+				myFontCurve.body = t
 
-					myFontOb.data.body = t
+				myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
+				myFontOb.data.align_x = 'CENTER'
+				myFontOb.data.align_y = 'CENTER'
 
-					bpy.context.collection.objects.link(myFontOb)
+				textRaiseLowerZ = 0
 
-					myFontOb.show_in_front = True
+				if self.circular_gradient_text_counter == 0:
+					myFontOb.location = mathutils.Vector((1, 0, textRaiseLowerZ)) + mathutils.Vector((0, x_additional, y_additional)) ############!!!!!!!!
 
-					self.textRef_all.append(myFontOb.name)
+				else:
+					myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, 0))
 
-					bpy.context.view_layer.objects.active = myFontOb
+				myFontOb.rotation_euler = myRotation
 
-					# startColor = mathutils.Vector((0.0, 0.0, 0.0))
-					# endColor = mathutils.Vector((1.0, 1.0, 1.0))
-					# mat_output_color_x = self.lerp(endColor.x, startColor.x, lerpIter_inner)
-					# mat_output_color_y = self.lerp(endColor.y, startColor.y, lerpIter_inner)
-					# mat_output_color_z = self.lerp(endColor.z, startColor.z, lerpIter_inner)
+				myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
+				myFontOb.data.body = t
+				bpy.context.collection.objects.link(myFontOb)
+				myFontOb.show_in_front = True
+				self.textRef_all.append(myFontOb.name)
+				bpy.context.view_layer.objects.active = myFontOb
 
-					# minValue = 0.3
-					# if Ci.x < minValue or Ci.y < minValue or Ci.z < minValue:
-					# if (Ci_gc_text.x + Ci_gc_text.y + Ci_gc_text.z) < minValue:
-					# if (Ci_gc_text.y) < minValue:
-						# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
-					# else:
-						# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
-
+				if self.circular_gradient_text_counter % 2 == 0:
 					mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+				else:
+					mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+
+				if self.circular_gradient_text_counter == 0:
+					mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+
+				else:
+					if additionalText == 'Y' or additionalText == 'YG' or additionalText == 'GY' or additionalText == 'G' or additionalText == 'GB' or additionalText == 'YO' or additionalText == 'OY' or additionalText == 'O':
+						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
 					
+					else:
+						mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
 
-					bpy.context.active_object.data.materials.clear()
-					bpy.context.active_object.data.materials.append(mat1)
+				self.circular_gradient_text_counter += 1
 
-					bpy.context.view_layer.objects.active = myDupeGradient
+				bpy.context.active_object.data.materials.clear()
+				bpy.context.active_object.data.materials.append(mat1)
+
+				bpy.context.view_layer.objects.active = myDupeGradient
 
 	def makeGradientGrid_color(self, gradientArray):
 
@@ -5702,6 +5743,9 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_gradientcolorwheel_operator')
+		row = layout.row()
+		row.operator('shader.abj_shader_debugger_preset1_operator')
+
 
 		layout.label(text='Gradient Text Rxyz')
 		row = layout.row()
@@ -5853,6 +5897,26 @@ class SHADER_OT_GRADIENTCOLORWHEEL(bpy.types.Operator):
 	def execute(self, context):
 		myABJ_SD_B.printColorGradient_circular()
 		return {'FINISHED'}
+	
+class SHADER_OT_PRESET1(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'color wheel preset 1'
+	bl_idname = 'shader.abj_shader_debugger_preset1_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.colorGradient_circular_preset1()
+		return {'FINISHED'}
+	
+# class SHADER_OT_GRADIENTCOLORWHEELPRESET1(bpy.types.Operator):
+# 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+# 	bl_label = 'gradient color wheel preset 1'
+# 	bl_idname = 'shader.abj_shader_debugger_gradientcolorwheelpreset1_operator'
+
+# 	def execute(self, context):
+# 		myABJ_SD_B.colorGradient_circular_preset1()
+# 		return {'FINISHED'}
 
 class SHADER_OT_RENDERPASSES(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
