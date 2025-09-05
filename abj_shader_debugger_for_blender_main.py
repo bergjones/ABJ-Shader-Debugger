@@ -29,6 +29,7 @@ import copy
 from . import simple_spec_abj
 from . import GGX_hable_abj
 from . import spectral
+from . import spectral3_glsl
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -536,14 +537,14 @@ class ABJ_Shader_Debugger():
 
 		return cross_product_vector
 
-	def written_manual_dotProduct(self):
+	def written_manual_dotProduct(self, vec1, vec2):
 		# vector_a = [1, 2, 3]
 		# vector_b = [4, 5, 6]
 
-		# written_dot_product_result = 0
-		# for i in range(len(vec1)):
-			# written_dot_product_result += vec1[i] * vec2[i]
-		# return written_dot_product_result
+		written_dot_product_result = 0
+		for i in range(len(vec1)):
+			written_dot_product_result += vec1[i] * vec2[i]
+		return written_dot_product_result
 
 		myBPY_result_vec0 = mathutils.Vector((.8, .2, .3))
 		myBPY_result_vec1 = mathutils.Vector((.5, .5, .5))
@@ -558,6 +559,93 @@ class ABJ_Shader_Debugger():
 
 		comboDot = len0 + len1 + len2
 		print('my manual dot product result = ', comboDot)
+
+	def written_reflect(self, incident_vector, normal_vector):
+		"""
+		Calculates the reflection of an incident vector across a normal vector.
+
+		Args:
+			incident_vector (np.array): The vector representing the incoming ray.
+			normal_vector (np.array): The normal vector of the surface at the point of reflection.
+									This vector should be normalized (unit length).
+
+		Returns:
+			np.array: The reflected vector.
+		"""
+		# Ensure normal_vector is normalized
+		# normal_vector = normal_vector / np.linalg.norm(normal_vector)
+
+		normal_vector = self.abjNormalize_written(normal_vector)
+
+		# The reflection formula: R = I - 2 * (I . N) * N
+		# where I is the incident vector, N is the normal vector, and . is the dot product.
+		# dot_product = np.dot(incident_vector, normal_vector)
+		dot_product = self.written_manual_dotProduct(incident_vector, normal_vector)
+		reflected_vector = incident_vector - 2 * dot_product * normal_vector
+		return reflected_vector
+	
+	#This method calls a function from spectral3_glsl.py, under MIT license (see file)
+	def abj_spectral_multiblend(self):
+		for area in bpy.data.screens["Layout"].areas:
+		# for area in bpy.data.screens[bpy.context.window.screen].areas:
+			if area.type == 'VIEW_3D':
+				for space in area.spaces:
+					if space.type == 'VIEW_3D':
+
+						space.shading.type = 'MATERIAL'
+
+						usableToggle = None
+						if space.overlay.show_floor == True:
+							usableToggle = False
+						else:
+							usableToggle = True
+
+						usableToggle = False
+
+						space.overlay.show_axis_x = usableToggle
+						space.overlay.show_axis_y = usableToggle
+						space.overlay.show_axis_z = usableToggle
+						space.overlay.show_cursor = usableToggle
+						space.overlay.show_floor = usableToggle
+
+		bpy.context.scene.view_settings.view_transform = 'Standard'
+		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
+		bpy.context.scene.view_settings.look = 'None'
+		bpy.context.scene.render.use_multiview = False
+	
+		val_spectral_multi0Blend_prop = bpy.context.scene.spectral_multi0Blend_prop
+		val_spectralMulti0Tint_prop = bpy.context.scene.spectralMulti0Tint_prop
+		val_spectralMulti0Factor_prop = bpy.context.scene.spectralMulti0Factor_prop
+
+		val_spectral_multi1Blend_prop = bpy.context.scene.spectral_multi1Blend_prop
+		val_spectralMulti1Tint_prop = bpy.context.scene.spectralMulti1Tint_prop
+		val_spectralMulti1Factor_prop = bpy.context.scene.spectralMulti1Factor_prop
+
+		val_spectral_multi2Blend_prop = bpy.context.scene.spectral_multi2Blend_prop
+		val_spectralMulti2Tint_prop = bpy.context.scene.spectralMulti2Tint_prop
+		val_spectralMulti2Factor_prop = bpy.context.scene.spectralMulti2Factor_prop
+
+		#tri color blending
+		allOutputRatios = []
+
+		outputColorTriBlend = spectral3_glsl.spectral_mix3(val_spectral_multi0Blend_prop, val_spectralMulti1Tint_prop, val_spectralMulti0Factor_prop, val_spectral_multi1Blend_prop, val_spectralMulti1Tint_prop, val_spectralMulti1Factor_prop, val_spectral_multi2Blend_prop, val_spectralMulti2Tint_prop, val_spectralMulti2Factor_prop)
+
+		#gamma correct
+		val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
+
+		if val_gamma_correct_gradient_color_prop == True:
+			gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+			gammaCorrect_r = pow(outputColorTriBlend.x, gammaCorrect.x)
+			gammaCorrect_g = pow(outputColorTriBlend.y, gammaCorrect.y)
+			gammaCorrect_b = pow(outputColorTriBlend.z, gammaCorrect.z)
+
+			outputColorTriBlend = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+		allOutputRatios.append(outputColorTriBlend)
+
+		self.makeGradientGrid_color_tri(allOutputRatios)
+
+		print('allOutputRatios = ', allOutputRatios)
 
 	def written_render(self):
 		self.objectsToToggleOnOffLater.clear()
@@ -3606,6 +3694,253 @@ class ABJ_Shader_Debugger():
 
 				bpy.context.view_layer.objects.active = myDupeGradient
 
+
+	def makeGradientGrid_color_tri(self, gradientArray):
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+		
+		self.textRef_all.clear()
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+		bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		cam1_data = bpy.data.cameras.new('Camera')
+		cam = bpy.data.objects.new('Camera', cam1_data)
+		bpy.context.collection.objects.link(cam)
+
+		###################################
+		###### SET CAMERA POS / LOOK AT
+		###################################
+		self.myCam = bpy.data.objects["Camera"]
+
+		# self.myCam.location = self.pos_camera_global
+		self.myCam.location = mathutils.Vector((20, 0, 0))
+
+
+		# bpy.context.object.data.type = 'ORTHO'
+		self.myCam.data.type = 'ORTHO'
+
+		#near 8.5x11 printable ratio
+		# bpy.context.scene.render.resolution_x = 3900
+		# bpy.context.scene.render.resolution_y = 3000
+
+		bpy.context.scene.render.resolution_x = 2550
+		bpy.context.scene.render.resolution_y = 1970
+
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		self.myV = self.myCam.matrix_world.to_translation()
+		self.myV.normalize()
+
+		usablePrimitiveType_gradient_id = 'grid'
+
+		if usablePrimitiveType_gradient_id == 'grid':
+			bpy.ops.mesh.primitive_grid_add()
+
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.hide_set(1)
+		# myInputMesh.hide_render = True
+
+		#####################
+		### grey background
+		#####################
+		bpy.context.view_layer.objects.active = myInputMesh
+		myDupeGradient_bg = self.copyObject()
+		myDupeGradient_bg.name = 'dupeGradient_background'
+		myDupeGradient_bg.scale = mathutils.Vector((5, 5, 5))
+		myDupeGradient_bg.location = mathutils.Vector((-1, 0, 0))
+		myDupeGradient_bg.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+		bpy.context.view_layer.objects.active = myDupeGradient_bg
+
+		gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
+		greyBG = 0.5
+		if gamma_correct_gradient_color_prop == True:
+			# lerpIter = pow(lerpIter, 1.0 / 2.2)
+			greyBG = pow(greyBG, 2.2)
+
+		mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", greyBG, greyBG, greyBG)
+
+		# mat1 = self.newShader("ShaderVisualizer_gradientBG", "emission", 0.5, 0.5, 0.5)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+
+		#####################
+		### each gradient face
+		#####################
+		# gradientScale = 0.1
+		# gradientScale = 0.15
+		gradientScale = 0.175
+		# rangeLength = 5
+		# rangeLength = 12
+		rangeLength = 15
+
+		# locationMultiplierY = .5
+		# locationMultiplierY = .35
+		locationMultiplierY = .4
+		# locationMultiplierZ = -.5
+		locationMultiplierZ = -.6
+		# locationMultiplierZ = -.75
+		raiseLowerZ = 1
+		usable_Z_Row = 0
+
+		usableCurrLoc_Y = 0
+		usableCurrRow_Z = 0
+		startIdx = 0
+
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
+		if precisionVal == -1:
+			precisionVal = 3
+
+		# precisionVal = 1 # DEBUG
+		precisionVal = 2 # DEBUG
+		# precisionVal = 3 # DEBUG
+
+		val_text_gradient_rotate_x_prop = bpy.context.scene.text_gradient_rotate_x_prop
+		val_text_gradient_rotate_y_prop = bpy.context.scene.text_gradient_rotate_y_prop
+		val_text_gradient_rotate_z_prop = bpy.context.scene.text_gradient_rotate_z_prop
+
+		myRotation = mathutils.Vector((math.radians(90), math.radians(val_text_gradient_rotate_y_prop), math.radians(90)))
+
+		for idx, i in enumerate(gradientArray):
+			bpy.context.view_layer.objects.active = myInputMesh
+			myDupeGradient = self.copyObject()
+			myDupeGradient.name = 'dupeGradient_' + str(idx)
+			myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
+
+			myRange = range(startIdx, startIdx + rangeLength)
+			usable_Z_Row = None
+
+			if idx > myRange[-1]:
+				startIdx = startIdx + rangeLength
+				myRange = range(startIdx, startIdx + rangeLength)
+				usableCurrLoc_Y = 0
+				usableCurrRow_Z += 1
+			
+			if myRange[0] <= idx <= myRange[-1]:
+				usable_Z_Row = usableCurrRow_Z
+				output_Y = usableCurrLoc_Y # * yMult # * idx)
+				usableCurrLoc_Y += 1
+
+			gradient_startPos = mathutils.Vector((0, -2.8, 1.1)) #top left
+
+			myDupeGradient.location = gradient_startPos + mathutils.Vector((0, output_Y * locationMultiplierY, raiseLowerZ + (locationMultiplierZ * usable_Z_Row)))
+
+			myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+			Ci = mathutils.Vector((i))
+
+			bpy.context.view_layer.objects.active = myDupeGradient
+			mat1 = self.newShader("ShaderVisualizer_gradient_" + str(i), "emission", Ci.x, Ci.y, Ci.z)
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+
+			#####################
+			### text_add() (better text placement)
+			#####################
+			if precisionVal != -1:
+				val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
+
+				t = None
+
+				if val_gamma_correct_gradient_color_prop == True:
+					gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
+					# gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+					gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
+					gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
+					gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
+
+					Ci_gc_text = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+					t = '(' + str(round(Ci_gc_text.x, precisionVal)) + ', ' + str(round(Ci_gc_text.y, precisionVal)) + ', ' + str(round(Ci_gc_text.z, precisionVal)) + ')'
+
+				elif val_gamma_correct_gradient_color_prop == False:
+					t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
+
+				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
+				myFontCurve.body = t
+
+				myFontOb = bpy.data.objects.new(myDupeGradient.name + '_text', myFontCurve)
+				myFontOb.data.align_x = 'CENTER'
+				myFontOb.data.align_y = 'CENTER'
+
+				# textRaiseLower = 0.15
+				# textRaiseLower = 0.175
+				# textRaiseLower = 0.2
+				# textRaiseLower = 0.12
+				textRaiseLower = 0.23
+
+				if idx % 2 == 0:
+					#even
+					# textRaiseLower *= 1
+					# textRaiseLower *= 1
+					pass
+				else:
+					#odd
+					# textRaiseLower *= -1
+					textRaiseLower += .06
+
+				textRaiseLower *= -1
+
+				myFontOb.location = myDupeGradient.location + mathutils.Vector((1, 0, textRaiseLower))
+				myFontOb.rotation_euler = myRotation
+
+				'''
+				bpy.context.view_layer.objects.active = myDupeGradient
+				me = bpy.context.active_object.data
+
+				bm = bmesh.new()   # create an empty BMesh
+				bm.from_mesh(me)   # fill it in from a Mesh
+
+				outputSize = 0
+				for f in bm.faces:
+					# normalDir = f.normal
+					# f = f 
+					outputSize = f.calc_area()
+					outputSize = (mathutils.Vector((outputSize, outputSize, outputSize)) * self.myV).x
+
+				val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
+				val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
+
+				outputTextSize_usable = self.lerp(val_text_radius_0_prop, val_text_radius_1_prop, outputSize)
+				'''
+
+				# myFontScale = 0.075
+				myFontScale = 0.06
+				myFontOb.scale = mathutils.Vector((myFontScale, myFontScale, myFontScale))
+
+				myFontOb.data.body = t
+
+				bpy.context.collection.objects.link(myFontOb)
+
+				myFontOb.show_in_front = True
+
+				self.textRef_all.append(myFontOb.name)
+
+				bpy.context.view_layer.objects.active = myFontOb
+
+				mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 0, 0, 0)
+				# mat1 = self.newShader("ShaderVisualizer_gradient_text_" + str(i), "emission", 1, 1, 1)
+				bpy.context.active_object.data.materials.clear()
+				bpy.context.active_object.data.materials.append(mat1)
+
+				bpy.context.view_layer.objects.active = myDupeGradient
+
+		myInputMesh.hide_render = True
+
+
 	def makeGradientGrid_color(self, gradientArray):
 
 		self.deselectAll()
@@ -5747,6 +6082,37 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_preset1_operator')
 
 
+		layout.label(text='Spectral Multi Blend')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi0Blend_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti0Factor_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti0Tint_prop')
+
+
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi1Blend_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti1Factor_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti1Tint_prop')
+
+
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi2Blend_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti2Factor_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectralMulti2Tint_prop')
+
+
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_spectralmultiblend_operator')
+
 		layout.label(text='Gradient Text Rxyz')
 		row = layout.row()
 		row.prop(bpy.context.scene, 'text_gradient_rotate_x_prop')
@@ -5898,6 +6264,16 @@ class SHADER_OT_GRADIENTCOLORWHEEL(bpy.types.Operator):
 		myABJ_SD_B.printColorGradient_circular()
 		return {'FINISHED'}
 	
+class SHADER_OT_SPECTRALMULTIBLEND(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'spectral multi blend'
+	bl_idname = 'shader.abj_shader_debugger_spectralmultiblend_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.abj_spectral_multiblend()
+		return {'FINISHED'}
+	
 class SHADER_OT_PRESET1(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
@@ -5907,16 +6283,6 @@ class SHADER_OT_PRESET1(bpy.types.Operator):
 	def execute(self, context):
 		myABJ_SD_B.colorGradient_circular_preset1()
 		return {'FINISHED'}
-	
-# class SHADER_OT_GRADIENTCOLORWHEELPRESET1(bpy.types.Operator):
-# 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
-
-# 	bl_label = 'gradient color wheel preset 1'
-# 	bl_idname = 'shader.abj_shader_debugger_gradientcolorwheelpreset1_operator'
-
-# 	def execute(self, context):
-# 		myABJ_SD_B.colorGradient_circular_preset1()
-# 		return {'FINISHED'}
 
 class SHADER_OT_RENDERPASSES(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator

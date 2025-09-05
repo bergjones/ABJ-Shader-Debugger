@@ -19,7 +19,7 @@ bl_info = {
 	"name": "ABJ Shader Debugger for Blender",
 	"author" : "Aleksander Berg-Jones",
 	"version" : (1, 0),
-	"blender": (4, 4, 0),
+	"blender": (4, 5, 2),
 	"location": "Scene",
 	"description": "Shader Debugger",
 	"warning": "",
@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES, SHADER_OT_WRITTENRENDER, SHADER_OT_PRESET1
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES, SHADER_OT_WRITTENRENDER, SHADER_OT_PRESET1, SHADER_OT_SPECTRALMULTIBLEND
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -81,6 +81,8 @@ classes = [
 	SHADER_OT_WRITTENRENDER,
 
 	SHADER_OT_PRESET1,
+
+	SHADER_OT_SPECTRALMULTIBLEND,
 ]
 
 def register():
@@ -114,6 +116,40 @@ def register():
 	min_gradientColor_1 = 0
 	max_gradientColor_1 = 1
 	bpy.types.Scene.gradient_color1_prop = bpy.props.FloatVectorProperty(default=default_gradientColor_1, min=min_gradientColor_1, max=max_gradientColor_1, name='rgb_1')
+
+
+
+
+	default_spectralMultiBlend_0 = (1, 0, 0)
+	min_spectralMultiBlend_0 = 0
+	max_spectralMultiBlend_0 = 1
+	bpy.types.Scene.spectral_multi0Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_0, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_0')
+
+	bpy.types.Scene.spectralMulti0Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor0')
+	bpy.types.Scene.spectralMulti0Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint0')
+
+
+	default_spectralMultiBlend_1 = (1, 1, 0)
+	min_spectralMultiBlend_0 = 0
+	max_spectralMultiBlend_0 = 1
+	bpy.types.Scene.spectral_multi1Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_1, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_1')
+
+	bpy.types.Scene.spectralMulti1Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor1')
+	bpy.types.Scene.spectralMulti1Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint1')
+
+	default_spectralMultiBlend_2 = (0, 0, 1)
+	min_spectralMultiBlend_0 = 0
+	max_spectralMultiBlend_0 = 1
+	bpy.types.Scene.spectral_multi2Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_2, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_2')
+
+	bpy.types.Scene.spectralMulti2Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor2')
+	bpy.types.Scene.spectralMulti2Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint2')
+
+
+
+
+
+
 	
 	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
 	bpy.types.Scene.gradient_inner_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='inner_circle_steps')
@@ -492,6 +528,18 @@ def unregister():
 
 	del bpy.types.Scene.gradient_color0_prop
 	del bpy.types.Scene.gradient_color1_prop
+
+	del bpy.types.Scene.spectral_multi0Blend_prop
+	del bpy.types.Scene.spectralMulti0Factor_prop
+	del bpy.types.Scene.spectralMulti0Tint_prop
+
+	del bpy.types.Scene.spectral_multi1Blend_prop
+	del bpy.types.Scene.spectralMulti1Factor_prop
+	del bpy.types.Scene.spectralMulti1Tint_prop
+
+	del bpy.types.Scene.spectral_multi2Blend_prop
+	del bpy.types.Scene.spectralMulti2Factor_prop
+	del bpy.types.Scene.spectralMulti2Tint_prop
 
 	del bpy.types.Scene.gradient_outer_circle_steps_prop
 	del bpy.types.Scene.gradient_inner_circle_steps_prop
