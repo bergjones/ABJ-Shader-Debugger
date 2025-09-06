@@ -613,22 +613,46 @@ class ABJ_Shader_Debugger():
 		bpy.context.scene.view_settings.look = 'None'
 		bpy.context.scene.render.use_multiview = False
 	
-		val_spectral_multi0Blend_prop = bpy.context.scene.spectral_multi0Blend_prop
-		val_spectralMulti0Tint_prop = bpy.context.scene.spectralMulti0Tint_prop
-		val_spectralMulti0Factor_prop = bpy.context.scene.spectralMulti0Factor_prop
+		val_spectral_multi_0_Blend_prop = bpy.context.scene.spectral_multi_0_Blend_prop
+		val_spectral_multi_0_Tint_prop = bpy.context.scene.spectral_multi_0_Tint_prop
+		val_spectral_multi_0_Factor_prop = bpy.context.scene.spectral_multi_0_Factor_prop
 
-		val_spectral_multi1Blend_prop = bpy.context.scene.spectral_multi1Blend_prop
-		val_spectralMulti1Tint_prop = bpy.context.scene.spectralMulti1Tint_prop
-		val_spectralMulti1Factor_prop = bpy.context.scene.spectralMulti1Factor_prop
+		val_spectral_multi_1_Blend_prop = bpy.context.scene.spectral_multi_1_Blend_prop
+		val_spectral_multi_1_Tint_prop = bpy.context.scene.spectral_multi_1_Tint_prop
+		val_spectral_multi_1_Factor_prop = bpy.context.scene.spectral_multi_1_Factor_prop
 
-		val_spectral_multi2Blend_prop = bpy.context.scene.spectral_multi2Blend_prop
-		val_spectralMulti2Tint_prop = bpy.context.scene.spectralMulti2Tint_prop
-		val_spectralMulti2Factor_prop = bpy.context.scene.spectralMulti2Factor_prop
+		val_spectral_multi_2_Blend_prop = bpy.context.scene.spectral_multi_2_Blend_prop
+		val_spectral_multi_2_Tint_prop = bpy.context.scene.spectral_multi_2_Tint_prop
+		val_spectral_multi_2_Factor_prop = bpy.context.scene.spectral_multi_2_Factor_prop
+
+		val_spectral_multi_3_Blend_prop = bpy.context.scene.spectral_multi_3_Blend_prop
+		val_spectral_multi_3_Tint_prop = bpy.context.scene.spectral_multi_3_Tint_prop
+		val_spectral_multi_3_Factor_prop = bpy.context.scene.spectral_multi_3_Factor_prop
 
 		#tri color blending
 		allOutputRatios = []
 
-		outputColorTriBlend = spectral3_glsl.spectral_mix3(val_spectral_multi0Blend_prop, val_spectralMulti1Tint_prop, val_spectralMulti0Factor_prop, val_spectral_multi1Blend_prop, val_spectralMulti1Tint_prop, val_spectralMulti1Factor_prop, val_spectral_multi2Blend_prop, val_spectralMulti2Tint_prop, val_spectralMulti2Factor_prop)
+
+
+
+		usableSpectralMultiblendEquation_items = bpy.context.scene.bl_rna.properties['spectral_multiblend_equation_enum_prop'].enum_items
+		usableSpectralMultiblendEquation_id = usableSpectralMultiblendEquation_items[bpy.context.scene.spectral_multiblend_equation_enum_prop].identifier
+
+		# if usableSpectralMultiblendEquation_id == 2:
+		# 	print('2 number')
+		# elif usableSpectralMultiblendEquation_id == '2':
+		# 	print('2 string')
+
+		# return
+
+		if usableSpectralMultiblendEquation_id == '2':
+			outputColorTriBlend = spectral3_glsl.spectral_mix2(val_spectral_multi_0_Blend_prop, val_spectral_multi_0_Tint_prop, val_spectral_multi_0_Factor_prop, val_spectral_multi_1_Blend_prop, val_spectral_multi_1_Tint_prop, val_spectral_multi_1_Factor_prop)
+
+		elif usableSpectralMultiblendEquation_id == '3':
+			outputColorTriBlend = spectral3_glsl.spectral_mix3(val_spectral_multi_0_Blend_prop, val_spectral_multi_0_Tint_prop, val_spectral_multi_0_Factor_prop, val_spectral_multi_1_Blend_prop, val_spectral_multi_1_Tint_prop, val_spectral_multi_1_Factor_prop, val_spectral_multi_2_Blend_prop, val_spectral_multi_2_Tint_prop, val_spectral_multi_2_Factor_prop)
+
+		elif usableSpectralMultiblendEquation_id == '4':
+			outputColorTriBlend = spectral3_glsl.spectral_mix4(val_spectral_multi_0_Blend_prop, val_spectral_multi_0_Tint_prop, val_spectral_multi_0_Factor_prop, val_spectral_multi_1_Blend_prop, val_spectral_multi_1_Tint_prop, val_spectral_multi_1_Factor_prop, val_spectral_multi_2_Blend_prop, val_spectral_multi_2_Tint_prop, val_spectral_multi_2_Factor_prop, val_spectral_multi_3_Blend_prop, val_spectral_multi_3_Tint_prop, val_spectral_multi_3_Factor_prop)
 
 		#gamma correct
 		val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
@@ -645,7 +669,7 @@ class ABJ_Shader_Debugger():
 
 		self.makeGradientGrid_color_tri(allOutputRatios)
 
-		print('allOutputRatios = ', allOutputRatios)
+		# print('allOutputRatios = ', allOutputRatios)
 
 	def written_render(self):
 		self.objectsToToggleOnOffLater.clear()
@@ -6084,30 +6108,43 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 
 		layout.label(text='Spectral Multi Blend')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectral_multi0Blend_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_0_Blend_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti0Factor_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_0_Factor_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti0Tint_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_0_Tint_prop')
 
 
 
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectral_multi1Blend_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_1_Blend_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti1Factor_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_1_Factor_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti1Tint_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_1_Tint_prop')
 
 
 
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectral_multi2Blend_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_2_Blend_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti2Factor_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_2_Factor_prop')
 		row = layout.row()
-		row.prop(bpy.context.scene, 'spectralMulti2Tint_prop')
+		row.prop(bpy.context.scene, 'spectral_multi_2_Tint_prop')
 
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi_3_Blend_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi_3_Factor_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multi_3_Tint_prop')
+
+
+
+		layout.label(text='Spectral Multiblend :')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_multiblend_equation_enum_prop', text="")
 
 		row = layout.row()
 		row.scale_y = 2.0 ###

@@ -206,39 +206,32 @@ def KS(R):
 def KM(KS):
 	return 1.0 + KS - math.sqrt(pow(KS, 2.0) + 2.0 * KS)
 
-# def spectral_mix(color1, tintingStrength1, factor1, color2, tintingStrength2, factor2):
-# 	lrgb1 = spectral_srgb_to_linear(color1)
-# 	lrgb2 = spectral_srgb_to_linear(color2)
+def spectral_mix2(color1, tintingStrength1, factor1, color2, tintingStrength2, factor2):
+	lrgb1 = spectral_srgb_to_linear(color1)
+	lrgb2 = spectral_srgb_to_linear(color2)
 
-# 	R1 = spectral_linear_to_reflectance(lrgb1)
-# 	R2 = spectral_linear_to_reflectance(lrgb2)
+	R1 = spectral_linear_to_reflectance(lrgb1)
+	R2 = spectral_linear_to_reflectance(lrgb2)
 
-# 	luminance1 = spectral_reflectance_to_xyz(R1)[1]
-# 	luminance2 = spectral_reflectance_to_xyz(R2)[1]
+	luminance1 = spectral_reflectance_to_xyz(R1)[1]
+	luminance2 = spectral_reflectance_to_xyz(R2)[1]
 
-# 	R = [0] * SPECTRAL_SIZE
+	R = [0] * SPECTRAL_SIZE
 
-# 	for i in range(SPECTRAL_SIZE):
-# 		concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
-# 		concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
+	for i in range(SPECTRAL_SIZE):
+		concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
+		concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
 		
-# 		totalConcentration = concentration1 + concentration2
+		totalConcentration = concentration1 + concentration2
 		
-# 		ksMix = 0.;
+		ksMix = 0
 		
-# 		ksMix += KS(R1[i]) * concentration1
-# 		ksMix += KS(R2[i]) * concentration2
+		ksMix += KS(R1[i]) * concentration1
+		ksMix += KS(R2[i]) * concentration2
 
-# 		R[i] = KM(ksMix / totalConcentration)
+		R[i] = KM(ksMix / totalConcentration)
 
-# 	return spectral_xyz_to_srgb(spectral_reflectance_to_xyz(R))
-
-# def spectral_mix(color1, color2, factor):
-# 	return spectral_mix(color1, 1, 1 - factor, color2, 1, factor)
-
-
-# def spectral_mix(color1, factor1, color2, factor2):
-	# return spectral_mix(color1, 1, factor1, color2, 1, factor2)
+	return spectral_xyz_to_srgb(spectral_reflectance_to_xyz(R))
 
 def spectral_mix3(color1, tintingStrength1, factor1, color2, tintingStrength2, factor2, color3, tintingStrength3, factor3):
 	lrgb1 = spectral_srgb_to_linear(color1)
@@ -272,11 +265,7 @@ def spectral_mix3(color1, tintingStrength1, factor1, color2, tintingStrength2, f
 
 	return spectral_xyz_to_srgb(spectral_reflectance_to_xyz(R))
 
-# def spectral_mix(color1, factor1, color2, factor2, color3, factor3):
-# 	return spectral_mix(color1, 1, factor1, color2, 1, factor2, color3, 1, factor3)
-
-'''
-def spectral_mix(color1, tintingStrength1, factor1, color2, tintingStrength2, factor2, color3, tintingStrength3, factor3, color4, tintingStrength4, factor4):
+def spectral_mix4(color1, tintingStrength1, factor1, color2, tintingStrength2, factor2, color3, tintingStrength3, factor3, color4, tintingStrength4, factor4):
 	lrgb1 = spectral_srgb_to_linear(color1)
 	lrgb2 = spectral_srgb_to_linear(color2)
 	lrgb3 = spectral_srgb_to_linear(color3)
@@ -312,11 +301,3 @@ def spectral_mix(color1, tintingStrength1, factor1, color2, tintingStrength2, fa
 		R[i] = KM(ksMix / totalConcentration)
 
 	return spectral_xyz_to_srgb(spectral_reflectance_to_xyz(R))
-
-
-def spectral_mix(color1, factor1, color2, factor2, color3, factor3, color4, factor4):
-
-	return spectral_mix(color1, 1, factor1, color2, 1, factor2, color3, 1, factor3, color4, 1, factor4)
-
-
-'''

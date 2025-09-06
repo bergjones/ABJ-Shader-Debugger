@@ -121,32 +121,30 @@ def register():
 
 
 	default_spectralMultiBlend_0 = (1, 0, 0)
-	min_spectralMultiBlend_0 = 0
-	max_spectralMultiBlend_0 = 1
-	bpy.types.Scene.spectral_multi0Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_0, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_0')
+	bpy.types.Scene.spectral_multi_0_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_0, min=0, max=1, name='multi_0')
 
-	bpy.types.Scene.spectralMulti0Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor0')
-	bpy.types.Scene.spectralMulti0Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint0')
+	bpy.types.Scene.spectral_multi_0_Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor_0')
+	bpy.types.Scene.spectral_multi_0_Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint_0')
 
 
 	default_spectralMultiBlend_1 = (1, 1, 0)
-	min_spectralMultiBlend_0 = 0
-	max_spectralMultiBlend_0 = 1
-	bpy.types.Scene.spectral_multi1Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_1, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_1')
+	bpy.types.Scene.spectral_multi_1_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_1, min=0, max=1, name='multi_1')
 
-	bpy.types.Scene.spectralMulti1Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor1')
-	bpy.types.Scene.spectralMulti1Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint1')
+	bpy.types.Scene.spectral_multi_1_Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor_1')
+	bpy.types.Scene.spectral_multi_1_Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint_1')
 
 	default_spectralMultiBlend_2 = (0, 0, 1)
-	min_spectralMultiBlend_0 = 0
-	max_spectralMultiBlend_0 = 1
-	bpy.types.Scene.spectral_multi2Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_2, min=min_spectralMultiBlend_0, max=max_spectralMultiBlend_0, name='multi_2')
+	bpy.types.Scene.spectral_multi_2_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_2, min=0, max=1, name='multi_2')
 
-	bpy.types.Scene.spectralMulti2Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor2')
-	bpy.types.Scene.spectralMulti2Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint2')
+	bpy.types.Scene.spectral_multi_2_Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor_2')
+	bpy.types.Scene.spectral_multi_2_Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint_2')
 
 
+	default_spectralMultiBlend_3 = (0, 0, 0)
+	bpy.types.Scene.spectral_multi_3_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_3, min=0, max=1, name='multi_3')
 
+	bpy.types.Scene.spectral_multi_3_Factor_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='factor_3')
+	bpy.types.Scene.spectral_multi_3_Tint_prop = bpy.props.FloatProperty(min=0, max=1, default=1, name='tint_3')
 
 
 
@@ -219,6 +217,20 @@ def register():
 		items=primitive_select_enum_items,
 		default='monkey',
 	)
+
+
+	spectral_multiblend_equation_enum_items = (
+			('2', '2', '2'),
+			('3', '3', '3'),
+			('4', '4', '4'),
+	)
+
+	bpy.types.Scene.spectral_multiblend_equation_enum_prop = bpy.props.EnumProperty(
+		name='spectral_multiblend_equation',
+		description="spectral_multiblend_equation",
+		items=spectral_multiblend_equation_enum_items,
+		default='2',
+	)	
 
 	diffuse_equation_enum_items = (
 			('oren', 'oren', 'oren'),
@@ -529,17 +541,21 @@ def unregister():
 	del bpy.types.Scene.gradient_color0_prop
 	del bpy.types.Scene.gradient_color1_prop
 
-	del bpy.types.Scene.spectral_multi0Blend_prop
-	del bpy.types.Scene.spectralMulti0Factor_prop
-	del bpy.types.Scene.spectralMulti0Tint_prop
+	del bpy.types.Scene.spectral_multi_0_Blend_prop
+	del bpy.types.Scene.spectral_multi_0_Factor_prop
+	del bpy.types.Scene.spectral_multi_0_Tint_prop
 
-	del bpy.types.Scene.spectral_multi1Blend_prop
-	del bpy.types.Scene.spectralMulti1Factor_prop
-	del bpy.types.Scene.spectralMulti1Tint_prop
+	del bpy.types.Scene.spectral_multi_1_Blend_prop
+	del bpy.types.Scene.spectral_multi_1_Factor_prop
+	del bpy.types.Scene.spectral_multi_1_Tint_prop
 
-	del bpy.types.Scene.spectral_multi2Blend_prop
-	del bpy.types.Scene.spectralMulti2Factor_prop
-	del bpy.types.Scene.spectralMulti2Tint_prop
+	del bpy.types.Scene.spectral_multi_2_Blend_prop
+	del bpy.types.Scene.spectral_multi_2_Factor_prop
+	del bpy.types.Scene.spectral_multi_2_Tint_prop
+
+	del bpy.types.Scene.spectral_multi_3_Blend_prop
+	del bpy.types.Scene.spectral_multi_3_Factor_prop
+	del bpy.types.Scene.spectral_multi_3_Tint_prop
 
 	del bpy.types.Scene.gradient_outer_circle_steps_prop
 	del bpy.types.Scene.gradient_inner_circle_steps_prop
@@ -561,6 +577,7 @@ def unregister():
 	del bpy.types.Scene.aov_enum_prop
 
 	del bpy.types.Scene.diffuse_equation_enum_prop
+	del bpy.types.Scene.spectral_multiblend_equation_enum_prop
 	del bpy.types.Scene.specular_equation_enum_prop
 
 	del bpy.types.Scene.text_rgb_precision_enum_prop
