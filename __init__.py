@@ -123,28 +123,28 @@ def register():
 	default_spectralMultiBlend_0 = (1, 0, 0)
 	bpy.types.Scene.spectral_multi_0_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_0, min=0, max=1, precision=3, name='multi_0')
 
-	bpy.types.Scene.spectral_multi_0_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=3, name='factor_0')
-	bpy.types.Scene.spectral_multi_0_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=3, name='tint_0')
+	bpy.types.Scene.spectral_multi_0_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=4, name='factor_0')
+	bpy.types.Scene.spectral_multi_0_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=4, name='tint_0')
 
 
 	default_spectralMultiBlend_1 = (1, 1, 0)
 	bpy.types.Scene.spectral_multi_1_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_1, min=0, max=1, precision=3, name='multi_1')
 
-	bpy.types.Scene.spectral_multi_1_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=3, name='factor_1')
-	bpy.types.Scene.spectral_multi_1_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=3, name='tint_1')
+	bpy.types.Scene.spectral_multi_1_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=4, name='factor_1')
+	bpy.types.Scene.spectral_multi_1_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=4, name='tint_1')
 
 	default_spectralMultiBlend_2 = (0, 0, 1)
 	bpy.types.Scene.spectral_multi_2_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_2, min=0, max=1, precision=3, name='multi_2')
 
-	bpy.types.Scene.spectral_multi_2_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=3, name='factor_2')
-	bpy.types.Scene.spectral_multi_2_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=3, name='tint_2')
+	bpy.types.Scene.spectral_multi_2_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=4, name='factor_2')
+	bpy.types.Scene.spectral_multi_2_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=4, name='tint_2')
 
 
 	default_spectralMultiBlend_3 = (0, 0, 0)
 	bpy.types.Scene.spectral_multi_3_Blend_prop = bpy.props.FloatVectorProperty(default=default_spectralMultiBlend_3, min=0, max=1, precision=3, name='multi_3')
 
-	bpy.types.Scene.spectral_multi_3_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=3, name='factor_3')
-	bpy.types.Scene.spectral_multi_3_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=3, name='tint_3')
+	bpy.types.Scene.spectral_multi_3_Factor_prop = bpy.props.FloatProperty(min=0, max=100, default=1, precision=4, name='factor_3')
+	bpy.types.Scene.spectral_multi_3_Tint_prop = bpy.props.FloatProperty(min=0, max=1000, default=1, precision=4, name='tint_3')
 
 
 
