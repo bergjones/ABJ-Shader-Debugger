@@ -684,6 +684,8 @@ class ABJ_Shader_Debugger():
 				for space in area.spaces:
 					if space.type == 'VIEW_3D':
 
+						# space.shading.type = 'MATERIAL'
+
 						# space.overlay.grid_scale = 2
 
 						usableToggle = None
@@ -852,6 +854,20 @@ class ABJ_Shader_Debugger():
 		allObjLocs.append(pt_09)
 		allObjLocs.append(pt_10)
 		allObjLocs.append(pt_11)
+
+		#TO DO 9/9
+		#match the following to calc:
+		#
+		#set up triangle face indices here because the presets wont be there in other formats.
+		#do a world space raycast from camera position to triangle position
+		#if the triangle is visible, get NDC points of those triangles points. Draw and label the points and triangles. 
+
+
+
+
+
+
+
 
 		bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -6473,27 +6489,4 @@ class SHADER_OT_RESTORECAMVIEW(bpy.types.Operator):
 		return {'FINISHED'}
 	
 
-# importlib.reload(splitABC)
-# importlib.reload(GGX_hable_abj)
-# # myGGX_hable_abj = GGX_hable_abj()
-# myGGX_hable_abj = GGX_hable_abj.testPrint()
-
 myABJ_SD_B = ABJ_Shader_Debugger() ######################
-
-# if __name__ == "__main__":
-# 	register()
-
-
-'''
-#########
-# TO DO:
-#########
-- additional shading models (oren, glass, hair, subsurface, sheen, fuzz)
-- Multiple lights
-
-- gradient mixer (pencil, pen, greyscale paint, color pencil, color paint)
-
-- subdivision gradient lerping blending sim
-- samplePoints()
-
-'''
