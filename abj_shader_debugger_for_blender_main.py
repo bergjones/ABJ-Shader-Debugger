@@ -2384,7 +2384,6 @@ class ABJ_Shader_Debugger():
 			myObj.modifiers["Subdivision"].levels = 1
 			bpy.ops.object.modifier_apply(modifier="Subdivision")
 
-
 		if self.useRestoredRxyzValues == True:
 			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
 			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
@@ -2676,7 +2675,13 @@ class ABJ_Shader_Debugger():
 		########################
 		########## SPEC ########
 		########################
-		myR = -myL.reflect(myN)
+		# myR = -myL.reflect(myN)
+
+		#remember, L and N must be normalized
+		subtractVector = mathutils.Vector((2, 2, 2))
+		reflectManual = -(myL - subtractVector) * (myL.dot(myN)) * myN
+		myR = reflectManual
+
 		myH = (self.myV + myL).normalized()
 		R_dot_V_control = max(self.myV.dot(myR), 0.0)
 		N_dot_V = max(myN.dot(self.myV), 0.0)
@@ -3416,7 +3421,6 @@ class ABJ_Shader_Debugger():
 			# Yellow (1, 1, 0), 
 			# Green (0, 1, 0), 
 			# Blue (0, 0, 1), 
-			# Indigo (0.3, 0, 0.7), 
 			# Violet (0.5, 0, 0.5)
 
 			lerpIter_outer = countToDivisorMultiplier_list[i]
