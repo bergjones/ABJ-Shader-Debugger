@@ -74,6 +74,8 @@ class ABJ_Shader_Debugger():
 
 		
 		self.val_gradient_circle_override = 0
+		self.val_gradient_circle_override_side = None
+
 
 		self.myLoc_arrow_01 = None
 
@@ -702,8 +704,6 @@ class ABJ_Shader_Debugger():
 						space.overlay.show_axis_z = usableToggle
 						space.overlay.show_cursor = usableToggle
 
-
-
 		startTime = datetime.now()
 
 		###########
@@ -723,10 +723,10 @@ class ABJ_Shader_Debugger():
 		# self.myCam.location = mathutils.Vector((20, 0, 10))
 		# self.myCam.location = mathutils.Vector((20, 0, -20))
 
-		self.myCam.location = mathutils.Vector((-2, 25, 13)) #OLD
+		self.myCam.location = mathutils.Vector((-2, 25, 13)) #GOOD
 		# self.myCam.location = mathutils.Vector((-2, 110, 58))
 		# self.myCam.location = mathutils.Vector((-2, 40, 58))
-# 
+		#  
 		# bpy.context.object.data.type = 'ORTHO'
 		self.myCam.data.type = 'PERSP'
 		self.myCam.data.lens = 35
@@ -747,16 +747,10 @@ class ABJ_Shader_Debugger():
 		# self.myCam.data.clip_end = 100
 		self.myCam.data.clip_end = 500
 
-
 		self.myCam.data.lens_unit = 'FOV'
 		self.myCam.data.angle = 1.0472
 
 		self.updateScene() # need
-
-		self.look_at(self.myCam, self.myOrigin)
-
-		# self.myV = self.myCam.matrix_world.to_translation()
-		# self.myV.normalize()
 
 		bpy.context.scene.camera = bpy.data.objects["Camera"]
 
@@ -782,7 +776,6 @@ class ABJ_Shader_Debugger():
 		self.zFar = val_zFar_prop
 
 		# self.oren_roughness_stored = val_oren_roughness_prop
-
 
 		# usableFOV_items = bpy.context.scene.bl_rna.properties['written_fov_prop'].enum_items
 		# usableFovType_id = usableFOV_items[bpy.context.scene.written_fov_prop].identifier
@@ -811,6 +804,8 @@ class ABJ_Shader_Debugger():
 		##########################
 		center = self.myOrigin
 		f = self.abjNormalize_written(center - self.myCam.location)
+
+		self.myV = -f
 
 		zNear_set = 1
 		zFar_set = 250
@@ -862,13 +857,6 @@ class ABJ_Shader_Debugger():
 		#do a world space raycast from camera position to triangle position
 		#if the triangle is visible, get NDC points of those triangles points. Draw and label the points and triangles. 
 
-
-
-
-
-
-
-
 		bpy.ops.object.mode_set(mode="OBJECT")
 
 		myMVP = myPM @ myVM
@@ -896,7 +884,7 @@ class ABJ_Shader_Debugger():
 				world_coord = obj.matrix_world @ vertex.co
 				world_space_verts.append(world_coord)
 
-			myInputMesh.hide_set(1)
+			# myInputMesh.hide_set(1)
 			myInputMesh.hide_render = True
 
 			for idx2, j in enumerate(world_space_verts):
@@ -1328,8 +1316,8 @@ class ABJ_Shader_Debugger():
 		center = self.myOrigin
 		upW = mathutils.Vector((0, 0, 1))
 
-		scene = bpy.context.scene
-		camera = scene.camera
+		# scene = bpy.context.scene
+		# camera = scene.camera
 
 		f = self.abjNormalize_written(center - camP)
 		u = self.abjNormalize_written(upW)
@@ -1366,6 +1354,8 @@ class ABJ_Shader_Debugger():
 		return vert_NDC
 
 	def written_set_up_ortho_render(self):
+
+		# '''
 		###################################
 		###### SET CAMERA POS / LOOK AT
 		###################################
@@ -1373,6 +1363,9 @@ class ABJ_Shader_Debugger():
 
 		# self.myCam.location = self.pos_camera_global
 		self.myCam.location = mathutils.Vector((20, 0, 0))
+		# self.myCam.location = mathutils.Vector((-2, 25, 13)) #OLD
+
+		self.myCam.rotation_euler = mathutils.Vector((math.radians(90), 0, math.radians(90)))
 
 		# bpy.context.object.data.type = 'ORTHO'
 		self.myCam.data.type = 'ORTHO'
@@ -1381,11 +1374,7 @@ class ABJ_Shader_Debugger():
 		bpy.context.scene.render.resolution_x = 1000
 		bpy.context.scene.render.resolution_y = 1000
 		self.updateScene() # need
-
-		self.look_at(self.myCam, self.myOrigin)
-
-		self.myV = self.myCam.matrix_world.to_translation()
-		self.myV.normalize()
+		# '''
 
 		#####################
 		### input mesh
@@ -2219,6 +2208,118 @@ class ABJ_Shader_Debugger():
 
 		# bpy.ops.object.modifier_apply(modifier="Subdivision")
 
+	def align_vectors_bpy(self, v1, v2):
+		"""
+		Calculates a rotation matrix to align vector v1 with vector v2.
+		Assumes v1 and v2 are 3D numpy arrays.
+		"""
+		v1 = self.abjNormalize_written(v1) # Normalize v1
+		v2 = self.abjNormalize_written(v2) # Normalize v2
+
+		# Calculate rotation axis
+		axis = self.written_manual_cross(v1, v2)
+		axis_norm = self.abjNormalize_written(axis)
+
+		if axis_norm == 0: # Vectors are already aligned or opposite
+			if self.written_manual_dotProduct(v1, v2) > 0: # Already aligned
+				return mathutils.Matrix.identity(4)
+		else: # Opposite direction, rotate 180 degrees around an arbitrary axis
+			myR = mathutils.Matrix.Identity(4)
+			myR[0][0] = -1
+			myR[0][1] = 0
+			myR[0][2] = 0
+			myR[0][3] = 0
+
+			myR[1][0] = 0
+			myR[1][1] = -1
+			myR[1][2] = 0
+			myR[1][3] = 0
+
+			myR[2][0] = 0
+			myR[2][1] = 0
+			myR[2][2] = 1
+			myR[2][3] = 0
+
+			myR[3][0] = 0
+			myR[3][1] = 0
+			myR[3][2] = 0
+			myR[3][3] = 1
+
+			return myR
+
+			# return np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]) # Example: rotate around Z
+
+		axis = axis / axis_norm
+
+		# Calculate rotation angle
+		angle = math.acos(self.written_manual_dotProduct(v1, v2))
+
+		# Construct rotation matrix using Rodrigues' rotation formula
+		K = np.array([[0, -axis[2], axis[1]],
+		[axis[2], 0, -axis[0]],
+		[-axis[1], axis[0], 0]])
+
+		R = np.identity(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+
+
+
+		myR = mathutils.Matrix.Identity(4)
+		myR[0][0] = -1
+		myR[0][1] = 0
+		myR[0][2] = 0
+		myR[0][3] = 0
+
+		myR[1][0] = 0
+		myR[1][1] = -1
+		myR[1][2] = 0
+		myR[1][3] = 0
+
+		myR[2][0] = 0
+		myR[2][1] = 0
+		myR[2][2] = 1
+		myR[2][3] = 0
+
+		myR[3][0] = 0
+		myR[3][1] = 0
+		myR[3][2] = 0
+		myR[3][3] = 1
+
+		return myR
+
+		
+		return R	
+	
+	def align_vectors_numpy(v1, v2):
+		"""
+		Calculates a rotation matrix to align vector v1 with vector v2.
+		Assumes v1 and v2 are 3D numpy arrays.
+		"""
+		v1 = v1 / np.linalg.norm(v1) # Normalize v1
+		v2 = v2 / np.linalg.norm(v2) # Normalize v2
+
+		# Calculate rotation axis
+		axis = np.cross(v1, v2)
+		axis_norm = np.linalg.norm(axis)
+
+		if axis_norm == 0: # Vectors are already aligned or opposite
+			if np.dot(v1, v2) > 0: # Already aligned
+				return np.identity(3)
+		else: # Opposite direction, rotate 180 degrees around an arbitrary axis
+			return np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]) # Example: rotate around Z
+
+		axis = axis / axis_norm
+
+		# Calculate rotation angle
+		angle = np.arccos(np.dot(v1, v2))
+
+		# Construct rotation matrix using Rodrigues' rotation formula
+		K = np.array([[0, -axis[2], axis[1]],
+		[axis[2], 0, -axis[0]],
+		[-axis[1], axis[0], 0]])
+		R = np.identity(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+		
+		return R		
+
 	def DoIt_part1_preprocess(self):
 		self.startTime_stage1 = datetime.now()
 
@@ -2321,9 +2422,25 @@ class ABJ_Shader_Debugger():
 		###########
 		#DEFAULT CAMERA
 		#############
-		cam1_data = bpy.data.cameras.new('Camera')
-		cam = bpy.data.objects.new('Camera', cam1_data)
-		bpy.context.collection.objects.link(cam)
+		# cam1_data = bpy.data.cameras.new('Camera')
+
+
+
+
+
+		# bpy.ops.object.camera_add(*, enter_editmode=False, align=WORLD, location=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 0.0), scale=(0.0, 0.0, 0.0))
+
+		cam1_data = bpy.ops.object.camera_add(
+			location=(self.pos_camera_global),  # x, y, z coordinates
+			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
+		)
+
+		# cam = bpy.context.object
+		# bpy.context.scene.camera = cam1_data
+
+
+		# cam = bpy.data.objects.new('Camera', cam1_data)
+		# bpy.context.collection.objects.link(cam1_data)
 
 		###################################
 		###### SET CAMERA POS / LOOK AT
@@ -2335,8 +2452,16 @@ class ABJ_Shader_Debugger():
 
 		self.look_at(self.myCam, self.myOrigin)
 
-		self.myV = self.myCam.matrix_world.to_translation()
-		self.myV.normalize()
+
+		# self.myV = self.myCam.matrix_world.to_translation()
+		# self.myV.normalize()
+
+		f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
+		self.myV = -f
+
+		# self.myCam.rotation_euler = mathutils.Vector((math.radians(self.myV.xyz), 0, math.radians(90)))
+		# self.myCam.rotation_euler = mathutils.Vector((math.radians(-self.myV.x), math.radians(-self.myV.y), math.radians(-self.myV.z)))
+		# self.myCam.rotation_euler = mathutils.Vector((math.radians(self.myV.x), math.radians(self.myV.y), math.radians(self.myV.z)))
 
 		###################################
 		###### INPUT MESH / XFORM ###########
@@ -2393,11 +2518,6 @@ class ABJ_Shader_Debugger():
 			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
 			bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
 
-
-
-
-
-
 		# bpy.ops.object.modifier_add(type='WIREFRAME')
 
 		# myInputMesh.modifiers["Subdivision"].levels = 1
@@ -2407,8 +2527,6 @@ class ABJ_Shader_Debugger():
 		# myInputMesh.modifiers["Subdivision"].levels = 3
 
 		# bpy.ops.object.modifier_apply(modifier="Subdivision")
-
-	
 
 		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
 		# # bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
@@ -3006,21 +3124,9 @@ class ABJ_Shader_Debugger():
 		precisionVal = int(usableTextRGBPrecision_id)
 		usableSteps = None
 
-		if precisionVal == -1:
-			usableSteps = 100
+		val_gradient_method0_step_prop = bpy.context.scene.gradient_method0_step_prop
 
-		elif precisionVal == 1:
-			usableSteps = 10
-
-		elif precisionVal == 2:
-			usableSteps = 100
-
-		elif precisionVal == 3:
-			# usableSteps = 1000
-			usableSteps = 100
-
-		steps = 100
-		steps = usableSteps
+		steps = val_gradient_method0_step_prop
 		# steps = 10
 
 		val_gradient_color0_prop = bpy.context.scene.gradient_color0_prop
@@ -3254,13 +3360,25 @@ class ABJ_Shader_Debugger():
 
 			self.makeGradientGrid_color_circular(finalOutputColors, x, y, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalText, x_additional, y_additional)
 
-	def colorGradient_circular_preset1(self):
+	def colorGradient_circular_preset18_0(self):
 		#make preset
 		self.val_gradient_circle_override = 1
+		self.val_gradient_circle_override_side = 'outside'
 
 		self.printColorGradient_circular()
 
 		self.val_gradient_circle_override = 0
+		self.val_gradient_circle_override_side = None
+
+	def colorGradient_circular_preset18_1(self):
+		#make preset
+		self.val_gradient_circle_override = 1
+		self.val_gradient_circle_override_side = 'inside'
+
+		self.printColorGradient_circular()
+
+		self.val_gradient_circle_override = 0
+		self.val_gradient_circle_override_side = None
 
 	def printColorGradient_circular(self):
 		# outer circle steps 3
@@ -3435,8 +3553,6 @@ class ABJ_Shader_Debugger():
 			self.circular_gradient_text_counter = 0
 
 			if 0 <= i < (segments / divisor):
-				# continue
-
 				#RED TO ORANGE
 				startColor = mathutils.Vector((1.0, 0.0, 0.0))
 				endColor = mathutils.Vector((1, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0))
@@ -3457,8 +3573,6 @@ class ABJ_Shader_Debugger():
 				center_y = 0
 
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
-
-			# '''
 			
 			elif (segments / divisor) <= i < (segments / (divisor / 2)):
 				# print('2 divisor : ', i, ' lerpIter01 ', lerpIter)
@@ -3690,6 +3804,10 @@ class ABJ_Shader_Debugger():
 					if (self.circular_gradient_text_counter + 1) % 5 == 0:
 						t = 'X'
 						myFontScale = 0.06 #####
+
+
+				# if (self.circular_gradient_text_counter + 1) == 10:
+				# 	print('bingo for 10 : ', additionalText, ' ', Ci.x, Ci.y, Ci.z)
 
 				#FONT OBJECT NUMBER IDX
 				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
@@ -4066,19 +4184,24 @@ class ABJ_Shader_Debugger():
 		#####################
 		### each gradient face
 		#####################
-		# gradientScale = 0.1
-		# gradientScale = 0.15
-		gradientScale = 0.175
-		# rangeLength = 5
-		# rangeLength = 12
-		rangeLength = 15
+		val_gradient_method0_rowRange_prop = bpy.context.scene.gradient_method0_rowRange_prop
+		val_gradient_method0_size_prop = bpy.context.scene.gradient_method0_size_prop
+		val_gradient_method0_spacing_prop = bpy.context.scene.gradient_method0_spacing_prop
+		val_gradient_method0_height_prop = bpy.context.scene.gradient_method0_height_prop
+
+		gradientScale = val_gradient_method0_size_prop
+		rangeLength = val_gradient_method0_rowRange_prop
 
 		# locationMultiplierY = .5
 		# locationMultiplierY = .35
-		locationMultiplierY = .4
+		# locationMultiplierY = .4
+		locationMultiplierY = val_gradient_method0_spacing_prop
+
+		# locationMultiplierY = .2
 		# locationMultiplierZ = -.5
-		locationMultiplierZ = -.6
 		# locationMultiplierZ = -.75
+		# locationMultiplierZ = -.6
+		locationMultiplierZ = val_gradient_method0_height_prop
 		raiseLowerZ = 1
 		usable_Z_Row = 0
 
@@ -4143,7 +4266,10 @@ class ABJ_Shader_Debugger():
 			if precisionVal != -1:
 				val_gamma_correct_gradient_color_prop = bpy.context.scene.gamma_correct_gradient_color_prop
 
-				t = None
+				t = ''
+
+				'''
+				
 
 				if val_gamma_correct_gradient_color_prop == True:
 					gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
@@ -4159,6 +4285,12 @@ class ABJ_Shader_Debugger():
 				elif val_gamma_correct_gradient_color_prop == False:
 					t = '(' + str(round(Ci.x, precisionVal)) + ', ' + str(round(Ci.y, precisionVal)) + ', ' + str(round(Ci.z, precisionVal)) + ')'
 
+				'''
+
+				if (idx + 1) % 5 == 0:
+					t = 'X'
+					# myFontScale = 0.06 #####
+
 				myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 				myFontCurve.body = t
 
@@ -4170,17 +4302,23 @@ class ABJ_Shader_Debugger():
 				# textRaiseLower = 0.175
 				# textRaiseLower = 0.2
 				# textRaiseLower = 0.12
-				textRaiseLower = 0.23
+				# textRaiseLower = 0.23
+				textRaiseLower = 0
 
-				if idx % 2 == 0:
-					#even
-					# textRaiseLower *= 1
-					# textRaiseLower *= 1
-					pass
-				else:
-					#odd
-					# textRaiseLower *= -1
-					textRaiseLower += .06
+				# if idx % 2 == 0:
+				# 	#even
+				# 	# textRaiseLower *= 1
+				# 	# textRaiseLower *= 1
+				# 	pass
+				# else:
+				# 	#odd
+				# 	# textRaiseLower *= -1
+				# 	textRaiseLower += .06
+
+
+
+
+
 
 				textRaiseLower *= -1
 
@@ -6112,7 +6250,16 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.prop(bpy.context.scene, 'gradient_color1_prop')
 
-
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gradient_method0_step_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gradient_method0_rowRange_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gradient_method0_size_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gradient_method0_spacing_prop')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gradient_method0_height_prop')
 
 		layout.label(text='Color Wheel')
 		row = layout.row()
@@ -6123,8 +6270,7 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_gradientcolorwheel_operator')
 		row = layout.row()
-		row.operator('shader.abj_shader_debugger_preset1_operator')
-
+		row.operator('shader.abj_shader_debugger_preset18_0_operator')
 
 		layout.label(text='Spectral Multi Blend')
 		row = layout.row()
@@ -6331,14 +6477,24 @@ class SHADER_OT_SPECTRALMULTIBLEND(bpy.types.Operator):
 		myABJ_SD_B.abj_spectral_multiblend()
 		return {'FINISHED'}
 	
-class SHADER_OT_PRESET1(bpy.types.Operator):
+class SHADER_OT_PRESET180(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'color wheel preset 1'
-	bl_idname = 'shader.abj_shader_debugger_preset1_operator'
+	bl_label = 'color wheel preset 18 0'
+	bl_idname = 'shader.abj_shader_debugger_preset18_0_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.colorGradient_circular_preset1()
+		myABJ_SD_B.colorGradient_circular_preset18_0()
+		return {'FINISHED'}
+	
+class SHADER_OT_PRESET181(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'color wheel preset 18 1'
+	bl_idname = 'shader.abj_shader_debugger_preset18_1_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.colorGradient_circular_preset18_1()
 		return {'FINISHED'}
 
 class SHADER_OT_RENDERPASSES(bpy.types.Operator):

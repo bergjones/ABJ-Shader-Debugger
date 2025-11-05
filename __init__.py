@@ -32,7 +32,7 @@ import bpy
 import sys
 import importlib
 
-from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES, SHADER_OT_WRITTENRENDER, SHADER_OT_PRESET1, SHADER_OT_SPECTRALMULTIBLEND
+from .abj_shader_debugger_for_blender_main import ABJ_Shader_Debugger, SCENE_PT_ABJ_Shader_Debugger_Panel, SHADER_OT_RANDOMLIGHT, SHADER_OT_RANDOMROTATION, SHADER_OT_RESTORELIGHT, SHADER_OT_RESTORERXYZ, SHADER_OT_STATICSTAGE1, SHADER_OT_REFRESHSTAGE2, SHADER_OT_STAGESSELECTFACES, SHADER_OT_STAGEIDXMINUS, SHADER_OT_STAGEIDXPLUS, SHADER_OT_STAGEIDXZERO, SHADER_OT_STAGEIDXPRINT, SHADER_OT_STAGERESETALL, SHADER_OT_SHOWHIDETEXTTOGGLE, SHADER_OT_SHOWHIDEARROWTOGGLE, SHADER_OT_SHOWHIDECUBECAM, SHADER_OT_RESTORECAMVIEW, SHADER_OT_AGXCOLORSETTINGS, SHADER_OT_TEXTCOLORSETTINGS, SHADER_OT_STEREOSCOPICCOLORSETTINGS, SHADER_OT_DEFAULTCOLORSETTINGS, SHADER_OT_TOGGLEEXTRAS, SHADER_OT_GRADIENTCOLOR, SHADER_OT_GRADIENTCOLORWHEEL, SHADER_OT_RENDERPASSES, SHADER_OT_WRITTENRENDER, SHADER_OT_PRESET180, SHADER_OT_PRESET181, SHADER_OT_SPECTRALMULTIBLEND
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -80,7 +80,9 @@ classes = [
 
 	SHADER_OT_WRITTENRENDER,
 
-	SHADER_OT_PRESET1,
+	SHADER_OT_PRESET180,
+	SHADER_OT_PRESET181,
+
 
 	SHADER_OT_SPECTRALMULTIBLEND,
 ]
@@ -106,6 +108,16 @@ def register():
 
 	bpy.types.Scene.gamma_correct_gradient_color_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_color')
 	bpy.types.Scene.gamma_correct_gradient_colorWheel_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_colorWheel')
+
+	bpy.types.Scene.gradient_method0_step_prop = bpy.props.IntProperty(min=0, max=100, default=18, name='gradient_method0_steps')
+
+	bpy.types.Scene.gradient_method0_rowRange_prop = bpy.props.IntProperty(min=0, max=100, default=19, name='gradient_method0_rowRange')
+
+	bpy.types.Scene.gradient_method0_size_prop = bpy.props.FloatProperty(min=0.01, max=1.0, default=0.1, name='gradient_method0_scale_prop')
+
+	bpy.types.Scene.gradient_method0_spacing_prop = bpy.props.FloatProperty(min=0.01, max=1.0, default=0.3, name='gradient_method0_spacing_prop')
+	
+	bpy.types.Scene.gradient_method0_height_prop = bpy.props.FloatProperty(min=-5.0, max=5.0, default=-0.6, name='gradient_method0_height_prop')
 
 	default_gradientColor_0 = (0, 0, 0)
 	min_gradientColor_0 = 0
@@ -537,6 +549,12 @@ def unregister():
 
 	del bpy.types.Scene.gamma_correct_gradient_color_prop
 	del bpy.types.Scene.gamma_correct_gradient_colorWheel_prop
+
+	del bpy.types.Scene.gradient_method0_step_prop
+	del bpy.types.Scene.gradient_method0_rowRange_prop
+	del bpy.types.Scene.gradient_method0_size_prop
+	del bpy.types.Scene.gradient_method0_spacing_prop
+	del bpy.types.Scene.gradient_method0_height_prop
 
 	del bpy.types.Scene.gradient_color0_prop
 	del bpy.types.Scene.gradient_color1_prop
