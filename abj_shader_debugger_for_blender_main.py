@@ -58,6 +58,8 @@ class ABJ_Shader_Debugger():
 		# self.chosen_specular_equation = 'simple'
 		self.chosen_specular_equation = 'GGX'
 
+		self.colorspace_18_hue_list = []
+		self.colorspace_18_continued_j = 0
 
 		self.compositor_setup = False
 		self.chosen_text_rgb_precision = '0'
@@ -1575,6 +1577,8 @@ class ABJ_Shader_Debugger():
 						space.shading.type = 'MATERIAL'
 
 	def textColorSettings_UI(self):
+		self.agxColorSettings_UI() #must switch before
+
 		for area in bpy.context.screen.areas: 
 			if area.type == 'VIEW_3D':
 				for space in area.spaces: 
@@ -3312,53 +3316,103 @@ class ABJ_Shader_Debugger():
 			comboRatio_xyz_final = mathutils.Vector((outputRatio_x_01, outputRatio_y_01, outputRatio_z_01))
 			finalOutputColors.append(comboRatio_xyz_final)
 
-			#color wheel match 18 value match
-			#3 outer
+
+			colorspace_18_hue_dict = {}
 
 			additionalText = None
 
+			if i == 0:
+				additionalText = 'R'
+			elif i == 1:
+				additionalText = 'RO'
+			elif i == 2:
+				additionalText = 'OR'
+			elif i == 3:
+				additionalText = 'O'
+			elif i == 4:
+				additionalText = 'OY'
+			elif i == 5:
+				additionalText = 'YO'
+			elif i == 6:
+				additionalText = 'Y'
+			elif i == 7:
+				additionalText = 'YG'
+			elif i == 8:
+				additionalText = 'GY'
+			elif i == 9:
+				additionalText = 'G'
+			elif i == 10:
+				additionalText = 'GB'
+			elif i == 11:
+				additionalText = 'BG'
+			elif i == 12:
+				additionalText = 'B'
+			elif i == 13:
+				additionalText = 'BV'
+			elif i == 14:
+				additionalText = 'VB'
+			elif i == 15:
+				additionalText = 'V'
+			elif i == 16:
+				additionalText = 'VR'
+			elif i == 17:
+				additionalText = 'RV'
+
+			# if comboRatio_xyz_final == mathutils.Vector((1.0, 1.0, 1.0)):
+			# 	colorspace_18_hue_dict = {
+			# 		'identifier' : 'BW',
+			# 		'value' : comboRatio_xyz_final,
+			# 		'idx' : 0,
+			# 	}
+
+			# elif comboRatio_xyz_final <= mathutils.Vector((0.05, 0.05, 0.05)):
+			# 	colorspace_18_hue_dict = {
+			# 		'identifier' : 'BW',
+			# 		'value' : comboRatio_xyz_final,
+			# 		'idx' : 19,
+			# 	}
+
+			# elif comboRatio_xyz_final <= mathutils.Vector((0.0, 0.0, 0.0)):
+			# 	colorspace_18_hue_dict = {
+			# 		'identifier' : 'BW',
+			# 		'value' : comboRatio_xyz_final,
+			# 		'idx' : 19,
+			# 	}
+
+			# else:
+			colorspace_18_hue_dict = {
+				'identifier' : additionalText,
+				'value' : comboRatio_xyz_final,
+				# 'idx' : i,
+				# 'idx' : j,
+				'idx' : j + self.colorspace_18_continued_j,
+			}
+
+			self.colorspace_18_hue_list.append(colorspace_18_hue_dict)
+
+			# print(self.colorspace_18_hue_list)
+
+			for e in self.colorspace_18_hue_list:
+				# print(self.colorspace_18_hue_list[e][0])
+				print('identifier : ', e['identifier'])
+				# print(' ')
+				print('value : ', e['value'])
+				# print(' ')
+				print('idx : ', e['idx'])
+				# print(' ')
+
+				print(' ')
+
+			#################################
+			additionalTextUsable = None
+
 			if self.val_gradient_circle_override == 0:
-				additionalText = ''
+				additionalTextUsable = ''
 
 			elif self.val_gradient_circle_override == 1:
-				if i == 0:
-					additionalText = 'R'
-				elif i == 1:
-					additionalText = 'RO'
-				elif i == 2:
-					additionalText = 'OR'
-				elif i == 3:
-					additionalText = 'O'
-				elif i == 4:
-					additionalText = 'OY'
-				elif i == 5:
-					additionalText = 'YO'
-				elif i == 6:
-					additionalText = 'Y'
-				elif i == 7:
-					additionalText = 'YG'
-				elif i == 8:
-					additionalText = 'GY'
-				elif i == 9:
-					additionalText = 'G'
-				elif i == 10:
-					additionalText = 'GB'
-				elif i == 11:
-					additionalText = 'BG'
-				elif i == 12:
-					additionalText = 'B'
-				elif i == 13:
-					additionalText = 'BV'
-				elif i == 14:
-					additionalText = 'VB'
-				elif i == 15:
-					additionalText = 'V'
-				elif i == 16:
-					additionalText = 'VR'
-				elif i == 17:
-					additionalText = 'RV'
+				additionalTextUsable = additionalText
 
-			self.makeGradientGrid_color_circular(finalOutputColors, x, y, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalText, x_additional, y_additional)
+			self.makeGradientGrid_color_circular(finalOutputColors, x, y, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalTextUsable, x_additional, y_additional)
 
 	def colorGradient_circular_preset18_0(self):
 		#make preset
@@ -3551,6 +3605,7 @@ class ABJ_Shader_Debugger():
 			# center_y = radius * math.sin(angle) + center_y
 
 			self.circular_gradient_text_counter = 0
+			self.colorspace_18_hue_list = []
 
 			if 0 <= i < (segments / divisor):
 				#RED TO ORANGE
@@ -3567,11 +3622,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 			
 			elif (segments / divisor) <= i < (segments / (divisor / 2)):
@@ -3591,11 +3648,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 2)) <= i < (segments / (divisor / 3)):
@@ -3616,11 +3675,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 3)) <= i < (segments / (divisor / 4)):
@@ -3640,11 +3701,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 4)) <= i < (segments / (divisor / 5)):
@@ -3664,11 +3727,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 5)) <= i < (segments / (divisor / 6)):
@@ -3689,11 +3754,13 @@ class ABJ_Shader_Debugger():
 				center_x = radius * math.cos(angle) + center_x
 				center_y = radius * math.sin(angle) + center_y
 
+				self.colorspace_18_continued_j = 1
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_white)
 
 				center_x = 0
 				center_y = 0
 
+				self.colorspace_18_continued_j = val_gradient_inner_circle_steps_prop
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			# '''
@@ -4393,7 +4460,6 @@ class ABJ_Shader_Debugger():
 	def oren(self, NdotL, V, L, N, NdotV, roughness):
 		return NdotL
 
-
 	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, inputDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast):
 		attenuation = 1.0 #temporary, outside sunlight
 
@@ -4450,16 +4516,47 @@ class ABJ_Shader_Debugger():
 		
 		for j in bpy.context.scene.objects:
 			if j.name == shadingPlane:
-
 				#####################
 				### text_add() (better text placement)
 				#####################
-				if precisionVal != -1:
+				val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+
+				# if precisionVal != -1:
+				if val_use_18_hue_colorspace_prop == True:
 					# precisionVal = 3
-					t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+					# t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
 
 					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
-					myFontCurve.body = t
+					# myFontCurve.body = t
+
+					val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+
+					if val_use_18_hue_colorspace_prop == True:
+						precisionValUsable = 5
+
+						Ci_gc_rounded = mathutils.Vector((round(Ci_gc.x, precisionValUsable), round(Ci_gc.y, precisionValUsable), round(Ci_gc.z, precisionValUsable) ))
+
+
+						if Ci_gc_rounded >= mathutils.Vector((0.05, 0.05, 0.05)):
+							min_distance = float('inf')
+							closest_v = None
+
+							for v in self.colorspace_18_hue_list:
+								distance = (Ci_gc_rounded - v['value']).length
+								if distance < min_distance:
+									min_distance = distance
+									closest_value = v['value']
+									closest_identifier = v['identifier']
+									closest_idx = v['idx']
+
+							t = closest_identifier + ' ' + str(closest_idx)
+							myFontCurve.body = t
+							
+							Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+							# Ci_gc = mathutils.Vector((0, 1, 0))
+
+					# else:
+					# 	myFontCurve.body = t
 
 					myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
 					myFontOb.data.align_x = 'CENTER'
@@ -4488,7 +4585,7 @@ class ABJ_Shader_Debugger():
 
 					myFontOb.scale = mathutils.Vector((outputTextSize_usable, outputTextSize_usable, outputTextSize_usable))
 
-					if Ci > mathutils.Vector((0, 0, 0)):
+					if Ci >= mathutils.Vector((0.05, 0.05, 0.05)):
 						myFontOb.data.body = t
 
 					else:
@@ -6271,6 +6368,8 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_gradientcolorwheel_operator')
 		row = layout.row()
 		row.operator('shader.abj_shader_debugger_preset18_0_operator')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'use_18_hue_colorspace_prop')
 
 		layout.label(text='Spectral Multi Blend')
 		row = layout.row()
