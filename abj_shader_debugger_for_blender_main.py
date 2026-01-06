@@ -2089,7 +2089,10 @@ class ABJ_Shader_Debugger():
 	def setupCompositor(self):
 		bpy.context.scene.use_nodes = True
 
-		nodetree = bpy.context.scene.node_tree
+		# nodetree = bpy.context.scene.node_tree
+
+		nodetree = bpy.data.node_groups.new("My new comp", "CompositorNodeTree")
+		bpy.context.scene.compositing_node_group = nodetree
 
 		# clear default nodes
 		for node in nodetree.nodes:
@@ -2101,11 +2104,16 @@ class ABJ_Shader_Debugger():
 
 		node1 = nodetree.nodes.new("CompositorNodeGlare")
 		node1.location = (400,0)
-		node1.glare_type = 'BLOOM'
+		node1.inputs[1].default_value = 'Bloom'
+		# bpy.data.node_groups["My new comp"].nodes["Glare"].inputs[7].default_value = 500
+		node1.inputs[7].default_value = 500
 
-		# adding compositor node
-		node2 = nodetree.nodes.new("CompositorNodeComposite")
+		n_img = nodetree.nodes.new("CompositorNodeImage")
+		node2 = nodetree.nodes.new("NodeGroupOutput")
+
 		node2.location = (800,0)
+
+		nodetree.interface.new_socket(name="Output", in_out='OUTPUT',socket_type='NodeSocketColor')
 
 		# connecting nodes
 		nodetree.links.new(node0.outputs["Image"],node1.inputs[0])
@@ -5099,8 +5107,6 @@ class ABJ_Shader_Debugger():
 
 		tileScale = 1.3
 
-
-
 		for idx, i in enumerate(singleArrow_render_paths):
 			bpy.context.view_layer.objects.active = myInputMesh
 			myTile = self.copyObject()
@@ -5110,7 +5116,6 @@ class ABJ_Shader_Debugger():
 			# print('myTile_name_1 = ', myTile_name_1)
 
 			myTile.name = myTile_name_1
-
 
 			# myTile.scale = mathutils.Vector((bpy.context.scene.render.resolution_x / tileScale, bpy.context.scene.render.resolution_y / tileScale, 1))
 
