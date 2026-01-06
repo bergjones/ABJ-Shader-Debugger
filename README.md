@@ -10,4 +10,4 @@ I made this debugger as a way to quiz myself on the stages of shaders and how th
 
 *New * - This addon now includes a "handwritten" rendering path where the goal is to be able o perform the Perspective / View / Model Matrix transforms on a series of points in an easy enough way that it can be done with only a calculator in order to get accurate linework before the rest of the artwork is done.
 
-This add on was developed on Blender 4.5.2
+This add on was developed on Blender 5.0.1
