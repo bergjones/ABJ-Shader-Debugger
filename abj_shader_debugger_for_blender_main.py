@@ -60,6 +60,7 @@ class ABJ_Shader_Debugger():
 
 		self.colorspace_18_hue_list = []
 		self.colorspace_18_continued_j = 0
+		self.colorWheelGradient_18_created = False
 
 		self.compositor_setup = False
 		self.chosen_text_rgb_precision = '0'
@@ -1810,6 +1811,13 @@ class ABJ_Shader_Debugger():
 			self.breakEarlyForRandomLightAndRxyz = False
 
 	def static_debugOnly_Stage1_UI(self):
+		#check and create 18 hue colorspace if using
+		val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+
+		if val_use_18_hue_colorspace_prop == True:
+			if self.colorWheelGradient_18_created == False:
+				self.colorGradient_circular_preset18_0()
+
 		self.setupCompositor()
 
 		self.DoIt_part1_preprocess()
@@ -2106,7 +2114,7 @@ class ABJ_Shader_Debugger():
 		node1.location = (400,0)
 		node1.inputs[1].default_value = 'Bloom'
 		# bpy.data.node_groups["My new comp"].nodes["Glare"].inputs[7].default_value = 500
-		node1.inputs[7].default_value = 500
+		node1.inputs[7].default_value = 50
 
 		n_img = nodetree.nodes.new("CompositorNodeImage")
 		node2 = nodetree.nodes.new("NodeGroupOutput")
@@ -3431,6 +3439,8 @@ class ABJ_Shader_Debugger():
 
 		self.val_gradient_circle_override = 0
 		self.val_gradient_circle_override_side = None
+
+		self.colorWheelGradient_18_created = True
 
 	def colorGradient_circular_preset18_1(self):
 		#make preset
