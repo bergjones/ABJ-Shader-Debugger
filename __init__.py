@@ -106,7 +106,7 @@ def register():
 	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
 
 
-	bpy.types.Scene.use_18_hue_colorspace_prop = bpy.props.BoolProperty(default=(True), name='use_18_hue_colorspace')
+	bpy.types.Scene.use_18_hue_colorspace_prop = bpy.props.BoolProperty(default=(False), name='use_18_hue_colorspace')
 
 	bpy.types.Scene.gamma_correct_gradient_color_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_color')
 	bpy.types.Scene.gamma_correct_gradient_colorWheel_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_colorWheel')
