@@ -80,6 +80,47 @@ class myEquation_GGX:
 
 		return specular
 	
+	# This function is based on [Burley12] Brent Burley. 2012. Physically Based Shading at Disney. Physically Based Shading in Film and Game Production, ACM SIGGRAPH 2012 Courses found at https://disneyanimation.com/publications/physically-based-shading-at-disney/
+	def LightingFunc_aniso_Burley_REF(self, N, V, L, H, T, B_sign, P, ruffX, ruffY, ruffV, aniso_rotation, F0, abj_sd_b_instance):
+		dotNL = abj_sd_b_instance.clamp(N.dot(L), 0, 1)
+		dotNV = abj_sd_b_instance.clamp(N.dot(V), 0, 1)
+		dotNH = abj_sd_b_instance.clamp(N.dot(H), 0, 1)
+		dotLH = abj_sd_b_instance.clamp(L.dot(H), 0, 1)
+
+		mat = mathutils.Matrix.Rotation(math.radians(aniso_rotation), 4, N)
+		rotated_vec = mat @ T
+		T = rotated_vec
+		T = T.normalized()
+
+		B = B_sign * mathutils.Vector.cross(N, T).normalized()
+		B = B.normalized()
+
+		H_dot_T = abj_sd_b_instance.clamp(H.dot(T), 0, 1)
+		H_dot_B = abj_sd_b_instance.clamp(H.dot(B), 0, 1)
+		H_dot_N = abj_sd_b_instance.clamp(H.dot(N), 0, 1)
+
+		alpha = ruffV * ruffV
+
+		k = alpha / 2.0
+		vis = self.G1V(dotNL, k) * self.G1V(dotNV, k)
+
+		alphaX2 = ruffX * ruffX
+		alphaY2 = ruffY * ruffY
+
+		#[Burley12] Brent Burley. 2012. Physically Based Shading at Disney. Physically Based Shading in Film and Game Production, ACM SIGGRAPH 2012 Courses.
+		denom = (H_dot_T * H_dot_T) / alphaX2 + (H_dot_B * H_dot_B) / alphaY2 + H_dot_N * H_dot_N
+		denom = max(denom, .00001)
+		D = 1.0 / (math.pi * ruffX * ruffY * denom * denom)
+
+		# F = fresnel
+		dotLH5 = pow(1.0 - dotLH, 5)
+		F = F0 + (1.0 - F0) * (dotLH5)
+
+		specular = dotNL * D * F * vis
+		# specular = D * F * vis
+
+		return specular
+
 	def equation_part2_preProcess(self, abj_sd_b_instance):
 		abj_sd_b_instance.profile_stage2_00_b = str(datetime.now() - abj_sd_b_instance.profile_stage2_00_a)
 		if abj_sd_b_instance.profileCode_part2 == True:
@@ -133,6 +174,8 @@ class myEquation_GGX:
 			N = i['N']
 			R = i['R']
 			H = i['H']
+			T = i['T']
+			B_sign = i['B_sign']
 
 			spec = i['spec']
 			V = abj_sd_b_instance.myV
@@ -143,7 +186,16 @@ class myEquation_GGX:
 			ggx_roughness = bpy.context.scene.ggx_roughness_prop
 			ggx_fresnel = bpy.context.scene.ggx_fresnel_prop
 
-			spec = self.LightingFuncGGX_REF(N, V, L, H, ggx_roughness, ggx_fresnel, abj_sd_b_instance)
+			val_aniso_specular_prop = bpy.context.scene.aniso_specular_prop
+			val_aniso_rotation_prop = bpy.context.scene.aniso_rotation_prop
+			val_aniso_roughnessX_prop = bpy.context.scene.aniso_roughnessX_prop
+			val_aniso_roughnessY_prop = bpy.context.scene.aniso_roughnessY_prop
+
+			if val_aniso_specular_prop == True:
+				spec = self.LightingFunc_aniso_Burley_REF(N, V, L, H, T, B_sign, faceCenter, val_aniso_roughnessX_prop, val_aniso_roughnessY_prop, ggx_roughness, val_aniso_rotation_prop, ggx_fresnel, abj_sd_b_instance)
+
+			else:
+				spec = self.LightingFuncGGX_REF(N, V, L, H, ggx_roughness, ggx_fresnel, abj_sd_b_instance)
 
 			deep_copied_list_perFace = copy.deepcopy(i) ####### DEEP COPY SPEC
 

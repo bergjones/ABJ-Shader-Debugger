@@ -122,12 +122,27 @@ class ABJ_Shader_Debugger():
 		self.ggx_roughness_stored = None
 		self.ggx_fresnel_stored = None
 
+		self.is_metallic_stored = None
+		self.aniso_specular_stored = None
+		self.aniso_rotation_stored = None
+		self.aniso_roughnessX_stored = None
+		self.aniso_roughnessY_stored = None
+
+
+
 		self.breakpointsOverrideToggle = False
 		self.skip_refresh_override_aov = False
 		self.skip_refresh_override_RdotVpow = False
 		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
+
+		self.skip_refresh_override_is_metallic = False
+		self.skip_refresh_override_aniso_specular = False
+		self.skip_refresh_override_aniso_rotation = False
+		self.skip_refresh_override_aniso_roughnessX = False
+		self.skip_refresh_override_aniso_roughnessY = False
+
 
 		self.shadingPlane_sel_r = 0.0
 		self.shadingPlane_sel_g = 0.0
@@ -2338,10 +2353,76 @@ class ABJ_Shader_Debugger():
 		[-axis[1], axis[0], 0]])
 		R = np.identity(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
 		
-		return R		
+		return R
+	
+	#https://blender.stackexchange.com/questions/316333/context-is-incorrect-error-from-project-from-view
+	def uvFromCam(self):
+		camera_name = "Camera"
+
+		if bpy.context.active_object and bpy.context.active_object.mode != 'OBJECT':
+			bpy.ops.object.mode_set(mode='OBJECT')
+
+		cam = bpy.data.objects[camera_name]
+		bpy.context.scene.camera = cam
+		# myInputMesh.select_set(1)
+
+		bpy.ops.object.mode_set(mode='EDIT')
+		bpy.ops.mesh.select_mode(type='FACE')
+
+		bpy.ops.mesh.select_all(action="SELECT")
+		for oWindow in bpy.context.window_manager.windows:
+			oScreen = oWindow.screen
+			for oArea in oScreen.areas:
+				if oArea.type == 'VIEW_3D':  
+					for oRegion in oArea.regions:
+						if oRegion.type == 'WINDOW':
+							context_override = bpy.context.copy()  # EDITED
+							override = {
+								'window': oWindow, 
+								'screen': oScreen, 
+								'area': oArea, 
+								'region': oRegion, 
+								'scene': bpy.context.scene, 
+								'edit_object': bpy.context.edit_object, 
+								'active_object': bpy.context.active_object, 
+								'selected_objects': bpy.context.selected_objects
+							}
+							for k, v in override.items():  # EDITED
+								context_override[k] = v
+							with bpy.context.temp_override(**context_override):  # EDITED
+								bpy.ops.uv.project_from_view(camera_bounds=True, correct_aspect=True, scale_to_bounds=False)
+
+								# bpy.ops.uv.project_from_view(camera_bounds=True, correct_aspect=True, scale_to_bounds=True)
+
+		bpy.ops.object.mode_set(mode='OBJECT')
+
+
+	def batch_angle_based_uv_unwrap(self):
+		selected_objects = bpy.context.selected_objects
+
+		if not selected_objects:
+			print("No objects selected for unwrapping.")
+			return
+
+		bpy.ops.object.select_all(action='DESELECT')
+
+		for obj in selected_objects:
+			if obj.type == 'MESH':
+				bpy.context.view_layer.objects.active = obj
+				obj.select_set(True)
+
+				bpy.ops.object.mode_set(mode='EDIT')
+				
+				bpy.ops.mesh.select_all(action='SELECT')
+				
+				bpy.ops.uv.unwrap(method='ANGLE_BASED', fill_holes=True, correct_aspect=True, use_subsurf_data=False, margin=0.001, no_flip=False, iterations=10, use_weights=False, weight_group="uv_importance", weight_factor=1)
+				
+				bpy.ops.object.mode_set(mode='OBJECT')
+				
+				obj.select_set(False)
 
 	def DoIt_part1_preprocess(self):
-		self.startTime_stage1 = datetime.now()
+		self.startTime_stage1 = datetime.now() ############
 
 		self.profile_stage1_02_final = self.startTime_stage1 - self.startTime_stage1
 		self.profile_stage1_03_final = self.startTime_stage1 - self.startTime_stage1
@@ -2393,6 +2474,21 @@ class ABJ_Shader_Debugger():
 		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
 		self.ggx_fresnel_stored = val_ggx_fresnel_prop
 
+		val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+		self.is_metallic_stored = val_is_metallic_prop
+
+		val_aniso_specular_prop = bpy.context.scene.aniso_specular_prop
+		self.aniso_specular_stored = val_aniso_specular_prop
+
+		val_aniso_rotation_prop = bpy.context.scene.aniso_rotation_prop
+		self.aniso_rotation_stored = val_aniso_rotation_prop
+
+		val_aniso_roughnessX_prop = bpy.context.scene.aniso_roughnessX_prop
+		self.aniso_roughnessX_stored = val_aniso_roughnessX_prop
+		
+		val_aniso_roughnessY_prop = bpy.context.scene.aniso_roughnessY_prop
+		self.aniso_roughnessY_stored = val_aniso_roughnessY_prop
+
 
 		val_text_radius_0_prop = bpy.context.scene.text_radius_0_prop
 		self.text_radius_0_stored = val_text_radius_0_prop
@@ -2442,25 +2538,10 @@ class ABJ_Shader_Debugger():
 		###########
 		#DEFAULT CAMERA
 		#############
-		# cam1_data = bpy.data.cameras.new('Camera')
-
-
-
-
-
-		# bpy.ops.object.camera_add(*, enter_editmode=False, align=WORLD, location=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 0.0), scale=(0.0, 0.0, 0.0))
-
 		cam1_data = bpy.ops.object.camera_add(
 			location=(self.pos_camera_global),  # x, y, z coordinates
 			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
 		)
-
-		# cam = bpy.context.object
-		# bpy.context.scene.camera = cam1_data
-
-
-		# cam = bpy.data.objects.new('Camera', cam1_data)
-		# bpy.context.collection.objects.link(cam1_data)
 
 		###################################
 		###### SET CAMERA POS / LOOK AT
@@ -2560,6 +2641,8 @@ class ABJ_Shader_Debugger():
 		if self.profileCode_part1 == True:
 			print('~~~~~~~~~ self.profile_stage1_06_b = ', self.profile_stage1_06_b)
 
+		self.uvFromCam()
+
 		########
 		#Dupe for raycasting
 		########
@@ -2569,8 +2652,6 @@ class ABJ_Shader_Debugger():
 		myDupeForMaterialCheck.name = 'dupeForMaterialCheck'
 		myDupeForMaterialCheck.hide_set(1)
 		myDupeForMaterialCheck.hide_render = True
-
-
 
 		self.profile_stage1_00_a = datetime.now() ################
 
@@ -2702,7 +2783,6 @@ class ABJ_Shader_Debugger():
 					bpy.context.view_layer.objects.active = j
 					self.shadingPlane = bpy.context.active_object
 			
-			
 			if self.shadingPlane == None:
 				print('ERROR: Could not find shading plane for : ',  i)
 				return
@@ -2827,6 +2907,18 @@ class ABJ_Shader_Debugger():
 		distance = (self.pos_light_global_v - pos).length
 		attenuation = 1.0 / (distance * distance)
 
+		#Tangents
+		mesh = self.shadingPlane.data
+		mesh.calc_tangents()
+		# mesh.calc_tangents(uvmap='UVMap')
+		myTangent = None
+		for poly in mesh.polygons:
+			for loop_index in poly.loop_indices:
+				loop = mesh.loops[loop_index]
+				# myTangent = loop.tangent
+				myTangent = loop.tangent.normalized()
+				bitangent_sign = loop.bitangent_sign
+
 		shadingDict_perFace = {
 			'mySplitFaceIndexUsable' : mySplitFaceIndexUsable,
 			'shadingPlane' : self.shadingPlane.name,
@@ -2839,6 +2931,8 @@ class ABJ_Shader_Debugger():
 			'N' : myN,
 			'R' : myR,
 			'H' : myH,
+			'T' : myTangent,
+			'B_sign' : bitangent_sign,
 			'spec' : 0,
 			'faceCenter_to_V_rayCast' : False,
 			'faceCenter_to_L_rayCast' : False,
@@ -2908,6 +3002,12 @@ class ABJ_Shader_Debugger():
 		val_ggx_roughness_prop = bpy.context.scene.ggx_roughness_prop
 		val_ggx_fresnel_prop = bpy.context.scene.ggx_fresnel_prop
 
+		val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+		val_aniso_specular_prop = bpy.context.scene.aniso_specular_prop
+		val_aniso_rotation_prop = bpy.context.scene.aniso_rotation_prop
+		val_aniso_roughnessX_prop = bpy.context.scene.aniso_roughnessX_prop
+		val_aniso_roughnessY_prop = bpy.context.scene.aniso_roughnessY_prop
+
 		self.changedSpecularEquation_variables = False
 		self.changedDiffuseEquation_variables = False
 
@@ -2918,13 +3018,40 @@ class ABJ_Shader_Debugger():
 
 		if self.ggx_roughness_stored != val_ggx_roughness_prop:
 			self.skip_refresh_override_GGX_roughness = True
-			self.ggx_roughness_stored = val_ggx_fresnel_prop
+			self.ggx_roughness_stored = val_ggx_roughness_prop
 			self.changedSpecularEquation_variables = True
 
 		if self.ggx_fresnel_stored != val_ggx_fresnel_prop:
 			self.skip_refresh_override_GGX_fresnel = True
 			self.ggx_fresnel_stored = val_ggx_fresnel_prop
 			self.changedSpecularEquation_variables = True
+
+		if self.is_metallic_stored != val_is_metallic_prop:
+			self.skip_refresh_override_is_metallic = True
+			self.is_metallic_stored = val_is_metallic_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.aniso_specular_stored != val_aniso_specular_prop:
+			self.skip_refresh_override_aniso_specular = True
+			self.aniso_specular_stored = val_aniso_specular_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.aniso_rotation_stored != val_aniso_rotation_prop:
+			self.skip_refresh_override_aniso_rotation = True
+			self.aniso_rotation_stored = val_aniso_rotation_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.aniso_roughnessX_stored != val_aniso_roughnessX_prop:
+			self.skip_refresh_override_aniso_roughnessX = True
+			self.aniso_roughnessX_stored = val_aniso_roughnessX_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.aniso_roughnessY_stored != val_aniso_roughnessY_prop:
+			self.skip_refresh_override_aniso_roughnessY = True
+			self.aniso_roughnessY_stored = val_aniso_roughnessY_prop
+			self.changedSpecularEquation_variables = True
+
+
 
 		usableSpecularEquationType_items = bpy.context.scene.bl_rna.properties['specular_equation_enum_prop'].enum_items
 		usableSpecularEquationType_id = usableSpecularEquationType_items[bpy.context.scene.specular_equation_enum_prop].identifier
@@ -2979,9 +3106,6 @@ class ABJ_Shader_Debugger():
 			self.text_radius_1_stored = val_text_radius_1_prop
 			self.changedSpecularEquation_variables = True
 
-
-
-
 		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
 		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
 		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
@@ -3015,9 +3139,14 @@ class ABJ_Shader_Debugger():
 			self.skip_refresh_override_GGX_roughness = False
 			self.skip_refresh_override_GGX_fresnel = False
 
+			self.skip_refresh_override_is_metallic = False
+			self.skip_refresh_override_aniso_specular = False
+			self.skip_refresh_override_aniso_rotation = False
+			self.skip_refresh_override_aniso_roughnessX = False
+			self.skip_refresh_override_aniso_roughnessY = False
+
 			return
 		
-
 		self.profile_stage2_01_a = datetime.now() 
 
 		if self.chosen_specular_equation == 'simple':
@@ -3056,6 +3185,7 @@ class ABJ_Shader_Debugger():
 			N_dot_V = i['N_dot_V']
 			L = i['L']
 			N = i['N']
+			T = i['T']
 			V = self.myV
 
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
@@ -3087,6 +3217,12 @@ class ABJ_Shader_Debugger():
 		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
+
+		self.skip_refresh_override_is_metallic = False
+		self.skip_refresh_override_aniso_specular = False
+		self.skip_refresh_override_aniso_rotation = False
+		self.skip_refresh_override_aniso_roughnessX = False
+		self.skip_refresh_override_aniso_roughnessY = False
 
 		#HIDE IN RENDER ALSO
 		self.myCubeCam.hide_render = True
@@ -4501,7 +4637,13 @@ class ABJ_Shader_Debugger():
 		elif aov_id == 'diffuse':
 			Ci = ((finalDiff_V) * attenuation) ###
 		elif aov_id == 'Ci':
-			Ci = ((finalDiff_V + finalSpec_V) * attenuation) ###
+
+			val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+			if val_is_metallic_prop == True:
+				Ci = ((finalDiff_V * finalSpec_V) * attenuation) ###
+
+			else:
+				Ci = ((finalDiff_V + finalSpec_V) * attenuation) ###
 			# Ci = ((finalDiff_V + finalSpec_V + (diff_Cs_V * ambient_V)) * attenuation) ###
 
 		gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
@@ -4625,6 +4767,10 @@ class ABJ_Shader_Debugger():
 		bpy.context.active_object.data.materials.append(mat1)
 
 	def renderPasses(self):
+		###########
+		#TO USE - THE SCENE MUST BE SAVED AND A FOLDER CALLED 'compositing_files' must be created in the save file directory
+		###########
+
 		#simple spec 7 steps
 		simple_renderViewList_0 = ['N', 'L', 'NdotL']
 		simple_renderViewList_1 = ['V', 'R', 'RdotV']
@@ -5274,6 +5420,22 @@ class ABJ_Shader_Debugger():
 
 		if self.skip_refresh_override_GGX_fresnel == True:
 			skip_refresh = False
+
+		if self.skip_refresh_override_is_metallic == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_aniso_specular == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_aniso_rotation == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_aniso_roughnessX == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_aniso_roughnessY == True:
+			skip_refresh = False
+
 
 		if skip_refresh_override_recently_cleared_faces == True:
 			skip_refresh = False
@@ -6245,6 +6407,21 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		
 		row = layout.row()
 		row.prop(bpy.context.scene, 'ggx_fresnel_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'is_metallic_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'aniso_specular_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'aniso_rotation_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'aniso_roughnessX_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'aniso_roughnessY_prop')
 
 		######################################
 		###### R_DOT_V_POW

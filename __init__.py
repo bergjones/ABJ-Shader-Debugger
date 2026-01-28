@@ -168,9 +168,19 @@ def register():
 
 	bpy.types.Scene.min_shaded_prop = bpy.props.IntProperty(min=0, max=200, default=50, name='min_shaded')
 
-	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.5, name='oren_roughness')
-	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_roughness')
-	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_fresnel')
+	bpy.types.Scene.is_metallic_prop = bpy.props.BoolProperty(default=(False), name='is_metallic')
+	bpy.types.Scene.aniso_specular_prop = bpy.props.BoolProperty(default=(False), name='aniso_specular')
+	bpy.types.Scene.aniso_rotation_prop = bpy.props.FloatProperty(min=0.0, max=3000.0, default=0.0, name='aniso_rotation')
+	bpy.types.Scene.aniso_roughnessX_prop = bpy.props.FloatProperty(min=0.0, max=10000, default=0.004, name='aniso_roughnessX')
+	bpy.types.Scene.aniso_roughnessY_prop = bpy.props.FloatProperty(min=0.0, max=10000, default=0.001, name='aniso_roughnessY')
+
+
+	bpy.types.Scene.oren_roughness_prop = bpy.props.FloatProperty(min=0.0, max=360.0, default=0.5, name='oren_roughness')
+	bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=-10.0, max=10.0, default=0.1, name='ggx_roughness')
+	bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=-10.0, max=10.0, default=0.1, name='ggx_fresnel')
+
+	# bpy.types.Scene.ggx_roughness_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_roughness')
+	# bpy.types.Scene.ggx_fresnel_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.1, name='ggx_fresnel')
 
 	bpy.types.Scene.text_radius_0_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.005, name='text_radius_0')
 	bpy.types.Scene.text_radius_1_prop = bpy.props.FloatProperty(min=0.0, max=1.0, default=0.6, name='text_radius_1')
@@ -548,6 +558,12 @@ def unregister():
 	del bpy.types.Scene.written_fov_prop
 	del bpy.types.Scene.written_znear_prop
 	del bpy.types.Scene.written_zfar_prop
+
+	del bpy.types.Scene.is_metallic_prop
+	del bpy.types.Scene.aniso_specular_prop
+	del bpy.types.Scene.aniso_rotation_prop
+	del bpy.types.Scene.aniso_roughnessX_prop
+	del bpy.types.Scene.aniso_roughnessY_prop
 
 	del bpy.types.Scene.gamma_correct_gradient_color_prop
 	del bpy.types.Scene.use_18_hue_colorspace_prop
