@@ -59,6 +59,8 @@ class ABJ_Shader_Debugger():
 		self.chosen_specular_equation = 'GGX'
 
 		self.colorspace_18_hue_list = []
+		self.distanceFromCam_all_list = []
+		self.distanceFromCam_raycastRenderable_list = []
 		self.colorspace_18_continued_j = 0
 		self.colorWheelGradient_18_created = False
 
@@ -2451,6 +2453,8 @@ class ABJ_Shader_Debugger():
 		self.objectsToToggleOnOffLater.clear()
 		self.textRef_all.clear()
 		self.myDebugFaces.clear()
+		self.distanceFromCam_all_list.clear()
+		self.distanceFromCam_raycastRenderable_list.clear()
 
 		self.renderPasses_simple = False
 		self.renderPasses_GGX = False
@@ -2548,11 +2552,16 @@ class ABJ_Shader_Debugger():
 		###################################
 		self.myCam = bpy.data.objects["Camera"]
 
+		self.myCam.data.clip_start = 1
+		# self.myCam.data.clip_start = .1
+		# self.myCam.data.clip_start = .5
+		# self.myCam.data.clip_end = 100
+		self.myCam.data.clip_end = 500
+
 		self.myCam.location = self.pos_camera_global
 		self.updateScene() # need
 
 		self.look_at(self.myCam, self.myOrigin)
-
 
 		# self.myV = self.myCam.matrix_world.to_translation()
 		# self.myV.normalize()
@@ -2570,31 +2579,338 @@ class ABJ_Shader_Debugger():
 		usablePrimitiveType_items = bpy.context.scene.bl_rna.properties['primitive_enum_prop'].enum_items
 		usablePrimitiveType_id = usablePrimitiveType_items[bpy.context.scene.primitive_enum_prop].identifier
 
+		multipleObj = True
+		myInputMesh = None
+		myInputMeshDebug0 = None
+		myInputMeshDebug1 = None
+		myInputMeshDebug2 = None
+
+		self.deselectAll()
+
 		if usablePrimitiveType_id == 'cube':
 			bpy.ops.mesh.primitive_cube_add()
+
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_cube_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cube_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cube_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
 
 		elif usablePrimitiveType_id == 'uv_sphere':
 			bpy.ops.mesh.primitive_uv_sphere_add()
 
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_uv_sphere_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_uv_sphere_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_uv_sphere_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
+
 		elif usablePrimitiveType_id == 'ico_sphere':
 			bpy.ops.mesh.primitive_ico_sphere_add()
+
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_ico_sphere_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_ico_sphere_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_ico_sphere_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
 
 		elif usablePrimitiveType_id == 'cylinder':
 			bpy.ops.mesh.primitive_cylinder_add()
 
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_cylinder_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cylinder_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cylinder_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
+
 		elif usablePrimitiveType_id == 'cone':
 			bpy.ops.mesh.primitive_cone_add()
+
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_cone_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cone_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_cone_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
 
 		elif usablePrimitiveType_id == 'torus':
 			bpy.ops.mesh.primitive_torus_add()
 
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
+
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_torus_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_torus_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_torus_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
+
 		elif usablePrimitiveType_id == 'monkey':
 			bpy.ops.mesh.primitive_monkey_add()
 
-		myInputMesh = bpy.context.active_object
-		myInputMesh.select_set(1)
+			myInputMesh = bpy.context.active_object
+			myInputMesh.select_set(1)
 
-		# bpy.context.view_layer.objects.active = myInputMesh
+			if self.useRestoredRxyzValues == True:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+
+			else:
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+			if multipleObj == True:
+				bpy.ops.mesh.primitive_monkey_add()
+				myInputMeshDebug0 = bpy.context.active_object
+				myInputMeshDebug0.location = mathutils.Vector((-5, -4.5, -2.2))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_monkey_add()
+				myInputMeshDebug1 = bpy.context.active_object
+				myInputMeshDebug1.location = mathutils.Vector((-8.1, -6.6, -2.9))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.mesh.primitive_monkey_add()
+				myInputMeshDebug2 = bpy.context.active_object
+				myInputMeshDebug2.location = mathutils.Vector((-11.1, -8.1, -3.6))
+
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
+				bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				self.deselectAll()
+
+		# myInputMesh = bpy.context.active_object
+		# myInputMesh.select_set(1)
 
 		#TRIANGULATE
 		# bpy.ops.object.modifier_add(type='TRIANGULATE')
@@ -2604,38 +2920,29 @@ class ABJ_Shader_Debugger():
 		usableSubDToggle_items = bpy.context.scene.bl_rna.properties['subdivision_toggle_enum_prop'].enum_items
 		usablePrimitiveType_id = usableSubDToggle_items[bpy.context.scene.subdivision_toggle_enum_prop].identifier
 
+		myInputMesh.select_set(1)
+		myInputMeshDebug0.select_set(1)
+		myInputMeshDebug1.select_set(1)
+		myInputMeshDebug2.select_set(1)
+		bpy.ops.object.join()
+
+		myInputMesh = bpy.context.active_object
+
 		if usablePrimitiveType_id == 'subd_1':
 			bpy.ops.object.modifier_add(type='SUBSURF')
 			myObj = bpy.context.active_object
 			myObj.modifiers["Subdivision"].levels = 1
+			
 			bpy.ops.object.modifier_apply(modifier="Subdivision")
 
-		if self.useRestoredRxyzValues == True:
-			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
-			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
-
-		else:
-			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
-			bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
-			bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
-
-		# bpy.ops.object.modifier_add(type='WIREFRAME')
-
-		# myInputMesh.modifiers["Subdivision"].levels = 1
-		# myInputMesh.modifiers["Subdivision"].subdivision_type = 'SIMPLE'
-		# myInputMesh.modifiers["Subdivision"].show_only_control_edges = False
-		# # myInputMesh.modifiers["Subdivision"].levels = 2
-		# myInputMesh.modifiers["Subdivision"].levels = 3
-
-		# bpy.ops.object.modifier_apply(modifier="Subdivision")
-
-		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='X', orient_type='GLOBAL')
-		# # bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Z', orient_type='GLOBAL')
-		# # bpy.ops.transform.rotate(value=math.radians(0), orient_axis='Y', orient_type='GLOBAL')
-		# bpy.ops.transform.rotate(value=math.radians(180), orient_axis='Y', orient_type='GLOBAL')
-		# # bpy.ops.transform.rotate(value=math.radians(self.RandomRotationDegree), orient_axis=self.RandomRotationAxis, orient_type='GLOBAL')
-
-		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+		if multipleObj == False:
+			if usablePrimitiveType_id == 'subd_2':
+				bpy.ops.object.modifier_add(type='SUBSURF')
+				myObj = bpy.context.active_object
+				# myObj.modifiers["Subdivision"].levels = 1
+				myObj.modifiers["Subdivision"].levels = 2
+				
+				bpy.ops.object.modifier_apply(modifier="Subdivision")
 
 		self.profile_stage1_06_b = str(datetime.now() - self.profile_stage1_06_a)
 		if self.profileCode_part1 == True:
@@ -2827,6 +3134,8 @@ class ABJ_Shader_Debugger():
 			# myEquation_simple_spec_class.equation_part1_preProcess_00(myABJ_SD_B, mySplitFaceIndexUsable)
 			self.equation_part1_preProcess_00(mySplitFaceIndexUsable)
 
+		self.distanceFromCam_all_list.sort()
+
 		if self.profileCode_part1 == True:
 			print('~~~~~~~~~ self.profile_stage1_02_final = ', self.profile_stage1_02_final)
 			print('~~~~~~~~~ self.profile_stage1_03_final = ', self.profile_stage1_03_final)
@@ -2907,6 +3216,10 @@ class ABJ_Shader_Debugger():
 		distance = (self.pos_light_global_v - pos).length
 		attenuation = 1.0 / (distance * distance)
 
+		# distance_from_cam = (self.myV - faceCenter).length
+		distance_from_cam = (self.myCam.location - faceCenter).length
+
+
 		#Tangents
 		mesh = self.shadingPlane.data
 		mesh.calc_tangents()
@@ -2951,6 +3264,8 @@ class ABJ_Shader_Debugger():
 		self.shadingList_perFace.append(shadingDict_perFace)
 
 		self.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
+
+		self.distanceFromCam_all_list.append(distance_from_cam)
 
 	def doIt_part2_render(self):
 		startTime = datetime.now()
@@ -3170,6 +3485,39 @@ class ABJ_Shader_Debugger():
 		#############################
 		### FINAL RENDER
 		#############################
+
+		#experimental depth sort
+		for i in self.shadingList_perFace:
+			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
+			faceCenter = i['faceCenter']
+			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
+			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
+
+			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
+				# if faceCenter_to_L_rayCast == True:
+				# if faceCenter_to_V_rayCast == True:
+				# distance_from_cam = (self.myV - faceCenter).length
+				distance_from_cam = (self.myCam.location - faceCenter).length
+				# distance_from_cam = (self.myCam.location - faceCenter).length
+				# distance_from_cam = self.myCam.location.length - faceCenter.length
+				# distance_from_cam = (self.myCam.location - faceCenter)
+				self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+		
+		self.distanceFromCam_raycastRenderable_list.sort()
+
+		# distanceFromCam_raycastRenderable_list_newRange = []
+		# oldMin = self.distanceFromCam_raycastRenderable_list[0]
+		# oldMax = self.distanceFromCam_raycastRenderable_list[-1]
+
+		# for i in self.distanceFromCam_raycastRenderable_list:
+		# 	myRemap = self.remap_range(i, oldMin, oldMax, 0, 1)
+		# 	distanceFromCam_raycastRenderable_list_newRange.append(myRemap)
+
+		# distanceFromCam_raycastRenderable_list_newRange.sort()
+
+		# self.distanceFromCam_raycastRenderable_list.clear()
+		# self.distanceFromCam_raycastRenderable_list = distanceFromCam_raycastRenderable_list_newRange
+
 		for i in self.shadingList_perFace:
 			mySplitFaceIndexUsable = i['mySplitFaceIndexUsable']
 
@@ -3187,6 +3535,7 @@ class ABJ_Shader_Debugger():
 			N = i['N']
 			T = i['T']
 			V = self.myV
+			faceCenter = i['faceCenter']
 
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
 			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
@@ -3204,7 +3553,50 @@ class ABJ_Shader_Debugger():
 					elif usableDiffuseEquationType_id == 'simple':
 						finalDiffuse = N_dot_L
 
-				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast)
+					# distance_from_cam = (self.myV - faceCenter).length
+					# self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+					# self.distanceFromCam_raycastRenderable_list.sort()
+
+
+
+
+				# finalDiffuse = self.oren(N_dot_L, V, L, N, N_dot_V, self.oren_roughness_stored)
+
+				# distance_from_cam = (self.myV - faceCenter).length
+				# self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+				# self.distanceFromCam_raycastRenderable_list.sort()
+						
+
+				#################
+				#GI or multiple lights
+				#################
+
+				diff_Cs_V = mathutils.Vector((1.0, 0.0, 0.0))
+
+				### ADDITIONAL DIFFUSE GI APPROX
+				# pos_L2_global_v = mathutils.Vector((0, 0, -20))
+				pos_L2_global_v = mathutils.Vector((0, 0, -40))
+				myL_L2 = mathutils.Vector((pos_L2_global_v - faceCenter)).normalized()
+
+				# distanceL1 = (self.pos_light_global_v - faceCenter).length
+				distanceL1 = (self.myV - faceCenter).length
+
+				distanceL2 = (pos_L2_global_v - faceCenter).length
+				attenuationL2 = 1.0 / (distanceL2 * distanceL2)
+
+				N_dot_L2 = max(np.dot(N, myL_L2), 0.0)
+				# diff_Cs_V_L2 = mathutils.Vector((0.0, 1.0, 0.0))
+
+
+				# combo = finalDiffuse + N_dot_L2
+
+				# finalDiffuseL2 = (finalDiffuse * diff_Cs_V * attenuation) + (N_dot_L2 * diff_Cs_V_L2 * attenuationL2)
+				finalDiffuseL2 = N_dot_L2
+
+
+				# self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast)
+				# self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast)
+				self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, finalDiffuseL2, spec, distanceL1, distanceL2, attenuation, attenuationL2, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast, faceCenter)
 
 			elif mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
 				if self.renderPasses_simple == False and self.renderPasses_GGX == False:
@@ -3375,6 +3767,8 @@ class ABJ_Shader_Debugger():
 
 	def colorWheel_dynamic_inner(self, i, segments, center_x, center_y, lerpIter_outer, gradient_inner_circle_steps, myInputMesh, startColor, endColor, endColor_mix):
 
+		print('i = ', i)
+
 		outputRatio_x = self.lerp(endColor.x, startColor.x, lerpIter_outer)
 		outputRatio_y = self.lerp(endColor.y, startColor.y, lerpIter_outer)
 		outputRatio_z = self.lerp(endColor.z, startColor.z, lerpIter_outer)
@@ -3430,11 +3824,11 @@ class ABJ_Shader_Debugger():
 
 			val_gamma_correct_gradient_colorWheel_prop = bpy.context.scene.gamma_correct_gradient_colorWheel_prop
 
-			if val_gamma_correct_gradient_colorWheel_prop == True:
-				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-				outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
-				outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
-				outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
+			# if val_gamma_correct_gradient_colorWheel_prop == True:
+			# 	gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+			# 	outputRatio_x_01 = pow(outputRatio_x_01, gammaCorrect.x)
+			# 	outputRatio_y_01 = pow(outputRatio_y_01, gammaCorrect.y)
+			# 	outputRatio_z_01 = pow(outputRatio_z_01, gammaCorrect.z)
 
 			#always up down
 			# textRaiseLowerZ = 0.05 * lerpIter_inner
@@ -3510,19 +3904,19 @@ class ABJ_Shader_Debugger():
 			elif i == 17:
 				additionalText = 'RV'
 
-			# if comboRatio_xyz_final == mathutils.Vector((1.0, 1.0, 1.0)):
-			# 	colorspace_18_hue_dict = {
-			# 		'identifier' : 'BW',
-			# 		'value' : comboRatio_xyz_final,
-			# 		'idx' : 0,
-			# 	}
+			if comboRatio_xyz_final == mathutils.Vector((1.0, 1.0, 1.0)):
+				colorspace_18_hue_dict = {
+					'identifier' : 'BW',
+					'value' : comboRatio_xyz_final,
+					'idx' : 0,
+				}
 
-			# elif comboRatio_xyz_final <= mathutils.Vector((0.05, 0.05, 0.05)):
-			# 	colorspace_18_hue_dict = {
-			# 		'identifier' : 'BW',
-			# 		'value' : comboRatio_xyz_final,
-			# 		'idx' : 19,
-			# 	}
+			elif comboRatio_xyz_final <= mathutils.Vector((0.05, 0.05, 0.05)):
+				colorspace_18_hue_dict = {
+					'identifier' : 'BW',
+					'value' : mathutils.Vector((0.05, 0.05, 0.05)),
+					'idx' : 19,
+				}
 
 			# elif comboRatio_xyz_final <= mathutils.Vector((0.0, 0.0, 0.0)):
 			# 	colorspace_18_hue_dict = {
@@ -3531,29 +3925,31 @@ class ABJ_Shader_Debugger():
 			# 		'idx' : 19,
 			# 	}
 
-			# else:
-			colorspace_18_hue_dict = {
-				'identifier' : additionalText,
-				'value' : comboRatio_xyz_final,
-				# 'idx' : i,
-				# 'idx' : j,
-				'idx' : j + self.colorspace_18_continued_j,
-			}
+			else:
+				# print('in regular 18 hue dict addition for : ', additionalText, ' ', j)
+				colorspace_18_hue_dict = {
+					'identifier' : additionalText,
+					'value' : comboRatio_xyz_final,
+					# 'idx' : i,
+					# 'idx' : j,
+					'idx' : j + self.colorspace_18_continued_j,
+					# 'idx' : j,
+				}
 
 			self.colorspace_18_hue_list.append(colorspace_18_hue_dict)
 
 			# print(self.colorspace_18_hue_list)
 
-			for e in self.colorspace_18_hue_list:
-				# print(self.colorspace_18_hue_list[e][0])
-				print('identifier : ', e['identifier'])
-				# print(' ')
-				print('value : ', e['value'])
-				# print(' ')
-				print('idx : ', e['idx'])
-				# print(' ')
+			# for e in self.colorspace_18_hue_list:
+			# 	# print(self.colorspace_18_hue_list[e][0])
+			# 	print('identifier : ', e['identifier'])
+			# 	# print(' ')
+			# 	print('value : ', e['value'])
+			# 	# print(' ')
+			# 	print('idx : ', e['idx'])
+			# 	# print(' ')
 
-				print(' ')
+			# 	print(' ')
 
 			#################################
 			additionalTextUsable = None
@@ -3759,9 +4155,11 @@ class ABJ_Shader_Debugger():
 			# center_y = radius * math.sin(angle) + center_y
 
 			self.circular_gradient_text_counter = 0
-			self.colorspace_18_hue_list = []
+			# self.colorspace_18_hue_list = []
+			# self.colorspace_18_hue_list.clear()
 
 			if 0 <= i < (segments / divisor):
+				print('1 divisor : ', i)
 				#RED TO ORANGE
 				startColor = mathutils.Vector((1.0, 0.0, 0.0))
 				endColor = mathutils.Vector((1, 0.5 - (1.0 / val_gradient_outer_circle_steps_prop), 0.0))
@@ -3787,6 +4185,7 @@ class ABJ_Shader_Debugger():
 			
 			elif (segments / divisor) <= i < (segments / (divisor / 2)):
 				# print('2 divisor : ', i, ' lerpIter01 ', lerpIter)
+				print('2 divisor : ', i)
 
 				#ORANGE TO YELLOW
 				startColor = mathutils.Vector((1.0, 0.5, 0.0))
@@ -3813,6 +4212,7 @@ class ABJ_Shader_Debugger():
 
 			elif (segments / (divisor / 2)) <= i < (segments / (divisor / 3)):
 				# print('3 divisor : ', i, ' lerpIter01 ', lerpIter)
+				print('3 divisor : ', i)
 
 				#YELLOW TO GREEN
 				startColor = mathutils.Vector((1.0, 1.0, 0.0))
@@ -3839,7 +4239,7 @@ class ABJ_Shader_Debugger():
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 3)) <= i < (segments / (divisor / 4)):
-				# print('4 divisor : ', i)
+				print('4 divisor : ', i)
 
 				#GREEN TO BLUE
 				startColor = mathutils.Vector((0.0, 1.0, 0.0))
@@ -3865,7 +4265,7 @@ class ABJ_Shader_Debugger():
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 4)) <= i < (segments / (divisor / 5)):
-				# print('5 divisor : ', i)
+				print('5 divisor : ', i)
 
 				#BLUE TO VIOLET
 				startColor = mathutils.Vector((0.0, 0.0, 1.0))
@@ -3891,7 +4291,7 @@ class ABJ_Shader_Debugger():
 				self.colorWheel_dynamic_inner(i, segments, center_x, center_y, lerpIter_outer, val_gradient_inner_circle_steps_prop, myInputMesh, startColor, endColor, endColor_black)
 
 			elif (segments / (divisor / 5)) <= i < (segments / (divisor / 6)):
-				# print('7 divisor : ', i)
+				print('6 divisor : ', i)
 
 				#VIOLET TO RED
 				startColor = mathutils.Vector((0.5, 0.0, 0.5))
@@ -3926,6 +4326,18 @@ class ABJ_Shader_Debugger():
 		self.deselectAll()
 
 		myDupeGradient_bg.select_set(0)
+
+
+		removeDuplicates_colorwheelList = []
+		for c in self.colorspace_18_hue_list:
+			if c not in removeDuplicates_colorwheelList:
+				removeDuplicates_colorwheelList.append(c)
+
+		self.colorspace_18_hue_list.clear()
+		self.colorspace_18_hue_list = removeDuplicates_colorwheelList
+
+		for e in self.colorspace_18_hue_list:
+			print('18 HUE LIST GENERATION - identifier : ', e['identifier'], 'value : ', e['value'], 'idx : ', e['idx'])
 
 	def makeGradientGrid_color_circular(self, gradientArray, xPos, yPos, myInputMesh, lerpIter_inner, textRaiseLowerZ, additionalText, x_additional, y_additional):
 		#####################
@@ -4613,19 +5025,21 @@ class ABJ_Shader_Debugger():
 
 	def oren(self, NdotL, V, L, N, NdotV, roughness):
 		return NdotL
-
-	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, inputDiffuse, spec, attenuation, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast):
+	
+	def final_Ci_output(self, aov_id, shadingPlane, mySplitFaceIndexUsable, inputDiffuse, inputDiffuseL2, spec, distanceL1, distanceL2, attenuation, attenuationL2, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast, faceCenter):
 		attenuation = 1.0 #temporary, outside sunlight
 
 		Ks = 1
 		diff_Cs_V = mathutils.Vector((1.0, 0.0, 0.0))
+		diff_Cs_V2 = mathutils.Vector((0.0, 1.0, 0.0))
 
 		inputDiff_V = mathutils.Vector((inputDiffuse, inputDiffuse, inputDiffuse))
+		inputDiff_V2 = mathutils.Vector((inputDiffuseL2, inputDiffuseL2, inputDiffuseL2))
 
 		finalSpec = spec * Ks
 		finalSpec_V = mathutils.Vector((finalSpec, finalSpec, finalSpec))
 		finalDiff_V = diff_Cs_V * inputDiff_V
-		# finalDiff_V = diff_Cs_V
+		finalDiff_V2 = diff_Cs_V2 * inputDiff_V2
 
 		ambientMultiplier = .0004
 		ambient_V = mathutils.Vector((ambientMultiplier, ambientMultiplier, ambientMultiplier))
@@ -4638,47 +5052,186 @@ class ABJ_Shader_Debugger():
 			Ci = ((finalDiff_V) * attenuation) ###
 		elif aov_id == 'Ci':
 
+			# val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+			# if val_is_metallic_prop == True:
+			# 	Ci = ((finalDiff_V * finalSpec_V) * attenuation) ###
+
+			# else:
+			# 	Ci = ((finalDiff_V + finalSpec_V) * attenuation) ###
+			# # Ci = ((finalDiff_V + finalSpec_V + (diff_Cs_V * ambient_V)) * attenuation) ###
+
 			val_is_metallic_prop = bpy.context.scene.is_metallic_prop
 			if val_is_metallic_prop == True:
-				Ci = ((finalDiff_V * finalSpec_V) * attenuation) ###
+				finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
 
 			else:
-				Ci = ((finalDiff_V + finalSpec_V) * attenuation) ###
-			# Ci = ((finalDiff_V + finalSpec_V + (diff_Cs_V * ambient_V)) * attenuation) ###
+				finalFromL1 = (finalDiff_V + finalSpec_V) * attenuation
+				if val_is_metallic_prop == True:
+					finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
 
-		gammaCorrect = mathutils.Vector((1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2))
-		gammaCorrect_r = pow(Ci.x, gammaCorrect.x)
-		gammaCorrect_g = pow(Ci.y, gammaCorrect.y)
-		gammaCorrect_b = pow(Ci.z, gammaCorrect.z)
+			finalFromL2 = (finalDiff_V2)
 
-		Ci_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+			maxV10 = max(0, finalFromL1.x)
+			maxV11 = max(0, finalFromL1.y)
+			maxV12 = max(0, finalFromL1.z)
 
-		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
-		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+			maxV20 = max(0, finalFromL2.x)
+			maxV21 = max(0, finalFromL2.y)
+			maxV22 = max(0, finalFromL2.z)
 
-		precisionVal = int(usableTextRGBPrecision_id)
+			Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
 
-		if precisionVal == -1:
-			pass
+		elif aov_id == 'saturation_based_on_distance':
 
-		else:
-			Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
+			val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+			if val_is_metallic_prop == True:
+				finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
+
+			else:
+				finalFromL1 = (finalDiff_V + finalSpec_V) * attenuation
+				if val_is_metallic_prop == True:
+					finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
+
+
+				finalFromL2 = (finalDiff_V2)
+
+				maxV10 = max(0, finalFromL1.x)
+				maxV11 = max(0, finalFromL1.y)
+				maxV12 = max(0, finalFromL1.z)
+
+				maxV20 = max(0, finalFromL2.x)
+				maxV21 = max(0, finalFromL2.y)
+				maxV22 = max(0, finalFromL2.z)
+
+				Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
+				# Ci = mathutils.Vector((maxV20, maxV21, maxV22)) ###
+
+				Ci_stored = Ci
+
+				distance_from_cam = (self.myV - faceCenter).length
+
+				#force custom colorspace
+				val_use_18_hue_colorspace_prop = True
+
+				if val_use_18_hue_colorspace_prop == True:
+					
+					usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+					usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+					precisionVal = int(usableTextRGBPrecision_id)
+
+					Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
+					Ci_gc = Ci
+
+					if precisionVal == -1:
+						pass
+
+					else:
+						Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
+
+						
+					precisionValUsable = 5
+
+					Ci_gc_rounded = mathutils.Vector((round(Ci_gc.x, precisionValUsable), round(Ci_gc.y, precisionValUsable), round(Ci_gc.z, precisionValUsable) ))
+
+					min_distance = float('inf')
+					closest_v = None
+					closest_value = None
+					closest_identifier = None
+					closest_idx = None
+
+					spectralMix = None
+
+					##################
+					#start here
+					###################
+					comboColor = (mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)))
+					comboColor_clamp0 = self.clamp(comboColor[0], 0, 1)
+					comboColor_clamp1 = self.clamp(comboColor[1], 0, 1)
+					comboColor_clamp2 = self.clamp(comboColor[2], 0, 1)
+
+					comboColor = mathutils.Vector((comboColor_clamp0, comboColor_clamp1, comboColor_clamp2))
+
+					for v in self.colorspace_18_hue_list:
+						distance = (comboColor - v['value']).length
+						if distance < min_distance:
+							min_distance = distance
+							closest_value = v['value']
+							closest_identifier = v['identifier']
+							closest_idx = v['idx']
+
+					# Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+					Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+					closestValueV = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+
+					distance_from_cam = (self.myCam.location - faceCenter).length
+
+					oldMin = self.distanceFromCam_all_list[-1]
+					oldMax = self.distanceFromCam_all_list[0]
+
+					oldMin = self.distanceFromCam_raycastRenderable_list[-1]
+					oldMax = self.distanceFromCam_raycastRenderable_list[0]
+					myRemap = 1 - self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1)
+
+					# gammaCorrect = mathutils.Vector((1, 1, 1))
+					gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+
+					gammaCorrect_r = pow(myRemap, gammaCorrect.x)
+					gammaCorrect_g = pow(myRemap, gammaCorrect.y)
+					gammaCorrect_b = pow(myRemap, gammaCorrect.z)
+
+					myRemap_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+					realGreyscale = myRemap_gc
+
+					closest_idx_usable = 19 - closest_idx
+					closestIdxIn19 = float((closest_idx_usable * realGreyscale[0]) / 19)
+
+					greyScaleColor = mathutils.Vector((closestIdxIn19, closestIdxIn19, closestIdxIn19))
+				
+					exactGrey = mathutils.Vector((0.5, 0.5, 0.5))
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, greyScaleColor[0], 1) #********** ok
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, greyScaleColor, greyScaleColor[0], 1) #********** ok
+					spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 3 * greyScaleColor[0], 1) #********** good
+
+					# spectralMix = greyScaleColor * comboColor ### check vs this
+					
+					# spectralMix = closestValueV ###########
+					# spectralMix = greyScaleColor ############
+					# spectralMix = realGreyscale ###########
+					# spectralMix = comboColor
+					# spectralMix = realGreyscale * comboColor
+
+					val_gamma_correct_gradient_color_prop = True
+					val_gamma_correct_gradient_color_prop = False
+
+					if val_gamma_correct_gradient_color_prop == True:
+						gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+						gammaCorrect_r = pow(spectralMix.x, gammaCorrect.x)
+						gammaCorrect_g = pow(spectralMix.y, gammaCorrect.y)
+						gammaCorrect_b = pow(spectralMix.z, gammaCorrect.z)
+
+						spectralMix = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+
+					Ci = spectralMix
+		Ci_gc = Ci
 
 		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
 		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
 		val_text_rotate_z_prop = bpy.context.scene.text_rotate_z_prop
 
-		# myRotation = self.myV * mathutils.Vector((0, 0, 180))
-		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(180)))
-		# myRotation = self.myV * mathutils.Vector((0, 0, math.radians(90)))
-
 		myRotation = self.myV * mathutils.Vector((math.radians(val_text_rotate_x_prop), math.radians(val_text_rotate_y_prop), math.radians(val_text_rotate_z_prop)))
+
 		
 		for j in bpy.context.scene.objects:
 			if j.name == shadingPlane:
+				bpy.context.view_layer.objects.active = j
+
 				#####################
 				### text_add() (better text placement)
 				#####################
+		'''
 				val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
 
 				# if precisionVal != -1:
@@ -4689,34 +5242,7 @@ class ABJ_Shader_Debugger():
 					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
 					# myFontCurve.body = t
 
-					val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
 
-					if val_use_18_hue_colorspace_prop == True:
-						precisionValUsable = 5
-
-						Ci_gc_rounded = mathutils.Vector((round(Ci_gc.x, precisionValUsable), round(Ci_gc.y, precisionValUsable), round(Ci_gc.z, precisionValUsable) ))
-
-
-						if Ci_gc_rounded >= mathutils.Vector((0.05, 0.05, 0.05)):
-							min_distance = float('inf')
-							closest_v = None
-
-							for v in self.colorspace_18_hue_list:
-								distance = (Ci_gc_rounded - v['value']).length
-								if distance < min_distance:
-									min_distance = distance
-									closest_value = v['value']
-									closest_identifier = v['identifier']
-									closest_idx = v['idx']
-
-							t = closest_identifier + ' ' + str(closest_idx)
-							myFontCurve.body = t
-							
-							Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
-							# Ci_gc = mathutils.Vector((0, 1, 0))
-
-					# else:
-					# 	myFontCurve.body = t
 
 					myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
 					myFontOb.data.align_x = 'CENTER'
@@ -4758,11 +5284,9 @@ class ABJ_Shader_Debugger():
 
 					self.textRef_all.append(myFontOb.name)
 
-				bpy.context.view_layer.objects.active = j
+		'''
 
-		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci.x, Ci.y, Ci.z)
 		mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
-		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", 1, 0, 0)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 

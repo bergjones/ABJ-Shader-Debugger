@@ -1,5 +1,5 @@
 '''
-Copyright (C) 2025 Aleksander Berg-Jones
+Copyright (C) 2026 Aleksander Berg-Jones
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -476,8 +476,14 @@ class myEquation_GGX:
 			for j in abj_sd_b_instance.shadingStages_perFace_stepList:
 				if (j["idx"]) == mySplitFaceIndexUsable:
 					if j['idx'] not in abj_sd_b_instance.shadingStages_selectedFaces:
-						items_id_currentStage = maxRange_usable
-						override = True
+						# items_id_currentStage = maxRange_usable
+						# override = True
+						# pass
+
+						if faceCenter_to_V_rayCast == True:
+							items_id_currentStage = maxRange_usable
+							override = True
+
 
 					elif j['idx'] in abj_sd_b_instance.shadingStages_selectedFaces:
 						currentStage = abj_sd_b_instance.myBreakpointList[j['breakpoint_idx']]

@@ -106,7 +106,7 @@ def register():
 	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
 
 
-	bpy.types.Scene.use_18_hue_colorspace_prop = bpy.props.BoolProperty(default=(False), name='use_18_hue_colorspace')
+	bpy.types.Scene.use_18_hue_colorspace_prop = bpy.props.BoolProperty(default=(True), name='use_18_hue_colorspace')
 
 	bpy.types.Scene.gamma_correct_gradient_color_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_color')
 	bpy.types.Scene.gamma_correct_gradient_colorWheel_prop = bpy.props.BoolProperty(default=(True), name='gamma_correct_colorWheel')
@@ -298,6 +298,7 @@ def register():
 	aov_items = (
 		('spec', 'spec', 'spec'),
 		('diffuse', 'diffuse', 'diffuse'),
+		('saturation_based_on_distance', 'saturation_based_on_distance', 'saturation_based_on_distance'),
 		('Ci', 'Ci', 'Ci'),
 	)
 
@@ -323,6 +324,7 @@ def register():
 	subdivision_toggle_items = (
 		('subd_0', 'subd_0', 'subd_0'),
 		('subd_1', 'subd_1', 'subd_1'),
+		('subd_2', 'subd_2', 'subd_2'),
 	)
 
 	bpy.types.Scene.subdivision_toggle_enum_prop = bpy.props.EnumProperty(
