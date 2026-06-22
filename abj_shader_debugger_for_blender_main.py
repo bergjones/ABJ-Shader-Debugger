@@ -120,6 +120,8 @@ class ABJ_Shader_Debugger():
 
 		self.aov_stored = None
 		self.rdotvpow_stored = None
+		self.spectralmix_stored = None
+		self.spectralmix2_stored = None
 		self.oren_roughness_stored = None
 		self.ggx_roughness_stored = None
 		self.ggx_fresnel_stored = None
@@ -135,6 +137,8 @@ class ABJ_Shader_Debugger():
 		self.breakpointsOverrideToggle = False
 		self.skip_refresh_override_aov = False
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_spectral = False
+		self.skip_refresh_override_spectral2 = False
 		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
@@ -2469,6 +2473,12 @@ class ABJ_Shader_Debugger():
 		rdotvpow_id = rdotvpow_items[bpy.context.scene.r_dot_v_pow_enum_prop].identifier
 		self.rdotvpow_stored = rdotvpow_id
 
+		val_spectral_mix_multiplier_prop = bpy.context.scene.spectral_mix_multiplier_prop
+		self.spectralmix_stored = val_spectral_mix_multiplier_prop
+
+		val_spectral_mix_multiplier2_prop = bpy.context.scene.spectral_mix_multiplier2_prop
+		self.spectralmix2_stored = val_spectral_mix_multiplier2_prop
+
 		val_oren_roughness_prop = bpy.context.scene.oren_roughness_prop
 		self.oren_roughness_stored = val_oren_roughness_prop
 
@@ -3219,7 +3229,6 @@ class ABJ_Shader_Debugger():
 		# distance_from_cam = (self.myV - faceCenter).length
 		distance_from_cam = (self.myCam.location - faceCenter).length
 
-
 		#Tangents
 		mesh = self.shadingPlane.data
 		mesh.calc_tangents()
@@ -3323,8 +3332,21 @@ class ABJ_Shader_Debugger():
 		val_aniso_roughnessX_prop = bpy.context.scene.aniso_roughnessX_prop
 		val_aniso_roughnessY_prop = bpy.context.scene.aniso_roughnessY_prop
 
+		val_spectral_mix_multiplier_prop = bpy.context.scene.spectral_mix_multiplier_prop
+		val_spectral_mix_multiplier2_prop = bpy.context.scene.spectral_mix_multiplier2_prop
+
 		self.changedSpecularEquation_variables = False
 		self.changedDiffuseEquation_variables = False
+
+		if self.spectralmix_stored != val_spectral_mix_multiplier_prop:
+			self.skip_refresh_override_spectral = True
+			self.spectralmix_stored = val_spectral_mix_multiplier_prop
+			self.changedSpecularEquation_variables = True
+
+		if self.spectralmix2_stored != val_spectral_mix_multiplier2_prop:
+			self.skip_refresh_override_spectral2 = True
+			self.spectralmix2_stored = val_spectral_mix_multiplier2_prop
+			self.changedSpecularEquation_variables = True
 
 		if self.rdotvpow_stored != rdotvpow_id:
 			self.skip_refresh_override_RdotVpow = True
@@ -3450,6 +3472,7 @@ class ABJ_Shader_Debugger():
 		if self.breakEarlyForRandomLightAndRxyz == True:
 			#reset refresh override skips
 			self.skip_refresh_override_RdotVpow = False
+			self.skip_refresh_override_spectral = False
 			self.skip_refresh_override_oren_roughness = False
 			self.skip_refresh_override_GGX_roughness = False
 			self.skip_refresh_override_GGX_fresnel = False
@@ -3493,15 +3516,25 @@ class ABJ_Shader_Debugger():
 			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
 
-			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
-				# if faceCenter_to_L_rayCast == True:
-				# if faceCenter_to_V_rayCast == True:
-				# distance_from_cam = (self.myV - faceCenter).length
-				distance_from_cam = (self.myCam.location - faceCenter).length
-				# distance_from_cam = (self.myCam.location - faceCenter).length
-				# distance_from_cam = self.myCam.location.length - faceCenter.length
-				# distance_from_cam = (self.myCam.location - faceCenter)
-				self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+			# if mySplitFaceIndexUsable in self.Ci_render_temp_list:
+			# 	# if faceCenter_to_L_rayCast == True:
+			# 	# if faceCenter_to_V_rayCast == True:
+			# 	# distance_from_cam = (self.myV - faceCenter).length
+			# 	distance_from_cam = (self.myCam.location - faceCenter).length
+			# 	# distance_from_cam = (self.myCam.location - faceCenter).length
+			# 	# distance_from_cam = self.myCam.location.length - faceCenter.length
+			# 	# distance_from_cam = (self.myCam.location - faceCenter)
+			# 	self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+
+
+
+
+			distance_from_cam = (self.myCam.location - faceCenter).length
+			# distance_from_cam = (self.myCam.location - faceCenter).length
+			# distance_from_cam = self.myCam.location.length - faceCenter.length
+			# distance_from_cam = (self.myCam.location - faceCenter)
+			self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
+			
 		
 		self.distanceFromCam_raycastRenderable_list.sort()
 
@@ -3540,6 +3573,74 @@ class ABJ_Shader_Debugger():
 			faceCenter_to_V_rayCast = i['faceCenter_to_V_rayCast']
 			faceCenter_to_L_rayCast = i['faceCenter_to_L_rayCast']
 
+			# if mySplitFaceIndexUsable in self.Ci_render_temp_list:
+			finalDiffuse = 1
+			pos_L2_global_v = mathutils.Vector((0, 0, -40))
+
+			debugVal = .05
+
+			if faceCenter_to_V_rayCast == False:
+				finalDiffuse = 0
+				finalDiffuse = N_dot_L * debugVal
+
+				finalDiffuseL2 = 0
+				finalDiffuseL2 =  N_dot_L * debugVal
+				# finalDiffuseL2 = N_dot_L2
+
+			if faceCenter_to_L_rayCast == False:
+				finalDiffuse = 0
+				finalDiffuse =  N_dot_L * debugVal
+
+				finalDiffuseL2 = 0
+				finalDiffuseL2 =  N_dot_L * debugVal
+
+			if faceCenter_to_L_rayCast == True:
+				if usableDiffuseEquationType_id == 'oren':
+					finalDiffuse = self.oren(N_dot_L, V, L, N, N_dot_V, self.oren_roughness_stored)
+
+				elif usableDiffuseEquationType_id == 'simple':
+					finalDiffuse = N_dot_L
+
+				myL_L2 = mathutils.Vector((pos_L2_global_v - faceCenter)).normalized()
+
+				N_dot_L2 = max(np.dot(N, myL_L2), 0.0)
+				finalDiffuseL2 = N_dot_L2
+
+			#################
+			#GI or multiple lights
+			#################
+			diff_Cs_V = mathutils.Vector((1.0, 0.0, 0.0))
+
+			# ### ADDITIONAL DIFFUSE GI APPROX
+			# # pos_L2_global_v = mathutils.Vector((0, 0, -20))
+			# pos_L2_global_v = mathutils.Vector((0, 0, -40))
+			# myL_L2 = mathutils.Vector((pos_L2_global_v - faceCenter)).normalized()
+
+			# distanceL1 = (self.pos_light_global_v - faceCenter).length
+			distanceL1 = (self.myV - faceCenter).length
+
+			distanceL2 = (pos_L2_global_v - faceCenter).length
+			attenuationL2 = 1.0 / (distanceL2 * distanceL2)
+
+			# N_dot_L2 = max(np.dot(N, myL_L2), 0.0)
+			# finalDiffuseL2 = N_dot_L2
+
+			self.final_Ci_output(aov_id, shadingPlane, mySplitFaceIndexUsable, finalDiffuse, finalDiffuseL2, spec, distanceL1, distanceL2, attenuation, attenuationL2, faceCenter_to_V_rayCast, faceCenter_to_L_rayCast, faceCenter)
+
+			if mySplitFaceIndexUsable in self.selectedFaceMat_temp_list:
+				if self.renderPasses_simple == False and self.renderPasses_GGX == False:
+					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
+						
+
+
+			# if self.renderPasses_simple == False and self.renderPasses_GGX == False:
+				# self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
+			# self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
+						
+
+
+
+			'''
 			if mySplitFaceIndexUsable in self.Ci_render_temp_list:
 				finalDiffuse = 1
 
@@ -3557,15 +3658,11 @@ class ABJ_Shader_Debugger():
 					# self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
 					# self.distanceFromCam_raycastRenderable_list.sort()
 
-
-
-
 				# finalDiffuse = self.oren(N_dot_L, V, L, N, N_dot_V, self.oren_roughness_stored)
 
 				# distance_from_cam = (self.myV - faceCenter).length
 				# self.distanceFromCam_raycastRenderable_list.append(distance_from_cam)
 				# self.distanceFromCam_raycastRenderable_list.sort()
-						
 
 				#################
 				#GI or multiple lights
@@ -3602,10 +3699,13 @@ class ABJ_Shader_Debugger():
 				if self.renderPasses_simple == False and self.renderPasses_GGX == False:
 					self.setActiveStageMaterial(shadingPlane, mySplitFaceIndexUsable, self.shadingPlane_sel_r, self.shadingPlane_sel_g, self.shadingPlane_sel_b)
 
+				'''
+
 		# bpy.ops.object.mode_set(mode="OBJECT")
 
 		#reset refresh override skips
 		self.skip_refresh_override_RdotVpow = False
+		self.skip_refresh_override_spectral = False
 		self.skip_refresh_override_oren_roughness = False
 		self.skip_refresh_override_GGX_roughness = False
 		self.skip_refresh_override_GGX_fresnel = False
@@ -5095,13 +5195,29 @@ class ABJ_Shader_Debugger():
 
 				finalFromL2 = (finalDiff_V2)
 
-				maxV10 = max(0, finalFromL1.x)
-				maxV11 = max(0, finalFromL1.y)
-				maxV12 = max(0, finalFromL1.z)
+				# maxV10 = max(0, finalFromL1.x)
+				# maxV11 = max(0, finalFromL1.y)
+				# maxV12 = max(0, finalFromL1.z)
 
-				maxV20 = max(0, finalFromL2.x)
-				maxV21 = max(0, finalFromL2.y)
-				maxV22 = max(0, finalFromL2.z)
+				# maxV20 = max(0, finalFromL2.x)
+				# maxV21 = max(0, finalFromL2.y)
+				# maxV22 = max(0, finalFromL2.z)
+
+				maxV10_clamped = self.clamp(finalFromL1.x, 0, 1)
+				maxV11_clamped = self.clamp(finalFromL1.y, 0, 1)
+				maxV12_clamped = self.clamp(finalFromL1.z, 0, 1)
+
+				maxV20_clamped = self.clamp(finalFromL2.x, 0, 1)
+				maxV21_clamped = self.clamp(finalFromL2.y, 0, 1)
+				maxV22_clamped = self.clamp(finalFromL2.z, 0, 1)
+
+				maxV10 = maxV10_clamped
+				maxV11 = maxV11_clamped
+				maxV12 = maxV12_clamped
+
+				maxV20 = maxV20_clamped
+				maxV21 = maxV21_clamped
+				maxV22 = maxV22_clamped
 
 				Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
 				# Ci = mathutils.Vector((maxV20, maxV21, maxV22)) ###
@@ -5171,7 +5287,8 @@ class ABJ_Shader_Debugger():
 
 					oldMin = self.distanceFromCam_raycastRenderable_list[-1]
 					oldMax = self.distanceFromCam_raycastRenderable_list[0]
-					myRemap = 1 - self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1)
+					# myRemap = 1 - self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1) #!!!!!!!!!!!!!!!!!!!!
+					myRemap = self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1)
 
 					# gammaCorrect = mathutils.Vector((1, 1, 1))
 					gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
@@ -5188,11 +5305,48 @@ class ABJ_Shader_Debugger():
 					closestIdxIn19 = float((closest_idx_usable * realGreyscale[0]) / 19)
 
 					greyScaleColor = mathutils.Vector((closestIdxIn19, closestIdxIn19, closestIdxIn19))
+
+					val_spectral_mix_multiplier_prop = bpy.context.scene.spectral_mix_multiplier_prop
+					val_spectral_mix_multiplier2_prop = bpy.context.scene.spectral_mix_multiplier2_prop
+					myTestAdjustFromUI_v = mathutils.Vector((val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop))
 				
 					exactGrey = mathutils.Vector((0.5, 0.5, 0.5))
+					testColor = mathutils.Vector((0.5, 0.3, 0.1))
+
+
 					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, greyScaleColor[0], 1) #********** ok
 					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, greyScaleColor, greyScaleColor[0], 1) #********** ok
-					spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 3 * greyScaleColor[0], 1) #********** good
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, .1 * greyScaleColor[0], 1) #********** good 3x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 3 * greyScaleColor[0], 1) #********** good 3x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 10 * greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 2, 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 6 * greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (10 * greyScaleColor[0]), 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1) #********** good 10x
+
+
+					spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1, exactGrey, 1, 1) #********** use ####### 1 / 100
+
+
+
+
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1, exactGrey, 1, 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
+
+					# spectralMix = comboColor * (val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]))
+
+					# spectralMix = spectral3_glsl.spectral_mix2(myTestAdjustFromUI_v, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+					# spectralMix = myTestAdjustFromUI_v
+					# spectralMix = comboColor
+					
+					# spectralMix = comboColor
+					# self.aspect = val_spectral_mix_multiplier_prop
 
 					# spectralMix = greyScaleColor * comboColor ### check vs this
 					
@@ -5231,7 +5385,7 @@ class ABJ_Shader_Debugger():
 				#####################
 				### text_add() (better text placement)
 				#####################
-		'''
+				'''
 				val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
 
 				# if precisionVal != -1:
@@ -5284,9 +5438,11 @@ class ABJ_Shader_Debugger():
 
 					self.textRef_all.append(myFontOb.name)
 
-		'''
+				'''
 
 		mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
+		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", .1, .1, .1)
+		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", 0, 1, 0)
 		bpy.context.active_object.data.materials.clear()
 		bpy.context.active_object.data.materials.append(mat1)
 
@@ -5934,6 +6090,9 @@ class ABJ_Shader_Debugger():
 			skip_refresh = False
 
 		if self.skip_refresh_override_RdotVpow == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_spectral == True:
 			skip_refresh = False
 
 		if self.skip_refresh_override_oren_roughness == True:
@@ -6866,6 +7025,13 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row = layout.row()
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_refreshstage2_operator')
+
+		
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_mix_multiplier_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'spectral_mix_multiplier2_prop')
 
 		layout.label(text='Render Passes')
 		row = layout.row()

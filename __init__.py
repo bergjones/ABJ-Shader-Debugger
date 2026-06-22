@@ -18,8 +18,8 @@ along with this program; if not, see <https://www.gnu.org/licenses>.
 bl_info = {
 	"name": "ABJ Shader Debugger for Blender",
 	"author" : "Aleksander Berg-Jones",
-	"version" : (1, 0),
-	"blender": (4, 5, 2),
+	"version" : (1, 1),
+	"blender": (5, 1, 1),
 	"location": "Scene",
 	"description": "Shader Debugger",
 	"warning": "",
@@ -93,6 +93,11 @@ def register():
 		bpy.utils.register_class(c)
 
 	# '''
+
+	bpy.types.Scene.spectral_mix_multiplier_prop = bpy.props.FloatProperty(min=-1000.0, max=1000.0, default=1.0, name='spectral_mix')
+
+	bpy.types.Scene.spectral_mix_multiplier2_prop = bpy.props.FloatProperty(min=-1000.0, max=1000.0, default=100.0, name='spectral_mix2')
+
 
 	bpy.types.Scene.written_aspect_prop = bpy.props.FloatProperty(min=0.0, max=4.0, default=1.0, name='aspect')
 
@@ -555,6 +560,9 @@ def unregister():
 		bpy.utils.unregister_class(c)
 
 	# '''
+
+	del bpy.types.Scene.spectral_mix_multiplier_prop
+	del bpy.types.Scene.spectral_mix_multiplier2_prop
 
 	del bpy.types.Scene.written_aspect_prop
 	del bpy.types.Scene.written_fov_prop
