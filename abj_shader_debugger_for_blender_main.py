@@ -131,6 +131,7 @@ class ABJ_Shader_Debugger():
 		self.aniso_rotation_stored = None
 		self.aniso_roughnessX_stored = None
 		self.aniso_roughnessY_stored = None
+		self.use_18_hue_colorspace_prop_stored = None
 
 
 
@@ -148,6 +149,7 @@ class ABJ_Shader_Debugger():
 		self.skip_refresh_override_aniso_rotation = False
 		self.skip_refresh_override_aniso_roughnessX = False
 		self.skip_refresh_override_aniso_roughnessY = False
+		self.skip_refresh_override_use_18_hue_colorspace = False
 
 
 		self.shadingPlane_sel_r = 0.0
@@ -861,18 +863,18 @@ class ABJ_Shader_Debugger():
 
 		allObjLocs = []
 		allObjLocs.append(pt_00)
-		allObjLocs.append(pt_01)
-		allObjLocs.append(pt_02)
-		allObjLocs.append(pt_03)
-		allObjLocs.append(pt_04)
+		# allObjLocs.append(pt_01)
+		# allObjLocs.append(pt_02)
+		# allObjLocs.append(pt_03)
+		# allObjLocs.append(pt_04)
 
-		allObjLocs.append(pt_05)
-		allObjLocs.append(pt_06)
-		allObjLocs.append(pt_07)
-		allObjLocs.append(pt_08)
-		allObjLocs.append(pt_09)
-		allObjLocs.append(pt_10)
-		allObjLocs.append(pt_11)
+		# allObjLocs.append(pt_05)
+		# allObjLocs.append(pt_06)
+		# allObjLocs.append(pt_07)
+		# allObjLocs.append(pt_08)
+		# allObjLocs.append(pt_09)
+		# allObjLocs.append(pt_10)
+		# allObjLocs.append(pt_11)
 
 		#TO DO 9/9
 		#match the following to calc:
@@ -890,64 +892,204 @@ class ABJ_Shader_Debugger():
 
 		self.written_set_up_ortho_render()
 
-		for idx, i in enumerate(allObjLocs):
-			# bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4)
-			bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4, segments=8, ring_count=8)
-			myInputMesh = bpy.context.active_object
-			myInputMesh.select_set(1)
-			myInputMesh.location = i.xyz
+		useFragments = True
 
-			bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+		if useFragments == True : 
+			for idx, i in enumerate(allObjLocs):
+				# bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4)
+				# bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4, segments=8, ring_count=8)
 
-			# Get the active object, which must be a mesh
-			obj = bpy.context.view_layer.objects.active
-			world_space_verts = None
-			world_space_verts = []
+				bpy.ops.mesh.primitive_monkey_add()
 
-			for vertex in obj.data.vertices:
-				world_coord = obj.matrix_world @ vertex.co
-				world_space_verts.append(world_coord)
+				myInputMesh = bpy.context.active_object
+				myInputMesh.select_set(1)
 
-			# myInputMesh.hide_set(1)
-			myInputMesh.hide_render = True
+				bpy.ops.object.modifier_add(type='SUBSURF')
+				myObj = bpy.context.active_object
+				myObj.modifiers["Subdivision"].levels = 1
+				bpy.ops.object.modifier_apply(modifier="Subdivision")
 
-			for idx2, j in enumerate(world_space_verts):
-				bpy.context.view_layer.objects.active = self.myPixel
-				myDupeGradient = self.copyObject()
-				myDupeGradient.name = 'dupeGradient_' + str(idx) + '_' + str(idx2)
+				#TRIANGULATE
+				bpy.ops.object.modifier_add(type='TRIANGULATE')
+				bpy.ops.object.modifier_apply(modifier="Triangulate")
 
-				myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+				myInputMesh.location = i.xyz
 
-				Ci = mathutils.Vector((0, 0, 0))	
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 
-				bpy.context.view_layer.objects.active = myDupeGradient
-				mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
-				bpy.context.active_object.data.materials.clear()
-				bpy.context.active_object.data.materials.append(mat1)
+				# Get the active object, which must be a mesh
+				obj = bpy.context.view_layer.objects.active
+				world_space_verts = None
+				world_space_verts = []
 
-				gradientScale = 0.1
+				bpy.ops.object.mode_set(mode='OBJECT')
 
-				myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
-				
-				xMin = -5
-				xMax = 5
-				yMin = -5
-				yMax = 5
+				mesh = obj.data
+				world_matrix = obj.matrix_world
 
-				j4 = mathutils.Vector((j.x, j.y, j.z, 1))
+				# for face_idx, poly in enumerate(mesh.polygons):
+				for f in enumerate(mesh.polygons):
+					# print('f = ', f)
+					# print('f[0] = ', f[0])
+					# continue 
 
-				myNDC = self.NDC_get(j4, myMVP)
+					usableFaceColor = mathutils.Vector((0, 0, 0))
 
-				if myNDC.x > 1 or myNDC.x < -1 or myNDC.y > 1 or myNDC.y < -1 or myNDC.z > 1 or myNDC.z < -1:
-					myDupeGradient.hide_set(1)
-					myDupeGradient.hide_render = True
-					continue
+					if f[0] % 2 == 0:
+						usableFaceColor = mathutils.Vector((1, 0, 0))
+					# if poly % 2 == 0:
 
-				gradient_startPos = mathutils.Vector((-.9, myNDC.x * 5, myNDC.y * 5))
+					# usableFaceColor = mathutils.Vector((0, 1, 0))
 
-				myDupeGradient.location = gradient_startPos
+					# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
+					mat1 = self.newShader("ShaderVisualizer_gradient_" + str(f), "emission", usableFaceColor.x, usableFaceColor.y, usableFaceColor.z)
+					# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(poly), "emission", usableFaceColor.x, usableFaceColor.y, usableFaceColor.z)
+					# bpy.context.active_object.data.materials.clear()
+					bpy.context.active_object.data.materials.append(mat1)
 
 
+
+
+
+					# 3. Add the new material to the object's material slots
+					# obj.data.materials.append(new_mat)
+					mat_index = len(obj.data.materials) - 1
+
+					# 4. Set a specific face (e.g., polygon index 0) to use the new material
+					# face_index = face_idx
+					if f[0] < len(obj.data.polygons):
+						obj.data.polygons[f[0]].material_index = mat_index
+
+
+					# for vert_idx in poly.vertices:
+					# 	local_vert = mesh.vertices[vert_idx].co
+
+					# 	world_vert = world_matrix @ local_vert
+
+				# for vertex in obj.data.vertices:
+				# 	# world_coord = obj.matrix_world @ vertex.co
+				# 	# world_space_verts.append(world_coord)
+
+				# 	face_vert_indices = [list(poly.vertices) for poly in obj.data.polygons]
+
+				# 	for face_idx, vert_indices in enumerate(face_vert_indices):
+				# 		print(f"Face {face_idx}: Vertices {vert_indices}")
+				# 		print()
+
+						# usableFaceColor = mathutils.Vector((0, 0, 0))
+
+						# if face_idx % 2 == 0:
+						# 	usableFaceColor = mathutils.Vector((1, 0, 0))
+						# # if poly % 2 == 0:
+
+						# usableFaceColor = mathutils.Vector((0, 1, 0))
+
+						# # mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
+						# mat1 = self.newShader("ShaderVisualizer_gradient_" + str(face_idx), "emission", usableFaceColor.x, usableFaceColor.y, usableFaceColor.z)
+						# # mat1 = self.newShader("ShaderVisualizer_gradient_" + str(poly), "emission", usableFaceColor.x, usableFaceColor.y, usableFaceColor.z)
+						# bpy.context.active_object.data.materials.clear()
+						# bpy.context.active_object.data.materials.append(mat1)
+
+				# myInputMesh.hide_set(1)
+				myInputMesh.hide_render = True
+
+				continue
+
+				# for idx2, j in enumerate(world_space_verts):
+				# 	bpy.context.view_layer.objects.active = self.myPixel
+				# 	myDupeGradient = self.copyObject()
+				# 	myDupeGradient.name = 'dupeGradient_' + str(idx) + '_' + str(idx2)
+
+				# 	myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+				# 	Ci = mathutils.Vector((0, 0, 0))	
+
+				# 	bpy.context.view_layer.objects.active = myDupeGradient
+				# 	mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
+				# 	bpy.context.active_object.data.materials.clear()
+				# 	bpy.context.active_object.data.materials.append(mat1)
+
+				# 	gradientScale = 0.1
+
+				# 	myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
+					
+				# 	xMin = -5
+				# 	xMax = 5
+				# 	yMin = -5
+				# 	yMax = 5
+
+				# 	j4 = mathutils.Vector((j.x, j.y, j.z, 1))
+
+				# 	myNDC = self.NDC_get(j4, myMVP)
+
+				# 	if myNDC.x > 1 or myNDC.x < -1 or myNDC.y > 1 or myNDC.y < -1 or myNDC.z > 1 or myNDC.z < -1:
+				# 		myDupeGradient.hide_set(1)
+				# 		myDupeGradient.hide_render = True
+				# 		continue
+
+				# 	gradient_startPos = mathutils.Vector((-.9, myNDC.x * 5, myNDC.y * 5))
+
+				# 	myDupeGradient.location = gradient_startPos
+
+		else:
+			for idx, i in enumerate(allObjLocs):
+				# bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4)
+				bpy.ops.mesh.primitive_uv_sphere_add(radius=rad / 4, segments=8, ring_count=8)
+				myInputMesh = bpy.context.active_object
+				myInputMesh.select_set(1)
+				myInputMesh.location = i.xyz
+
+				bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+				# Get the active object, which must be a mesh
+				obj = bpy.context.view_layer.objects.active
+				world_space_verts = None
+				world_space_verts = []
+
+				for vertex in obj.data.vertices:
+					world_coord = obj.matrix_world @ vertex.co
+					world_space_verts.append(world_coord)
+
+				# myInputMesh.hide_set(1)
+				myInputMesh.hide_render = True
+
+				for idx2, j in enumerate(world_space_verts):
+					bpy.context.view_layer.objects.active = self.myPixel
+					myDupeGradient = self.copyObject()
+					myDupeGradient.name = 'dupeGradient_' + str(idx) + '_' + str(idx2)
+
+					myDupeGradient.rotation_euler = mathutils.Vector((0, math.radians(90), 0))
+
+					Ci = mathutils.Vector((0, 0, 0))	
+
+					bpy.context.view_layer.objects.active = myDupeGradient
+					mat1 = self.newShader("ShaderVisualizer_gradient_" + str(j), "emission", Ci.x, Ci.y, Ci.z)
+					bpy.context.active_object.data.materials.clear()
+					bpy.context.active_object.data.materials.append(mat1)
+
+					gradientScale = 0.1
+
+					myDupeGradient.scale = mathutils.Vector((gradientScale, gradientScale, gradientScale))
+					
+					xMin = -5
+					xMax = 5
+					yMin = -5
+					yMax = 5
+
+					j4 = mathutils.Vector((j.x, j.y, j.z, 1))
+
+					myNDC = self.NDC_get(j4, myMVP)
+
+					if myNDC.x > 1 or myNDC.x < -1 or myNDC.y > 1 or myNDC.y < -1 or myNDC.z > 1 or myNDC.z < -1:
+						myDupeGradient.hide_set(1)
+						myDupeGradient.hide_render = True
+						continue
+
+					gradient_startPos = mathutils.Vector((-.9, myNDC.x * 5, myNDC.y * 5))
+
+					myDupeGradient.location = gradient_startPos
+
+		self.defaultColorSettings_UI()
 
 		totalTime = datetime.now() - startTime
 		print('totalTime = ', totalTime)
@@ -1868,6 +2010,20 @@ class ABJ_Shader_Debugger():
 				# Delete the object
 				bpy.data.objects.remove(obj, do_unlink=True)
 
+	def deleteAllText18HueLabelObjects(self):
+		for i in self.textRef_all:
+			for j in bpy.context.scene.objects:
+				if j.name == i:
+					obj = bpy.data.objects.get(i)
+
+					if obj:
+						# Remove from all collections
+						for col in obj.users_collection:
+							col.objects.unlink(obj)
+
+						# Delete the object
+						bpy.data.objects.remove(obj, do_unlink=True)
+
 	def deleteSpecificObject(self, objToDelete):
 		for i in bpy.context.scene.objects:
 			obj = bpy.data.objects.get(objToDelete)
@@ -2510,6 +2666,9 @@ class ABJ_Shader_Debugger():
 		val_text_radius_1_prop = bpy.context.scene.text_radius_1_prop
 		self.text_radius_1_stored = val_text_radius_1_prop
 
+		val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+		self.use_18_hue_colorspace_prop_stored = val_use_18_hue_colorspace_prop
+
 
 		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
 		val_text_rotate_y_prop = bpy.context.scene.text_rotate_y_prop
@@ -2590,6 +2749,7 @@ class ABJ_Shader_Debugger():
 		usablePrimitiveType_id = usablePrimitiveType_items[bpy.context.scene.primitive_enum_prop].identifier
 
 		multipleObj = True
+		# multipleObj = False
 		myInputMesh = None
 		myInputMeshDebug0 = None
 		myInputMeshDebug1 = None
@@ -2931,10 +3091,12 @@ class ABJ_Shader_Debugger():
 		usablePrimitiveType_id = usableSubDToggle_items[bpy.context.scene.subdivision_toggle_enum_prop].identifier
 
 		myInputMesh.select_set(1)
-		myInputMeshDebug0.select_set(1)
-		myInputMeshDebug1.select_set(1)
-		myInputMeshDebug2.select_set(1)
-		bpy.ops.object.join()
+
+		if multipleObj == True:
+			myInputMeshDebug0.select_set(1)
+			myInputMeshDebug1.select_set(1)
+			myInputMeshDebug2.select_set(1)
+			bpy.ops.object.join()
 
 		myInputMesh = bpy.context.active_object
 
@@ -2953,6 +3115,10 @@ class ABJ_Shader_Debugger():
 				myObj.modifiers["Subdivision"].levels = 2
 				
 				bpy.ops.object.modifier_apply(modifier="Subdivision")
+
+		#TRIANGULATE
+		bpy.ops.object.modifier_add(type='TRIANGULATE')
+		bpy.ops.object.modifier_apply(modifier="Triangulate")
 
 		self.profile_stage1_06_b = str(datetime.now() - self.profile_stage1_06_a)
 		if self.profileCode_part1 == True:
@@ -3420,6 +3586,15 @@ class ABJ_Shader_Debugger():
 			self.oren_roughness_stored = val_oren_roughness_prop
 			self.changedSpecularEquation_variables = True
 
+		
+		############
+		### 18 HUE COLORSPACE
+		############
+		val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+
+		if self.use_18_hue_colorspace_prop_stored != val_use_18_hue_colorspace_prop:
+			self.skip_refresh_override_use_18_hue_colorspace = True
+			self.use_18_hue_colorspace_prop_stored = val_use_18_hue_colorspace_prop
 
 		############
 		#### TEXT CHECKER
@@ -3482,6 +3657,7 @@ class ABJ_Shader_Debugger():
 			self.skip_refresh_override_aniso_rotation = False
 			self.skip_refresh_override_aniso_roughnessX = False
 			self.skip_refresh_override_aniso_roughnessY = False
+			self.skip_refresh_override_use_18_hue_colorspace = False
 
 			return
 		
@@ -3508,6 +3684,8 @@ class ABJ_Shader_Debugger():
 		#############################
 		### FINAL RENDER
 		#############################
+		self.deleteAllText18HueLabelObjects()
+		self.textRef_all.clear()
 
 		#experimental depth sort
 		for i in self.shadingList_perFace:
@@ -5184,191 +5362,223 @@ class ABJ_Shader_Debugger():
 		elif aov_id == 'saturation_based_on_distance':
 
 			val_is_metallic_prop = bpy.context.scene.is_metallic_prop
+			# if val_is_metallic_prop == True:
+			# 	finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
+
+			# else:
+				
+			finalFromL1 = (finalDiff_V + finalSpec_V) * attenuation
 			if val_is_metallic_prop == True:
 				finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
 
+
+			finalFromL2 = (finalDiff_V2)
+
+			# maxV10 = max(0, finalFromL1.x)
+			# maxV11 = max(0, finalFromL1.y)
+			# maxV12 = max(0, finalFromL1.z)
+
+			# maxV20 = max(0, finalFromL2.x)
+			# maxV21 = max(0, finalFromL2.y)
+			# maxV22 = max(0, finalFromL2.z)
+
+			maxV10_clamped = self.clamp(finalFromL1.x, 0, 1)
+			maxV11_clamped = self.clamp(finalFromL1.y, 0, 1)
+			maxV12_clamped = self.clamp(finalFromL1.z, 0, 1)
+
+			maxV20_clamped = self.clamp(finalFromL2.x, 0, 1)
+			maxV21_clamped = self.clamp(finalFromL2.y, 0, 1)
+			maxV22_clamped = self.clamp(finalFromL2.z, 0, 1)
+
+			maxV10 = maxV10_clamped
+			maxV11 = maxV11_clamped
+			maxV12 = maxV12_clamped
+
+			maxV20 = maxV20_clamped
+			maxV21 = maxV21_clamped
+			maxV22 = maxV22_clamped
+
+			Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
+			# Ci = mathutils.Vector((maxV20, maxV21, maxV22)) ###
+
+			Ci_stored = Ci
+
+			distance_from_cam = (self.myV - faceCenter).length
+
+
+
+
+
+
+
+
+			usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+			usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+			precisionVal = int(usableTextRGBPrecision_id)
+
+			Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
+			Ci_gc = Ci
+
+			if precisionVal == -1:
+				pass
+
 			else:
-				finalFromL1 = (finalDiff_V + finalSpec_V) * attenuation
-				if val_is_metallic_prop == True:
-					finalFromL1 = ((finalDiff_V * finalSpec_V) * attenuation) ###
+				Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
 
-
-				finalFromL2 = (finalDiff_V2)
-
-				# maxV10 = max(0, finalFromL1.x)
-				# maxV11 = max(0, finalFromL1.y)
-				# maxV12 = max(0, finalFromL1.z)
-
-				# maxV20 = max(0, finalFromL2.x)
-				# maxV21 = max(0, finalFromL2.y)
-				# maxV22 = max(0, finalFromL2.z)
-
-				maxV10_clamped = self.clamp(finalFromL1.x, 0, 1)
-				maxV11_clamped = self.clamp(finalFromL1.y, 0, 1)
-				maxV12_clamped = self.clamp(finalFromL1.z, 0, 1)
-
-				maxV20_clamped = self.clamp(finalFromL2.x, 0, 1)
-				maxV21_clamped = self.clamp(finalFromL2.y, 0, 1)
-				maxV22_clamped = self.clamp(finalFromL2.z, 0, 1)
-
-				maxV10 = maxV10_clamped
-				maxV11 = maxV11_clamped
-				maxV12 = maxV12_clamped
-
-				maxV20 = maxV20_clamped
-				maxV21 = maxV21_clamped
-				maxV22 = maxV22_clamped
-
-				Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
-				# Ci = mathutils.Vector((maxV20, maxV21, maxV22)) ###
-
-				Ci_stored = Ci
-
-				distance_from_cam = (self.myV - faceCenter).length
-
-				#force custom colorspace
-				val_use_18_hue_colorspace_prop = True
-
-				if val_use_18_hue_colorspace_prop == True:
-					
-					usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
-					usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
-
-					precisionVal = int(usableTextRGBPrecision_id)
-
-					Ci = mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)) ###
-					Ci_gc = Ci
-
-					if precisionVal == -1:
-						pass
-
-					else:
-						Ci_gc = mathutils.Vector((round(Ci_gc.x, precisionVal), round(Ci_gc.y, precisionVal), round(Ci_gc.z, precisionVal)))
-
-						
-					precisionValUsable = 5
-
-					Ci_gc_rounded = mathutils.Vector((round(Ci_gc.x, precisionValUsable), round(Ci_gc.y, precisionValUsable), round(Ci_gc.z, precisionValUsable) ))
-
-					min_distance = float('inf')
-					closest_v = None
-					closest_value = None
-					closest_identifier = None
-					closest_idx = None
-
-					spectralMix = None
-
-					##################
-					#start here
-					###################
-					comboColor = (mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)))
-					comboColor_clamp0 = self.clamp(comboColor[0], 0, 1)
-					comboColor_clamp1 = self.clamp(comboColor[1], 0, 1)
-					comboColor_clamp2 = self.clamp(comboColor[2], 0, 1)
-
-					comboColor = mathutils.Vector((comboColor_clamp0, comboColor_clamp1, comboColor_clamp2))
-
-					for v in self.colorspace_18_hue_list:
-						distance = (comboColor - v['value']).length
-						if distance < min_distance:
-							min_distance = distance
-							closest_value = v['value']
-							closest_identifier = v['identifier']
-							closest_idx = v['idx']
-
-					# Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
-					Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
-					closestValueV = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
-
-					distance_from_cam = (self.myCam.location - faceCenter).length
-
-					oldMin = self.distanceFromCam_all_list[-1]
-					oldMax = self.distanceFromCam_all_list[0]
-
-					oldMin = self.distanceFromCam_raycastRenderable_list[-1]
-					oldMax = self.distanceFromCam_raycastRenderable_list[0]
-					# myRemap = 1 - self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1) #!!!!!!!!!!!!!!!!!!!!
-					myRemap = self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1)
-
-					# gammaCorrect = mathutils.Vector((1, 1, 1))
-					gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-
-					gammaCorrect_r = pow(myRemap, gammaCorrect.x)
-					gammaCorrect_g = pow(myRemap, gammaCorrect.y)
-					gammaCorrect_b = pow(myRemap, gammaCorrect.z)
-
-					myRemap_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
-
-					realGreyscale = myRemap_gc
-
-					closest_idx_usable = 19 - closest_idx
-					closestIdxIn19 = float((closest_idx_usable * realGreyscale[0]) / 19)
-
-					greyScaleColor = mathutils.Vector((closestIdxIn19, closestIdxIn19, closestIdxIn19))
-
-					val_spectral_mix_multiplier_prop = bpy.context.scene.spectral_mix_multiplier_prop
-					val_spectral_mix_multiplier2_prop = bpy.context.scene.spectral_mix_multiplier2_prop
-					myTestAdjustFromUI_v = mathutils.Vector((val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop))
 				
-					exactGrey = mathutils.Vector((0.5, 0.5, 0.5))
-					testColor = mathutils.Vector((0.5, 0.3, 0.1))
+			precisionValUsable = 5
+
+			Ci_gc_rounded = mathutils.Vector((round(Ci_gc.x, precisionValUsable), round(Ci_gc.y, precisionValUsable), round(Ci_gc.z, precisionValUsable) ))
+
+			min_distance = float('inf')
+			closest_v = None
+			closest_value = None
+			closest_identifier = None
+			closest_idx = None
+
+			spectralMix = None
+
+			comboColor = (mathutils.Vector((maxV10, maxV11, maxV12)) + mathutils.Vector((maxV20, maxV21, maxV22)))
+			comboColor_clamp0 = self.clamp(comboColor[0], 0, 1)
+			comboColor_clamp1 = self.clamp(comboColor[1], 0, 1)
+			comboColor_clamp2 = self.clamp(comboColor[2], 0, 1)
+
+			comboColor = mathutils.Vector((comboColor_clamp0, comboColor_clamp1, comboColor_clamp2))
+
+			val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
+
+			if val_use_18_hue_colorspace_prop == True:
+				
+				for v in self.colorspace_18_hue_list:
+					distance = (comboColor - v['value']).length
+					if distance < min_distance:
+						min_distance = distance
+						closest_value = v['value']
+						closest_identifier = v['identifier']
+						closest_idx = v['idx']
+
+				# Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+				# comboColor = mathutils.Vector((closest_value.r, closest_value.g, closest_value.b))
+				comboColor = closest_value
 
 
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, greyScaleColor[0], 1) #********** ok
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, greyScaleColor, greyScaleColor[0], 1) #********** ok
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, .1 * greyScaleColor[0], 1) #********** good 3x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 3 * greyScaleColor[0], 1) #********** good 3x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 10 * greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 2, 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 6 * greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (10 * greyScaleColor[0]), 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1) #********** good 10x
 
 
-					spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1, exactGrey, 1, 1) #********** use ####### 1 / 100
+			else:
+				# greyscaleConversionVec = mathutils.Vector((.299, .587, .114))
+				# greyscaleConversionVec = .299 * comboColor.x, .587 * comboColor.y, .114 * comboColor.z
+				greyscaleConversionVec = (.299 * comboColor.x) + (.587 * comboColor.y) + (.114 * comboColor.z)
+				# greyscaleConversionVec = mathutils.Vector((greyscaleConversionVec, greyscaleConversionVec, greyscaleConversionVec))
+
+				closest_idx = 19 - ((1 - (greyscaleConversionVec * 10)) * 19)
+				# closest_idx = 19 - closest_idx
+
+				# comboColor = mathutils.Vector((0, 1, 0))
+			
 
 
 
 
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1, exactGrey, 1, 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
-
-					# spectralMix = comboColor * (val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]))
-
-					# spectralMix = spectral3_glsl.spectral_mix2(myTestAdjustFromUI_v, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
-					# spectralMix = myTestAdjustFromUI_v
-					# spectralMix = comboColor
-					
-					# spectralMix = comboColor
-					# self.aspect = val_spectral_mix_multiplier_prop
-
-					# spectralMix = greyScaleColor * comboColor ### check vs this
-					
-					# spectralMix = closestValueV ###########
-					# spectralMix = greyScaleColor ############
-					# spectralMix = realGreyscale ###########
-					# spectralMix = comboColor
-					# spectralMix = realGreyscale * comboColor
-
-					val_gamma_correct_gradient_color_prop = True
-					val_gamma_correct_gradient_color_prop = False
-
-					if val_gamma_correct_gradient_color_prop == True:
-						gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
-						gammaCorrect_r = pow(spectralMix.x, gammaCorrect.x)
-						gammaCorrect_g = pow(spectralMix.y, gammaCorrect.y)
-						gammaCorrect_b = pow(spectralMix.z, gammaCorrect.z)
-
-						spectralMix = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
 
 
-					Ci = spectralMix
+
+
+
+
+
+
+
+			distance_from_cam = (self.myCam.location - faceCenter).length
+
+			oldMin = self.distanceFromCam_all_list[-1]
+			oldMax = self.distanceFromCam_all_list[0]
+
+			oldMin = self.distanceFromCam_raycastRenderable_list[-1]
+			oldMax = self.distanceFromCam_raycastRenderable_list[0]
+			# myRemap = 1 - self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1) #!!!!!!!!!!!!!!!!!!!!
+			myRemap = self.remap_range(distance_from_cam, oldMin, oldMax, 0, 1)
+
+			# gammaCorrect = mathutils.Vector((1, 1, 1))
+			gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+
+			gammaCorrect_r = pow(myRemap, gammaCorrect.x)
+			gammaCorrect_g = pow(myRemap, gammaCorrect.y)
+			gammaCorrect_b = pow(myRemap, gammaCorrect.z)
+
+			myRemap_gc = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+			realGreyscale = myRemap_gc
+
+			closest_idx_usable = 19 - closest_idx
+			closestIdxIn19 = float((closest_idx_usable * realGreyscale[0]) / 19)
+
+			greyScaleColor = mathutils.Vector((closestIdxIn19, closestIdxIn19, closestIdxIn19))
+
+			val_spectral_mix_multiplier_prop = bpy.context.scene.spectral_mix_multiplier_prop
+			val_spectral_mix_multiplier2_prop = bpy.context.scene.spectral_mix_multiplier2_prop
+			myTestAdjustFromUI_v = mathutils.Vector((val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop, val_spectral_mix_multiplier_prop))
+		
+			exactGrey = mathutils.Vector((0.5, 0.5, 0.5))
+			testColor = mathutils.Vector((0.5, 0.3, 0.1))
+
+
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, greyScaleColor[0], 1) #********** ok
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, greyScaleColor, greyScaleColor[0], 1) #********** ok
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, .1 * greyScaleColor[0], 1) #********** good 3x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 3 * greyScaleColor[0], 1) #********** good 3x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 10 * greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 2, 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, 6 * greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (10 * greyScaleColor[0]), 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1) #********** good 10x
+
+
+
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * (val_spectral_mix_multiplier2_prop + greyScaleColor[0]), 1, exactGrey, 1, 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1, exactGrey, 1, 1) #********** good 10x
+
+			# spectralMix = comboColor * (val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]))
+
+			# spectralMix = spectral3_glsl.spectral_mix2(myTestAdjustFromUI_v, 1, 1, exactGrey, val_spectral_mix_multiplier_prop + greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = spectral3_glsl.spectral_mix2(comboColor, 1, 1, exactGrey, val_spectral_mix_multiplier_prop * greyScaleColor[0], 1) #********** good 10x
+			# spectralMix = myTestAdjustFromUI_v
+			# spectralMix = comboColor
+			
+			# spectralMix = comboColor
+			# self.aspect = val_spectral_mix_multiplier_prop
+
+			# spectralMix = greyScaleColor * comboColor ### check vs this
+			
+			# spectralMix = closestValueV ###########
+			# spectralMix = greyScaleColor ############
+			# spectralMix = realGreyscale ###########
+			# spectralMix = comboColor
+			# spectralMix = realGreyscale * comboColor
+
+			#############
+			######## GOOD, ADJUSTABLE
+			#############
+			spectralMix = spectral3_glsl.spectral_mix2(comboColor, val_spectral_mix_multiplier_prop + (val_spectral_mix_multiplier2_prop * greyScaleColor[0]), 1, exactGrey, 1, 1) #********** use ####### 1 / 100
+
+			val_gamma_correct_gradient_color_prop = True
+			val_gamma_correct_gradient_color_prop = False
+
+			if val_gamma_correct_gradient_color_prop == True:
+				gammaCorrect = mathutils.Vector((2.2, 2.2, 2.2))
+				gammaCorrect_r = pow(spectralMix.x, gammaCorrect.x)
+				gammaCorrect_g = pow(spectralMix.y, gammaCorrect.y)
+				gammaCorrect_b = pow(spectralMix.z, gammaCorrect.z)
+
+				spectralMix = mathutils.Vector((gammaCorrect_r, gammaCorrect_g, gammaCorrect_b))
+
+			Ci = spectralMix
+
 		Ci_gc = Ci
 
 		val_text_rotate_x_prop = bpy.context.scene.text_rotate_x_prop
@@ -5378,6 +5588,11 @@ class ABJ_Shader_Debugger():
 		myRotation = self.myV * mathutils.Vector((math.radians(val_text_rotate_x_prop), math.radians(val_text_rotate_y_prop), math.radians(val_text_rotate_z_prop)))
 
 		
+		usableTextRGBPrecision_items = bpy.context.scene.bl_rna.properties['text_rgb_precision_enum_prop'].enum_items
+		usableTextRGBPrecision_id = usableTextRGBPrecision_items[bpy.context.scene.text_rgb_precision_enum_prop].identifier
+
+		precisionVal = int(usableTextRGBPrecision_id)
+
 		for j in bpy.context.scene.objects:
 			if j.name == shadingPlane:
 				bpy.context.view_layer.objects.active = j
@@ -5385,18 +5600,37 @@ class ABJ_Shader_Debugger():
 				#####################
 				### text_add() (better text placement)
 				#####################
-				'''
+				# '''
 				val_use_18_hue_colorspace_prop = bpy.context.scene.use_18_hue_colorspace_prop
 
 				# if precisionVal != -1:
 				if val_use_18_hue_colorspace_prop == True:
 					# precisionVal = 3
+
+					min_distance = float('inf')
+					closest_v = None
+					closest_value = None
+					closest_identifier = None
+					closest_idx = None
+
+					for v in self.colorspace_18_hue_list:
+						distance = (Ci_gc - v['value']).length
+						if distance < min_distance:
+							min_distance = distance
+							closest_value = v['value']
+							closest_identifier = v['identifier']
+							closest_idx = v['idx']
+
+					# Ci_gc = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+					usableCi = mathutils.Vector((closest_value.x, closest_value.y, closest_value.z))
+
 					# t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+					# t = '(' + str(round(Ci_gc.x, precisionVal)) + ', ' + str(round(Ci_gc.y, precisionVal)) + ', ' + str(round(Ci_gc.z, precisionVal)) + ')'
+					# t = '(' + str(round(usableCi.x, precisionVal)) + ', ' + str(round(usableCi.y, precisionVal)) + ', ' + str(round(usableCi.z, precisionVal)) + ')'
+					t = closest_identifier + str(closest_idx)
 
 					myFontCurve = bpy.data.curves.new(type="FONT", name="myFontCurve")
-					# myFontCurve.body = t
-
-
+					myFontCurve.body = t
 
 					myFontOb = bpy.data.objects.new(j.name + '_text', myFontCurve)
 					myFontOb.data.align_x = 'CENTER'
@@ -5438,7 +5672,7 @@ class ABJ_Shader_Debugger():
 
 					self.textRef_all.append(myFontOb.name)
 
-				'''
+				# '''
 
 		mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", Ci_gc.x, Ci_gc.y, Ci_gc.z)
 		# mat1 = self.newShader("ShaderVisualizer_" + str(mySplitFaceIndexUsable), "emission", .1, .1, .1)
@@ -6079,7 +6313,6 @@ class ABJ_Shader_Debugger():
 
 		matCheck = bpy.data.materials.get("ShaderVisualizer_" + str(mySplitFaceIndexUsable))
 		
-
 		if matCheck: #material already exists...check if it is not selected for stage stepping
 			for j in self.shadingStages_perFace_stepList:
 				if (j["idx"]) == mySplitFaceIndexUsable:
@@ -6119,7 +6352,6 @@ class ABJ_Shader_Debugger():
 		if self.skip_refresh_override_aniso_roughnessY == True:
 			skip_refresh = False
 
-
 		if skip_refresh_override_recently_cleared_faces == True:
 			skip_refresh = False
 
@@ -6127,6 +6359,9 @@ class ABJ_Shader_Debugger():
 			skip_refresh = False
 
 		if self.changedDiffuseEquation_variables == True:
+			skip_refresh = False
+
+		if self.skip_refresh_override_use_18_hue_colorspace == True:
 			skip_refresh = False
 
 		return skip_refresh

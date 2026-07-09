@@ -18,8 +18,8 @@ along with this program; if not, see <https://www.gnu.org/licenses>.
 bl_info = {
 	"name": "ABJ Shader Debugger for Blender",
 	"author" : "Aleksander Berg-Jones",
-	"version" : (1, 1),
-	"blender": (5, 1, 1),
+	"version" : (1, 2),
+	"blender": (5, 1, 2),
 	"location": "Scene",
 	"description": "Shader Debugger",
 	"warning": "",
@@ -311,7 +311,7 @@ def register():
 		name='aov',
 		description="aov",
 		items=aov_items,
-		default='Ci',
+		default='saturation_based_on_distance',
 	)
 
 	breakpoint_override_items = (
