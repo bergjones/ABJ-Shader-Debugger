@@ -36,8 +36,14 @@ SPECTRAL_SIZE = 38
 SPECTRAL_GAMMA = 2.4
 SPECTRAL_EPSILON = 0.0000000000000001
 
+# def dotproduct(a, b):
+# 	return sum(x * y for x, y in zip(a, b))
+
 def dotproduct(a, b):
-	return sum(x * y for x, y in zip(a, b))
+	written_dot_product_result = 0
+	for i in range(len(a)):
+		written_dot_product_result += a[i] * b[i]
+	return written_dot_product_result
 
 def clamp(value, minimum, maximum):
 	"""Clamps the value between the minimum and maximum values."""
@@ -58,8 +64,6 @@ def spectral_srgb_to_linear(srgb):
 	g = spectral_uncompand(srgb[1])
 	b = spectral_uncompand(srgb[2])
 
-	# return [r, g, b]
-
 	return mathutils.Vector((r, g, b))
 
 def spectral_linear_to_srgb(lrgb):
@@ -67,31 +71,11 @@ def spectral_linear_to_srgb(lrgb):
 	g = clamp(spectral_compand(lrgb[1]), 0, 1)
 	b = clamp(spectral_compand(lrgb[2]), 0, 1)
 
-	# return [r, g, b]
 	return mathutils.Vector((r, g, b))
 
 def spectral_linear_to_reflectance(lrgb):
-	R = [0] * SPECTRAL_SIZE
-
-	# w = min(lrgb[0], min(lrgb[1], lrgb[2]))
-	# w3 = mathutils.Vector((w, w, w))
-
-	# # lrgb -= w
-	# lrgb -= w3
-
-	# c = min(lrgb[1], lrgb[2])
-	# m = min(lrgb[0], lrgb[2])
-	# y = min(lrgb[0], lrgb[1])
-
-	# r = min(max(0.0, lrgb[0] - lrgb[2]), max(0.0, lrgb[0] - lrgb[1]))
-	# g = min(max(0.0, lrgb[1] - lrgb[2]), max(0.0, lrgb[1] - lrgb[0]))
-	# b = min(max(0.0, lrgb[2] - lrgb[1]), max(0.0, lrgb[2] - lrgb[0]))
-
-	#########################
-
 	w = min(lrgb.x, min(lrgb.y, lrgb.z))
 	w3 = mathutils.Vector((w, w, w))
-
 
 	# lrgb -= w
 	lrgb -= w3
@@ -104,6 +88,7 @@ def spectral_linear_to_reflectance(lrgb):
 	g = min(max(0.0, lrgb.y - lrgb.z), max(0.0, lrgb.y - lrgb.x))
 	b = min(max(0.0, lrgb.z - lrgb.y), max(0.0, lrgb.z - lrgb.x))
 
+	R = [0] * SPECTRAL_SIZE
 	
 	R[ 0] = max(SPECTRAL_EPSILON, w * 1.0011607271876400 + c * 0.9705850013229620 + m * 0.9906735573199880 + y * 0.0210523371789306 + r * 0.0315605737777207 + g * 0.0095560747554212 + b * 0.9794047525020140)
 	R[ 1] = max(SPECTRAL_EPSILON, w * 1.0011606515972800 + c * 0.9705924981434250 + m * 0.9906715249619790 + y * 0.0210564627517414 + r * 0.0315520718330149 + g * 0.0095581580120851 + b * 0.9794007068431300)
@@ -154,7 +139,6 @@ def spectral_xyz_to_srgb(xyz):
 	b = dotproduct(XYZ_RGB[2], xyz)
 
 	return spectral_linear_to_srgb([r, g, b])
-
 
 def spectral_reflectance_to_xyz(R):
 	xyz = mathutils.Vector((0, 0, 0))
@@ -218,12 +202,12 @@ def spectral_mix2(color1, tintingStrength1, factor1, color2, tintingStrength2, f
 
 	R = [0] * SPECTRAL_SIZE
 
+	concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
+	concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
+		
+	totalConcentration = concentration1 + concentration2
+
 	for i in range(SPECTRAL_SIZE):
-		concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
-		concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
-		
-		totalConcentration = concentration1 + concentration2
-		
 		ksMix = 0
 		
 		ksMix += KS(R1[i]) * concentration1
@@ -248,12 +232,13 @@ def spectral_mix3(color1, tintingStrength1, factor1, color2, tintingStrength2, f
 
 	R = [0] * SPECTRAL_SIZE
 
+	concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
+	concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
+	concentration3 = pow(factor3, 2) * pow(tintingStrength3, 2) * luminance3
+	
+	totalConcentration = concentration1 + concentration2 + concentration3
+	
 	for i in range(SPECTRAL_SIZE):
-		concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
-		concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
-		concentration3 = pow(factor3, 2) * pow(tintingStrength3, 2) * luminance3
-		
-		totalConcentration = concentration1 + concentration2 + concentration3
 		
 		ksMix = 0
 		
@@ -283,13 +268,14 @@ def spectral_mix4(color1, tintingStrength1, factor1, color2, tintingStrength2, f
 
 	R = [0] * SPECTRAL_SIZE
 
+	concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
+	concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
+	concentration3 = pow(factor3, 2) * pow(tintingStrength3, 2) * luminance3
+	concentration4 = pow(factor4, 2) * pow(tintingStrength4, 2) * luminance4
+	
+	totalConcentration = concentration1 + concentration2 + concentration3 + concentration4
+	
 	for i in range(SPECTRAL_SIZE):
-		concentration1 = pow(factor1, 2) * pow(tintingStrength1, 2) * luminance1
-		concentration2 = pow(factor2, 2) * pow(tintingStrength2, 2) * luminance2
-		concentration3 = pow(factor3, 2) * pow(tintingStrength3, 2) * luminance3
-		concentration4 = pow(factor4, 2) * pow(tintingStrength4, 2) * luminance4
-		
-		totalConcentration = concentration1 + concentration2 + concentration3 + concentration4
 		
 		ksMix = 0
 		
