@@ -3205,46 +3205,6 @@ class ABJ_Shader_Debugger():
 		return node_mix1
 	
 	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
-	def spectral_compositor_uncompand(self, nodetree, inputColorSplitNode):
-		node_math1 = nodetree.nodes.new("ShaderNodeMath")
-		node_math1.operation = 'LESS_THAN'
-		node_math1.label = 'math1 uncompand'
-		node_math1.inputs[1].default_value = 0.04045
-		nodetree.links.new(inputColorSplitNode.outputs[0], node_math1.inputs[0])
-
-		node_mix1 = nodetree.nodes.new("ShaderNodeMix")
-		nodetree.links.new(node_math1.outputs[0], node_mix1.inputs[0])
-
-		node_math2 = nodetree.nodes.new("ShaderNodeMath")
-		node_math2.operation = 'DIVIDE'
-		node_math1.label = 'math2 uncompand'
-		node_math2.inputs[1].default_value = 12.92
-		nodetree.links.new(inputColorSplitNode.outputs[0], node_math2.inputs[0])
-
-		nodetree.links.new(node_math2.outputs[0], node_mix1.inputs['A'])
-
-		node_math3 = nodetree.nodes.new("ShaderNodeMath")
-		node_math3.operation = 'ADD'
-		node_math1.label = 'math3 uncompand'
-		node_math3.inputs[1].default_value = 0.055
-		nodetree.links.new(inputColorSplitNode.outputs[0], node_math3.inputs[0])
-
-		node_math4 = nodetree.nodes.new("ShaderNodeMath")
-		node_math4.operation = 'DIVIDE'
-		node_math4.inputs[1].default_value = 1.055
-		nodetree.links.new(node_math3.outputs[0], node_math4.inputs[0])
-
-		node_math5 = nodetree.nodes.new("ShaderNodeMath")
-		node_math5.operation = 'POWER'
-		node_math5.label = 'node_math5 pow'
-		nodetree.links.new(node_math4.outputs[0], node_math5.inputs[0])
-		nodetree.links.new(self.node_spectral_gamma.outputs[0], node_math5.inputs[1])
-
-		nodetree.links.new(node_math5.outputs[0], node_mix1.inputs['B'])
-
-		return node_mix1
-	
-	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
 	def spectral_compositor_compand(self, nodetree, inputNode, idx):
 		node_math1 = nodetree.nodes.new("ShaderNodeMath")
 		node_math1.operation = 'LESS_THAN'
