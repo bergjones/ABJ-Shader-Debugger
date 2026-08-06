@@ -1,18 +1,26 @@
 '''
-Copyright (C) 2025 Aleksander Berg-Jones
+MIT License
 
-This program is free software; you can redistribute it and/or
-modify it under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 3
-of the License, or (at your option) any later version.
+Copyright (c) 2026 Aleksander Berg-Jones
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
+##  Permission is hereby granted, free of charge, to any person obtaining a
+##  copy of this software and associated documentation files (the "Software"),
+##  to deal in the Software without restriction, including without limitation
+##  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+##  and/or sell copies of the Software, and to permit persons to whom the
+##  Software is furnished to do so, subject to the following conditions:
+##
+##  The above copyright notice and this permission notice shall be included in
+##  all copies or substantial portions of the Software.
+##
+##  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+##  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+##  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+##  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+##  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+##  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+##  DEALINGS IN THE SOFTWARE.
 
-You should have received a copy of the GNU General Public License
-along with this program; if not, see <https://www.gnu.org/licenses>.
 ''' 
 
 import bpy
@@ -22,9 +30,13 @@ import mathutils
 from datetime import datetime
 import random
 import numpy as np
+import scipy
+from scipy.spatial import Delaunay
 import importlib
 import sys
 import copy
+
+
 
 from . import simple_spec_abj
 from . import GGX_hable_abj
@@ -77,21 +89,15 @@ class ABJ_Shader_Debugger():
 		self.text_gradient_rotate_y_stored = 0.0
 		self.text_gradient_rotate_z_stored = 0.0
 
-		
 		self.val_gradient_circle_override = 0
 		self.val_gradient_circle_override_side = None
-
 
 		self.myLoc_arrow_01 = None
 
 		#spectral compositor
 		self.node_spectral_gamma = None
 		self.node_spectral_epsilon = None
-		self.node_spectral_size = None
-
-
-
-
+		self.node_spectral_size = None		
 
 		self.nodeOut = None
 		self.nodeViewer = None
@@ -2324,6 +2330,16 @@ class ABJ_Shader_Debugger():
 
 	def spectral_compositor_debugging_exit_visualizer(self, nodetree, nodeToView, readPixelX, readPixelY):
 		
+		nodetree.links.new(nodeToView.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		nodetree.links.new(nodeToView.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		self.autoArrangeNodes(nodetree)
+		# self.autoArrangeNodes(worldtree)
+
+		self.compositor_setup = True
+
+		# return
+
 		############################
 		#the user must have saved a new, default scene to a file and have a folder called 'compositing_files' in that directory
 		############################
@@ -2668,6 +2684,354 @@ class ABJ_Shader_Debugger():
 		# 5. Clean up temporary image data block from Blender memory
 		bpy.data.images.remove(img)
 
+
+	def SDF_geometryNodeNameChecker(self):
+		# 1. Target your specific Geometry Nodes tree by its name
+		# Replace "sdf gen for bones" with the exact name of your node group if different
+		node_tree_name = "Geometry Nodes"
+		node_group = bpy.data.node_groups.get(node_tree_name)
+
+		if node_group and node_group.type == 'GEOMETRY':
+			print(f"\n--- NODE LIST FOR: {node_group.name} ---")
+			print(f"{'DISPLAY NAME':<30} | {'PYTHON BL_IDNAME (TYPE)':<30} | {'INTERNAL DATA NAME'}")
+			print("-" * 90)
+			
+			# 2. Loop through every node in the graph
+			for node in node_group.nodes:
+				# bl_idname is the exact string you need when writing "nodes.new(type='...')" in a script
+				print(f"{node.label or node.name:<30} | {node.bl_idname:<30} | {node.name}")
+				
+			print("-" * 90)
+		else:
+			print(f"Error: Geometry Node tree '{node_tree_name}' not found. Check your spelling!")
+
+
+	def SDF_01_old(self):
+		# selected_objects = bpy.context.selected_objects
+		# # for obj in selected_objects:
+		# bpy.context.view_layer.objects.active = k
+
+		# for i in bpy.context.scene.objects:
+		# 	if i.name == i:
+
+		# for i in bpy.context.selected_objects:
+		# 	for j in self.shadingStages_perFace_stepList:
+		# 		if j["shadingPlane"] == i.name:
+
+		# for i in bpy.context.scene.objects:
+		# 		if i.name == '':
+
+		# myInputMesh = bpy.context.active_object
+		myInputMesh = bpy.context.selected_objects[0]
+		myInputMesh.select_set(1)
+
+		# Ensure the object has a Geometry Nodes modifier
+		mod = myInputMesh.modifiers.get("SDF_Modifier")
+		if not mod:
+			mod = myInputMesh.modifiers.new(name="SDF_Modifier", type='NODES')
+			
+		# Create or get the Node Group
+		node_group = bpy.data.node_groups.new(type='GeometryNodeTree', name="SDF_Calculation_Tree")
+		mod.node_group = node_group
+
+		# Setup interface inputs/outputs for Blender 5.0+ node tree
+		# Add Density (Voxel Resolution) and Thickening (Offset) parameters
+		node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+		node_group.interface.new_socket(name="Density (Resolution)", in_out='INPUT', socket_type='NodeSocketInt')
+		node_group.interface.new_socket(name="Thickening", in_out='INPUT', socket_type='NodeSocketFloat')
+		node_group.interface.new_socket(name="Volume Output", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+
+		nodes = node_group.nodes
+		links = node_group.links
+
+		# Clear default nodes
+		nodes.clear()
+
+		# Create Input and Output nodes
+		group_input = nodes.new('NodeGroupInput')
+		group_input.location = (-400, 0)
+
+		group_output = nodes.new('NodeGroupOutput')
+		group_output.location = (400, 0)
+
+		# Create Mesh to SDF Grid node (Blender 5.0+ Volume/SDF feature)
+		mesh_to_sdf = nodes.new('GeometryNodeMeshToSDFGrid')
+		mesh_to_sdf.location = (-100, 0)
+
+		# Link input geometry to Mesh to SDF node
+		links.new(group_input.outputs[0], mesh_to_sdf.inputs['Mesh'])
+
+		# Link density/resolution parameter if exposed
+		# (Matches identifier or name of the second interface item)
+		try:
+			links.new(group_input.outputs[1], mesh_to_sdf.inputs['Resolution'])
+		except KeyError:
+			pass # Fallback if socket name differs by sub-version
+			
+		# Link resulting grid/volume directly to output
+		links.new(mesh_to_sdf.outputs['SDF Grid'], group_output.inputs[1])
+
+		# print(f"SDF node tree successfully applied to {myInputMesh.name}")
+
+		#isomesher
+		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeVolumeCube")
+		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeInputPosition")
+
+	def tetGen(self):
+		context = bpy.context
+		obj = context.active_object
+		
+		if not obj or obj.type != 'MESH':
+			print("Please select a mesh object.")
+			return None
+		
+		# 1. Extract Surface Vertices
+		mesh = obj.data
+		num_verts = len(mesh.vertices)
+		
+		# Fast copy of all vertex positions into a flat numpy array
+		verts_flat = np.zeros(num_verts * 3, dtype=np.float64)
+		mesh.vertices.foreach_get('co', verts_flat)
+		X_surface = verts_flat.reshape(-1, 3)
+		
+		# Apply object's world matrix transform so simulation matches world space
+		world_matrix = np.array(obj.matrix_world)
+		X_surface_homo = np.hstack([X_surface, np.ones((num_verts, 1))])
+		X_world = (X_surface_homo @ world_matrix.T)[:, :3]
+		
+		# 2. Compute Delaunay Tetrahedrons
+		print(f"Triangulating {len(X_world)} vertices...")
+		tri = Delaunay(X_world)
+		all_tets = tri.simplices  # Shape: (M, 4) array of vertex indices
+		
+		# 3. Filter out Tets outside the organic volume (Point-In-Mesh Check)
+		# We compute the barycenter (midpoint) of every generated tetrahedron
+		tet_centers = X_world[all_tets].mean(axis=1)
+		
+		# Use Blender's BVH tree to check which centers are truly inside the mesh
+		# For a social media prototype, a quick distance check or raycast works well
+		bm = bmesh.new()
+		bm.from_mesh(mesh)
+		bvh = bmesh.ops.find_closest_element(bm, faces=bm.faces, matrix=obj.matrix_world)
+		
+		valid_tets = []
+		for idx, center in enumerate(tet_centers):
+			# Quick raycast test to ensure center point is inside the manifold bounds
+			# (For this proof of concept, we keep all Delaunay shapes for the core geometry)
+			valid_tets.append(all_tets[idx])
+			
+		tets = np.array(valid_tets, dtype=np.int32)
+		
+		# 4. Precompute Material Space Matrices (Dm^-1) for Neo-Hookean Math
+		# Doing this on frame 0 ensures your frame-by-frame loop remains fast!
+		x0 = X_world[tets[:, 0]]
+		x1 = X_world[tets[:, 1]]
+		x2 = X_world[tets[:, 2]]
+		x3 = X_world[tets[:, 3]]
+		
+		Dm = np.zeros((tets.shape[0], 3, 3), dtype=np.float64)
+		Dm[:, :, 0] = x1 - x0
+		Dm[:, :, 1] = x2 - x0
+		Dm[:, :, 2] = x3 - x0
+		
+		# Batch calculate inverses and rest volumes
+		inv_Dm = np.linalg.inv(Dm)
+		rest_volumes = np.abs(np.linalg.det(Dm)) / 6.0
+		
+		print(f"Successfully generated {len(tets)} organic-aligned tetrahedrons!")
+		return X_world, tets, inv_Dm, rest_volumes
+
+		# Execute the extraction pipeline
+		# X_world, tets, inv_Dm, rest_volumes = generate_tets_from_active_object()
+
+
+
+
+
+	def SDF_01(self):
+
+		X_world, tets, inv_Dm, rest_volumes = self.tetGen()
+
+
+
+
+		return
+
+
+
+
+
+
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+	
+		# selected_objects = bpy.context.selected_objects
+		# # for obj in selected_objects:
+		# bpy.context.view_layer.objects.active = k
+
+		# for i in bpy.context.scene.objects:
+		# 	if i.name == i:
+
+		# for i in bpy.context.selected_objects:
+		# 	for j in self.shadingStages_perFace_stepList:
+		# 		if j["shadingPlane"] == i.name:
+
+		# for i in bpy.context.scene.objects:
+		# 		if i.name == '':
+
+		self.deselectAll()
+		bpy.ops.mesh.primitive_cone_add(vertices=3, radius1=1, radius2=0, depth=2, end_fill_type='TRIFAN', enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
+		tet_0 = bpy.context.active_object
+		tet_0.name = 'tet_0'
+		# tet_0.select_set(1)
+
+		bpy.ops.mesh.primitive_cone_add(vertices=3, radius1=1, radius2=0, depth=2, end_fill_type='TRIFAN', enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
+		tet_1 = bpy.context.active_object
+		tet_1.name = 'tet_1'
+		tet_1.hide_set(1)
+
+		bpy.context.view_layer.objects.active = tet_1
+		tet_2 = self.copyObject()
+		tet_2.name = 'tet_2'
+		tet_2.hide_set(1)
+
+		# myInputMesh = bpy.context.active_object
+		# myInputMesh = bpy.context.selected_objects[0]
+		# tet.select_set(1)
+
+		mod = tet_0.modifiers.get("SDF_Modifier")
+		if not mod:
+			mod = tet_0.modifiers.new(name="SDF_Modifier", type='NODES')
+			
+		# Create or get the Node Group
+		nodetree = bpy.data.node_groups.new(type='GeometryNodeTree', name="SDF_Calculation_Tree")
+		mod.node_group = nodetree
+
+		# nodetree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+		# nodetree.interface.new_socket(name="Density (Resolution)", in_out='INPUT', socket_type='NodeSocketInt')
+		# nodetree.interface.new_socket(name="Thickening", in_out='INPUT', socket_type='NodeSocketFloat')
+		# nodetree.interface.new_socket(name="Volume Output", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+
+		nodes = nodetree.nodes
+		links = nodetree.links
+
+		nodes.clear()
+
+		group_input = nodes.new('NodeGroupInput')
+		group_output = nodes.new('NodeGroupOutput')
+
+		#ISOMESHER
+		node_objectInfo_0 = nodetree.nodes.new("GeometryNodeObjectInfo")
+		node_objectInfo_0.label = 'objectInfo 0'
+		node_objectInfo_0.transform_space = 'RELATIVE'
+		bpy.data.node_groups["SDF_Calculation_Tree"].nodes["Object Info"].transform_space = 'RELATIVE'
+		node_objectInfo_0.inputs[0].default_value = bpy.data.objects[tet_1.name]
+
+
+		node_objectInfo_1 = nodetree.nodes.new("GeometryNodeObjectInfo")
+		node_objectInfo_1.label = 'objectInfo 1'
+		node_objectInfo_1.transform_space = 'RELATIVE'
+		bpy.data.node_groups["SDF_Calculation_Tree"].nodes["Object Info"].transform_space = 'RELATIVE'
+		node_objectInfo_1.inputs[0].default_value = bpy.data.objects[tet_2.name]
+
+
+		node_GeometryNodeMeshToSDFGrid_1 = nodetree.nodes.new("GeometryNodeMeshToSDFGrid")
+		node_GeometryNodeMeshToSDFGrid_1.inputs[1].default_value = 0.02
+		node_GeometryNodeMeshToSDFGrid_1.inputs[2].default_value = 10
+		nodetree.links.new(node_objectInfo_0.outputs[4], node_GeometryNodeMeshToSDFGrid_1.inputs[0])
+
+
+		node_GeometryNodeMeshToSDFGrid_2 = nodetree.nodes.new("GeometryNodeMeshToSDFGrid")
+		node_GeometryNodeMeshToSDFGrid_2.inputs[1].default_value = 0.02
+		node_GeometryNodeMeshToSDFGrid_2.inputs[2].default_value = 10
+		nodetree.links.new(node_objectInfo_1.outputs[4], node_GeometryNodeMeshToSDFGrid_2.inputs[0])
+
+
+		node_GeometryNodeMeshGridOffset = nodetree.nodes.new("GeometryNodeSDFGridOffset")
+		node_GeometryNodeMeshGridOffset.inputs[1].default_value = 0.1
+		nodetree.links.new(node_GeometryNodeMeshToSDFGrid_2.outputs[0], node_GeometryNodeMeshGridOffset.inputs[0])
+
+
+		node_GeometryNodeSDFGridBoolean = nodetree.nodes.new("GeometryNodeSDFGridBoolean")
+		nodetree.links.new(node_GeometryNodeMeshToSDFGrid_1.outputs[0], node_GeometryNodeSDFGridBoolean.inputs[0])
+		nodetree.links.new(node_GeometryNodeMeshGridOffset.outputs[0], node_GeometryNodeSDFGridBoolean.inputs[1])
+
+
+		node_GeometryNodeGridToMesh = nodetree.nodes.new("GeometryNodeGridToMesh")
+		node_GeometryNodeGridToMesh.inputs[1].default_value = 0.1
+		node_GeometryNodeGridToMesh.inputs[2].default_value = 0
+		nodetree.links.new(node_GeometryNodeSDFGridBoolean.outputs[0], node_GeometryNodeGridToMesh.inputs[0])
+
+		
+		node_GeometryNodeSplitToInstances = nodetree.nodes.new("GeometryNodeSplitToInstances")
+		node_GeometryNodeSplitToInstances.domain = 'POINT'
+
+
+
+		node_GeometryNodeInputMeshIsland = nodetree.nodes.new("GeometryNodeInputMeshIsland")
+		nodetree.links.new(node_GeometryNodeGridToMesh.outputs[0], node_GeometryNodeSplitToInstances.inputs[0])
+		nodetree.links.new(node_GeometryNodeInputMeshIsland.outputs[0], node_GeometryNodeSplitToInstances.inputs[2])
+
+
+		node_GeometryNodeInputIndex = nodetree.nodes.new("GeometryNodeInputIndex")
+
+
+		node_FunctionNodeCompare = nodetree.nodes.new("FunctionNodeCompare")
+		node_FunctionNodeCompare.data_type = 'INT'
+		node_FunctionNodeCompare.operation = 'EQUAL'
+		node_FunctionNodeCompare.inputs[1].default_value = 1
+		nodetree.links.new(node_GeometryNodeInputIndex.outputs[0], node_FunctionNodeCompare.inputs[0])
+
+
+		node_GeometryNodeSeparateGeometry = nodetree.nodes.new("GeometryNodeSeparateGeometry")
+		node_GeometryNodeSeparateGeometry.domain = 'INSTANCE'
+		nodetree.links.new(node_GeometryNodeSplitToInstances.outputs[0], node_GeometryNodeSeparateGeometry.inputs[0])
+		nodetree.links.new(node_FunctionNodeCompare.outputs[0], node_GeometryNodeSeparateGeometry.inputs[1])
+
+
+		links.new(node_GeometryNodeSeparateGeometry.outputs[0], group_output.inputs[0])
+
+		self.autoArrangeNodes(nodetree)
+
+		bpy.context.view_layer.objects.active = tet_0
+		# tet_0.select_set(1)
+
+
+		#isomesher
+		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeVolumeCube")
+		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeInputPosition")
+
+
+
+		'''
+		--- NODE LIST FOR: Geometry Nodes ---
+		DISPLAY NAME                   | PYTHON BL_IDNAME (TYPE)        | INTERNAL DATA NAME
+		------------------------------------------------------------------------------------------
+		Group Input                    | NodeGroupInput                 | Group Input
+		Group Output                   | NodeGroupOutput                | Group Output
+		Object Info.001                | GeometryNodeObjectInfo         | Object Info.001
+		Mesh to SDF Grid               | GeometryNodeMeshToSDFGrid      | Mesh to SDF Grid
+		Mesh to SDF Grid.001           | GeometryNodeMeshToSDFGrid      | Mesh to SDF Grid.001
+		SDF Grid Offset                | GeometryNodeSDFGridOffset      | SDF Grid Offset
+		SDF Grid Boolean               | GeometryNodeSDFGridBoolean     | SDF Grid Boolean
+		Grid to Mesh                   | GeometryNodeGridToMesh         | Grid to Mesh
+		Object Info.002                | GeometryNodeObjectInfo         | Object Info.002
+		Object Info.003                | GeometryNodeObjectInfo         | Object Info.003
+		Object Info.004                | GeometryNodeObjectInfo         | Object Info.004
+		Split to Instances             | GeometryNodeSplitToInstances   | Split to Instances
+		Mesh Island                    | GeometryNodeInputMeshIsland    | Mesh Island
+		Separate Geometry              | GeometryNodeSeparateGeometry   | Separate Geometry
+		Compare                        | FunctionNodeCompare            | Compare
+		Index                          | GeometryNodeInputIndex         | Index
+		------------------------------------------------------------------------------------------
+
+		'''
+
+
+
+
 	def spectral_compositor_stock(self):
 		self.deselectAll()
 		self.deleteAllObjects()
@@ -2695,6 +3059,7 @@ class ABJ_Shader_Debugger():
 
 	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
 	def spectral_compositor(self):
+
 		self.deselectAll()
 		self.deleteAllObjects()
 		self.mega_purge()
@@ -4124,8 +4489,8 @@ class ABJ_Shader_Debugger():
 		usablePrimitiveType_items = bpy.context.scene.bl_rna.properties['primitive_enum_prop'].enum_items
 		usablePrimitiveType_id = usablePrimitiveType_items[bpy.context.scene.primitive_enum_prop].identifier
 
-		multipleObj = True
-		# multipleObj = False
+		# multipleObj = True
+		multipleObj = False
 		myInputMesh = None
 		myInputMeshDebug0 = None
 		myInputMeshDebug1 = None
@@ -8609,6 +8974,14 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		layout = self.layout
 
 		######################################
+		###### FEM
+		######################################
+		layout.label(text='SDF 01')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_sdf_01_operator')
+
+		######################################
 		###### SPECTRAL COMPOSITOR
 		######################################
 		layout.label(text='SPECTRAL COMPOSITOR')
@@ -9051,7 +9424,16 @@ class SHADER_OT_SPECTRAL_COMPOSITOR(bpy.types.Operator):
 	def execute(self, context):
 		myABJ_SD_B.spectral_compositor()
 		return {'FINISHED'}
-	
+
+class SHADER_OT_SDF_01(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'SDF 01'
+	bl_idname = 'shader.abj_shader_debugger_sdf_01_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.SDF_01()
+		return {'FINISHED'}
 
 class SHADER_OT_COMPOSITOR_STOCK(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
@@ -9275,3 +9657,4 @@ class SHADER_OT_RESTORECAMVIEW(bpy.types.Operator):
 	
 
 myABJ_SD_B = ABJ_Shader_Debugger() ######################
+

@@ -1,5 +1,5 @@
 ###
-Latest update
+Spectral Blending
 ###
 
 The latest update to ABJ Shader Debugger demonstrates the concept of color saturation based on distance with spectral blending, in Blender 5.2.0 compositor nodes. This allows the effect to work on the entire image as adjustable post processing, with a scripted demo. You must save a new, default scene file first and have a folder named 'compositing_files' in that directory. The spectral equation is based on the excellent Spectral.js, but I have translated it most recently into compositor nodes and in previous commits to regular bpy.
