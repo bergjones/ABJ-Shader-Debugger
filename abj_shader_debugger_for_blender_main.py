@@ -70,6 +70,19 @@ class ABJ_Shader_Debugger():
 		# self.chosen_specular_equation = 'simple'
 		self.chosen_specular_equation = 'GGX'
 
+
+
+
+		# --- 1. GLOBAL ANATOMICAL COLOR REGISTRY (LINKED TO SIDEBAR UI) ---
+		# Expand this dictionary natively as you add more muscles or tissues to the solver
+		self.COLOR_REGISTRY = {
+		0: {"name": "Enveloping Skin", "color": [0.1, 0.4, 0.8, 1.0]},  # Translucent Blue
+		1: {"name": "Muscle Tissue",   "color": [0.8, 0.1, 0.1, 1.0]},  # Crimson Red
+		2: {"name": "Outer Rigid Bone", "color": [0.7, 0.7, 0.7, 1.0]},  # Solid Gray
+		3: {"name": "Inner Anim Bone",  "color": [1.0, 1.0, 1.0, 1.0]}   # Bright White
+		}
+
+
 		self.colorspace_18_hue_list = []
 		self.distanceFromCam_all_list = []
 		self.distanceFromCam_raycastRenderable_list = []
@@ -188,8 +201,8 @@ class ABJ_Shader_Debugger():
 		self.arrow_wings = .75
 		self.myOrigin = mathutils.Vector((0, 0, 0))
 
-		self.diffuse_or_emission_og_shading = 'diffuse'
-		# self.diffuse_or_emission_og_shading = 'emission'
+		# self.diffuse_or_emission_og_shading = 'diffuse'
+		self.diffuse_or_emission_og_shading = 'emission'
 		self.adjustedColors = False
 
 		#instance
@@ -2685,7 +2698,7 @@ class ABJ_Shader_Debugger():
 		bpy.data.images.remove(img)
 
 
-	def SDF_geometryNodeNameChecker(self):
+	def FEM_geometryNodeNameChecker(self):
 		# 1. Target your specific Geometry Nodes tree by its name
 		# Replace "sdf gen for bones" with the exact name of your node group if different
 		node_tree_name = "Geometry Nodes"
@@ -2705,332 +2718,1683 @@ class ABJ_Shader_Debugger():
 		else:
 			print(f"Error: Geometry Node tree '{node_tree_name}' not found. Check your spelling!")
 
+	def run_inside_mesh_filter_via_nodes(self, target_mesh_obj, background_cloud_points):
+		"""
+		Pipes a background point matrix into Blender, evaluates the inside/outside
+		state via a C++ Geometry Nodes raycast, and pulls back the filtered array.
+		"""
+		# 1. Create a temporary mesh container to hold our background points
+		temp_mesh = bpy.data.meshes.new("Temp_Cloud_Data")
+		temp_obj = bpy.data.objects.new("Temp_Cloud_Obj", temp_mesh)
+		bpy.context.collection.objects.link(temp_obj)
+		
+		# Fast assign all background positions via correct foreach_set formatting
+		temp_mesh.vertices.add(len(background_cloud_points))
+		temp_mesh.vertices.foreach_set("co", background_cloud_points.ravel())
+		temp_mesh.update()
+		
+		# 2. Generate and assign the filtering Modifier layout
+		mod = temp_obj.modifiers.new(name="Inside_Filter", type='NODES')
+		group = bpy.data.node_groups.new("Inside_Filter_Group", 'GeometryNodeTree')
+		mod.node_group = group
+		
+		# ─── RIGIDLY DEFINE SOCKET INTERFACES FIRST ───
+		group.interface.new_socket(name="Geometry In", in_out='INPUT', socket_type='NodeSocketGeometry')
+		group.interface.new_socket(name="Geometry Out", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+		
+		# Construct nodes
+		n_in = group.nodes.new('NodeGroupInput')
+		n_in.location = (-400, 0)
+		
+		n_out = group.nodes.new('NodeGroupOutput')
+		n_out.location = (600, 0)
+		
+		n_del = group.nodes.new('GeometryNodeDeleteGeometry')
+		n_del.location = (200, 0)
+		n_del.domain = 'POINT'
+		
+		n_obj = group.nodes.new('GeometryNodeObjectInfo')
+		n_obj.location = (-200, 200)
+		n_obj.inputs['Object'].default_value = target_mesh_obj
+		n_obj.transform_space = 'RELATIVE'
+		
+		n_ray = group.nodes.new('GeometryNodeRaycast')
+		n_ray.location = (0, -100)
+		n_ray.inputs['Ray Direction'].default_value = (0.0, 0.0, 1.0)
+		
+		n_not = group.nodes.new('FunctionNodeBooleanMath')
+		n_not.location = (0, 100)
+		n_not.operation = 'NOT'
+		
+		links = group.links
+		
+		# Connect Main Highway using the newly registered interface sockets
+		links.new(n_in.outputs['Geometry In'], n_del.inputs['Geometry'])
+		links.new(n_del.outputs['Geometry'], n_out.inputs['Geometry Out'])
+		
+		# Connect Raycast Engine Firewall (Ensuring the Target object is locked in)
+		links.new(n_obj.outputs['Geometry'], n_ray.inputs['Target Geometry'])
+		links.new(n_in.outputs['Geometry In'], n_ray.inputs['Source Position']) # Direct coordinate tracking
+		links.new(n_ray.outputs['Is Hit'], n_not.inputs[0])
+		links.new(n_not.outputs['Boolean'], n_del.inputs['Selection'])
+		
+		# 3. Force Blender to evaluate the modifier stack safely
+		depsgraph = bpy.context.evaluated_depsgraph_get()
+		evaluated_obj = temp_obj.evaluated_get(depsgraph)
+		final_mesh = evaluated_obj.to_mesh()
+		
+		# 4. Pull the filtered points back into an array
+		num_inside_verts = len(final_mesh.vertices)
+		inside_points_flat = np.zeros(num_inside_verts * 3, dtype=np.float32)
+		final_mesh.vertices.foreach_get("co", inside_points_flat)
+		inside_points = inside_points_flat.reshape(-1, 3)
+		
+		# 5. Fast memory cleanup
+		temp_obj.to_mesh_clear()
+		bpy.data.objects.remove(temp_obj)
+		bpy.data.meshes.remove(temp_mesh)
+		
+		print(f"Geometry Nodes Filter Finished Successfully. Retained {len(inside_points)} interior nodes.")
+		return inside_points
 
-	def SDF_01_old(self):
-		# selected_objects = bpy.context.selected_objects
-		# # for obj in selected_objects:
-		# bpy.context.view_layer.objects.active = k
+	def bridge_filtered_points_to_scipy(self, surface_points, filtered_internal_points, quality_threshold=0.12):
+		"""
+		Combines input CAD surface points with filtered internal points,
+		triangulates via SciPy, prunes slivers, and completely purges hanging points.
+		"""
+		unified_point_pool = np.vstack([surface_points, filtered_internal_points]).astype(np.float64)
+		
+		# 2. Apply Microscopic Jitter Firewall to protect the Qhull linear solver
+		rng = np.random.default_rng(seed=42)
+		unified_point_pool += rng.uniform(-1e-6, 1e-6, size=unified_point_pool.shape)
+    
+		# tri = Delaunay(unified_point_pool, qhull_options="Qz QJ")
+		tri = Delaunay(unified_point_pool, qhull_options="Qz")
+		raw_tets = tri.simplices
 
-		# for i in bpy.context.scene.objects:
-		# 	if i.name == i:
+		# return
 
-		# for i in bpy.context.selected_objects:
-		# 	for j in self.shadingStages_perFace_stepList:
-		# 		if j["shadingPlane"] == i.name:
+		# --- Sliver Quality Check Matrix Math ---
+		v0 = unified_point_pool[raw_tets[:, 0]]
+		v1 = unified_point_pool[raw_tets[:, 1]]
+		v2 = unified_point_pool[raw_tets[:, 2]]
+		v3 = unified_point_pool[raw_tets[:, 3]]
+		
 
-		# for i in bpy.context.scene.objects:
-		# 		if i.name == '':
+		# ─── SCALE-INDEPENDENT MESH FILTERING CORRECTION ───
+		# Calculate signed volumes with a safe absolute fallback
+		cross_prod = np.cross(v2 - v0, v3 - v0) # Adjusted matrix orientation
+		volumes = np.abs(np.einsum('ij,ij->i', cross_prod, v1 - v0)) / 6
 
-		# myInputMesh = bpy.context.active_object
-		myInputMesh = bpy.context.selected_objects[0]
-		myInputMesh.select_set(1)
 
-		# Ensure the object has a Geometry Nodes modifier
-		mod = myInputMesh.modifiers.get("SDF_Modifier")
-		if not mod:
-			mod = myInputMesh.modifiers.new(name="SDF_Modifier", type='NODES')
+		# Calculate all 6 local edge lengths squared
+		l01_sq = np.sum((v1 - v0)**2, axis=1)
+		l02_sq = np.sum((v2 - v0)**2, axis=1)
+		l03_sq = np.sum((v3 - v0)**2, axis=1)
+		l12_sq = np.sum((v2 - v1)**2, axis=1)
+		l13_sq = np.sum((v3 - v1)**2, axis=1)
+		l23_sq = np.sum((v3 - v2)**2, axis=1)
+    
+		
+		# volumes = np.abs(np.einsum('ij,ij->i', np.cross(v1 - v0, v2 - v0), v3 - v0)) / 6.0
+		
+		# l01_sq = np.sum((v1 - v0)**2, axis=1)
+		# l02_sq = np.sum((v2 - v0)**2, axis=1)
+		# l03_sq = np.sum((v3 - v0)**2, axis=1)
+		# l12_sq = np.sum((v2 - v1)**2, axis=1)
+		# l13_sq = np.sum((v3 - v1)**2, axis=1)
+		# l23_sq = np.sum((v3 - v2)**2, axis=1)
+		
+		# rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
+		# quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
+
+		# Compute RMS edge length securely
+		rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
+		
+		# Compute normalized quality score (scale independent)
+		quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
+    
+		
+		# Filter tets
+		# healthy_element_mask = (quality_scores >= quality_threshold) & (volumes > 1e-6)
+		# filtered_tets = raw_tets[healthy_element_mask]
+
+
+		# CRITICAL API CORRECTION: Drop the strict '1e-6' volumetric cap.
+		# Instead, we only check that the volume is mathematically positive (> 1e-12)
+		# to catch true collapsed singularities while keeping small, dense CAD elements intact.
+		healthy_element_mask = (quality_scores >= quality_threshold) & (volumes > 1e-12)
+		filtered_tets = raw_tets[healthy_element_mask]
+
+		# --- THE HANGING POINT FIX ---
+		# Find unique active vertex IDs
+		used_vertex_indices = np.unique(filtered_tets)
+		
+		# Remap active coordinates and slice the array
+		cleaned_point_pool = unified_point_pool[used_vertex_indices]
+		
+		# Re-index the tet mapping elements to preserve index continuity
+		index_remap = np.zeros(len(unified_point_pool), dtype=np.int32)
+		index_remap[used_vertex_indices] = np.arange(len(used_vertex_indices))
+		final_tets = index_remap[filtered_tets]
+		
+		print(f"Simulation Mesh Cleaned: {len(final_tets)} Elements | {len(cleaned_point_pool)} Connected Nodes.")
+		return cleaned_point_pool, final_tets
+
+	def visualize_tets_in_viewport(self, combined_cloud, tets, name="FEM_Tet_Cage"):
+		"""
+		Takes the NumPy outputs of the SciPy Delaunay/Point Seeding loop
+		and builds a Blender mesh object representing the tetrahedral edges.
+		"""
+		# 1. Extract unique structural edges from the tetrahedral index matrix
+		# A tetrahedron has 6 edges connecting its 4 local nodes: (0-1, 0-2, 0-3, 1-2, 1-3, 2-3)
+		edges_01 = tets[:, [0, 1]]
+		edges_02 = tets[:, [0, 2]]
+		edges_03 = tets[:, [0, 3]]
+		edges_12 = tets[:, [1, 2]]
+		edges_13 = tets[:, [1, 3]]
+		edges_23 = tets[:, [2, 3]]
+		
+		# Consolidate and find unique edges to avoid redundant overlapping wires
+		all_edges = np.vstack([edges_01, edges_02, edges_03, edges_12, edges_13, edges_23])
+		unique_edges = np.unique(np.sort(all_edges, axis=1), axis=0)
+		
+		# 2. Construct the Blender Mesh Container
+		mesh_data = bpy.data.meshes.new(name + "_Data")
+		
+		# Fast vectorized allocation using flat arrays via foreach_set
+		mesh_data.vertices.add(len(combined_cloud))
+		mesh_data.vertices.foreach_set("co", combined_cloud.ravel())
+		
+		mesh_data.edges.add(len(unique_edges))
+		mesh_data.edges.foreach_set("vertices", unique_edges.ravel())
+		
+		mesh_data.update()
+		
+		# 3. Instantiate Object into Active Scene
+		obj = bpy.data.objects.new(name, mesh_data)
+		bpy.context.collection.objects.link(obj)
+
+		# # Inside your viewport setup logic, allocate a face/edge identifier attribute
+		# attribute_name = "ABJ_Material_Identity"
+		# id_attribute = obj.data.attributes.new(name=attribute_name, type='INT', domain='POINT')
+
+		# # Inject the mapped vector array straight to the C-layer layout properties
+		# # This allows Geometry Nodes to read the data array natively without lagging the viewport
+		# # (We broadcast the element values back down to the vertex points for simple node mapping)
+		# vertex_ids = np.zeros(len(unified_point_pool), dtype=np.int32)
+		# for idx, tet in enumerate(tets):
+		# 	vertex_ids[tet] = element_material_ids[idx]
+
+		# id_attribute.data.foreach_set("value", vertex_ids)
+
+		# test_stagesDict_perFace0 = {
+		# 	# 'idx' : mySplitFaceIndexUsable,
+		# 	'idx' : '242',
+		# 	# 'shadingPlane' : self.shadingPlane.name,
+		# 	'shadingPlane' :'suzanne_242',
+		# 	# 'stage' : usableBreakpoint000_items_id,
+		# 	'stage' : 0,
+		# 	'breakpoint_idx' : 0,
+		# }
+		# self.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
+
+		
+		print(f"Viewport Cage Spawned: {len(combined_cloud)} Nodes, {len(unique_edges)} Unique Edges.")
+		return obj
+
+	def apply_viewport_wire_nodes(self, obj, bone_object, wire_radius=0.002, wire_resolution=4):
+		if "FEM_Wire_Visualizer" in obj.modifiers:
+			obj.modifiers.remove(obj.modifiers["FEM_Wire_Visualizer"])
 			
-		# Create or get the Node Group
-		node_group = bpy.data.node_groups.new(type='GeometryNodeTree', name="SDF_Calculation_Tree")
-		mod.node_group = node_group
-
-		# Setup interface inputs/outputs for Blender 5.0+ node tree
-		# Add Density (Voxel Resolution) and Thickening (Offset) parameters
-		node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-		node_group.interface.new_socket(name="Density (Resolution)", in_out='INPUT', socket_type='NodeSocketInt')
-		node_group.interface.new_socket(name="Thickening", in_out='INPUT', socket_type='NodeSocketFloat')
-		node_group.interface.new_socket(name="Volume Output", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-
+		modifier = obj.modifiers.new(name="FEM_Wire_Visualizer", type='NODES')
+		node_group = bpy.data.node_groups.new("FEM_Wire_Shader_Group", 'GeometryNodeTree')
+		modifier.node_group = node_group
 		nodes = node_group.nodes
 		links = node_group.links
-
-		# Clear default nodes
 		nodes.clear()
+		
+		# ─── CORE BLENDER 5.2+ INTERFACE FIX ───
+		# We capture the socket object returned by new_socket to modify its properties directly
+		node_group.interface.new_socket(name="Mesh", in_out='INPUT', socket_type='NodeSocketGeometry')
+		
+		bone_distance_radius_socket = node_group.interface.new_socket(name="Bone Distance Radius", in_out='INPUT', socket_type='NodeSocketFloat')
+		# Use the native attribute on the socket object instead of accessing the collection via string
+		# bone_distance_radius_socket.default_value = 0.04
+		bone_distance_radius_socket.default_value = 0.2
+		
+		node_group.interface.new_socket(name="Geometry Out", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+		
+		# ───────────────────────────────────────
+		
+		n_in = nodes.new(type='NodeGroupInput')
+		n_in.location = (-600, 0)
+		n_out = nodes.new(type='NodeGroupOutput')
+		n_out.location = (800, 0)
+		
+		n_mesh_to_curve = nodes.new(type='GeometryNodeMeshToCurve')
+		n_mesh_to_curve.location = (-400, 0)
+		
+		n_curve_to_mesh = nodes.new(type='GeometryNodeCurveToMesh')
+		n_curve_to_mesh.location = (-150, 0)
+		
+		n_circle = nodes.new(type='GeometryNodeCurvePrimitiveCircle')
+		n_circle.location = (-400, -200)
+		n_circle.inputs['Radius'].default_value = wire_radius
+		n_circle.inputs['Resolution'].default_value = wire_resolution
+		
+		n_bone_info = nodes.new(type='GeometryNodeObjectInfo')
+		n_bone_info.inputs['Object'].default_value = bone_object
+		n_bone_info.transform_space = 'RELATIVE'
+		
+		n_proximity = nodes.new(type='GeometryNodeProximity')
+		n_proximity.target_element = 'FACES'
+		
+		n_compare = nodes.new(type='FunctionNodeCompare')
+		n_compare.data_type = 'FLOAT'
+		n_compare.operation = 'LESS_THAN'
+		
+		n_mix_color = nodes.new(type='ShaderNodeMix')
+		n_mix_color.data_type = 'RGBA'
+		n_mix_color.inputs[6].default_value = (1.0, 0.0, 0.0, 1.0) # Slot A: Red
+		n_mix_color.inputs[7].default_value = (1.0, 1.0, 1.0, 1.0) # Slot B: White
+		# n_mix_color.inputs[4].default_value = (1.0, 0.0, 0.0, 1.0) # Slot A: Red
+		# n_mix_color.inputs[5].default_value = (1.0, 1.0, 1.0, 1.0) # Slot B: White
 
-		# Create Input and Output nodes
-		group_input = nodes.new('NodeGroupInput')
-		group_input.location = (-400, 0)
-
-		group_output = nodes.new('NodeGroupOutput')
-		group_output.location = (400, 0)
-
-		# Create Mesh to SDF Grid node (Blender 5.0+ Volume/SDF feature)
-		mesh_to_sdf = nodes.new('GeometryNodeMeshToSDFGrid')
-		mesh_to_sdf.location = (-100, 0)
-
-		# Link input geometry to Mesh to SDF node
-		links.new(group_input.outputs[0], mesh_to_sdf.inputs['Mesh'])
-
-		# Link density/resolution parameter if exposed
-		# (Matches identifier or name of the second interface item)
-		try:
-			links.new(group_input.outputs[1], mesh_to_sdf.inputs['Resolution'])
-		except KeyError:
-			pass # Fallback if socket name differs by sub-version
+		# n_mix_color.inputs[4].default_value = (1.0, 0.0, 0.0) # Slot A: Red
+		# n_mix_color.inputs[5].default_value = (1.0, 1.0, 1.0) # Slot B: White
+		
+		n_store_attr = nodes.new(type='GeometryNodeStoreNamedAttribute')
+		n_store_attr.data_type = 'FLOAT_COLOR'
+		n_store_attr.domain = 'POINT'
+		n_store_attr.inputs['Name'].default_value = "ABJ_FEM_Colors"
+		
+		n_set_mat = nodes.new(type='GeometryNodeSetMaterial')
+		if "ABJ_FEM_Material" in bpy.data.materials:
+			n_set_mat.inputs['Material'].default_value = bpy.data.materials["ABJ_FEM_Material"]
 			
-		# Link resulting grid/volume directly to output
-		links.new(mesh_to_sdf.outputs['SDF Grid'], group_output.inputs[1])
+		n_realize = nodes.new(type='GeometryNodeRealizeInstances')
+		
+		# Execute graph links
+		links.new(n_in.outputs['Mesh'], n_mesh_to_curve.inputs['Mesh'])
+		links.new(n_mesh_to_curve.outputs['Curve'], n_curve_to_mesh.inputs['Curve'])
+		links.new(n_circle.outputs['Curve'], n_curve_to_mesh.inputs['Profile Curve'])
+		
+		links.new(n_curve_to_mesh.outputs['Mesh'], n_proximity.inputs['Geometry'])
+		links.new(n_bone_info.outputs['Geometry'], n_proximity.inputs['Target'])
+		
+		links.new(n_proximity.outputs['Distance'], n_compare.inputs['A'])
+		links.new(n_in.outputs['Bone Distance Radius'], n_compare.inputs['B'])
+		
+		links.new(n_compare.outputs['Result'], n_mix_color.inputs['Factor'])
+		
+		links.new(n_curve_to_mesh.outputs['Mesh'], n_store_attr.inputs['Geometry'])
+		links.new(n_mix_color.outputs['Result'], n_store_attr.inputs['Value'])
+		
+		links.new(n_store_attr.outputs['Geometry'], n_set_mat.inputs['Geometry'])
+		links.new(n_set_mat.outputs['Geometry'], n_realize.inputs['Geometry'])
+		links.new(n_realize.outputs['Geometry'], n_out.inputs['Geometry Out'])
+		
+		print("Geometry Nodes Visualization successfully generated without collection indexing errors.")
 
-		# print(f"SDF node tree successfully applied to {myInputMesh.name}")
+		self.autoArrangeNodes(node_group)
 
-		#isomesher
-		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeVolumeCube")
-		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeInputPosition")
+	def identify_tets_and_paint_viewport(self, visualizer_obj, unified_point_pool, tets, mesh_data_registry):
+		"""
+		Computes spatial identities via distance, paints the visualizer mesh vertices,
+		and returns the color mapping configuration for UI panel access.
+		"""
+		num_elements = len(tets)
+		num_vertices = len(unified_point_pool)
 
-	def tetGen(self):
-		context = bpy.context
-		obj = context.active_object
+		# 2. Calculate Element Centroids via NumPy Vectorization
+		v0 = unified_point_pool[tets[:, 0]]
+		v1 = unified_point_pool[tets[:, 1]]
+		v2 = unified_point_pool[tets[:, 2]]
+		v3 = unified_point_pool[tets[:, 3]]
+		element_centroids = (v0 + v1 + v2 + v3) / 4.0
+
+		# ─── VECTORIZED DISTANCE MAPPING (NO PYTHON FOR LOOPS) ───
+		# Clear preexisting material classifications (Default 0: Enveloping Skin)
+		element_material_ids = np.zeros(num_elements, dtype=np.int32)
 		
-		if not obj or obj.type != 'MESH':
-			print("Please select a mesh object.")
-			return None
+		# 1. Evaluate Inner Bone Proximity Matrix
+		inner_bone_verts = mesh_data_registry.get('inner_bone')
+		if inner_bone_verts is not None:
+			# Compute pairwise distance matrix using broadcasting trick: (M, 1, 3) - (1, N, 3)
+			# To save memory on large point clouds, we map across chunks or use a fast norm
+			for idx, centroid in enumerate(element_centroids):
+				# Keep the loop but expand the threshold dynamically to capture elements safely
+				min_dist = np.min(np.sum((inner_bone_verts - centroid) ** 2, axis=1))
+				if min_dist < (0.05 ** 2): # Matching your detail_scale bounds squared
+					element_material_ids[idx] = 3 # White Inner Bone
+
+		# 2. Evaluate Outer Bone Proximity Matrix
+		outer_bone_verts = mesh_data_registry.get('outer_bone')
+		if outer_bone_verts is not None:
+			for idx, centroid in enumerate(element_centroids):
+				if element_material_ids[idx] == 3: 
+					continue # Skip points already captured by the inner tracking core
+				min_dist = np.min(np.sum((outer_bone_verts - centroid) ** 2, axis=1))
+				if min_dist < (0.08 ** 2): # Slices the element layers safely
+					element_material_ids[idx] = 2 # Gray Outer Bone
 		
-		# 1. Extract Surface Vertices
-		mesh = obj.data
-		num_verts = len(mesh.vertices)
+		# # Initialize material ID vector mapping (Default 0: Skin Envelope)
+		# element_material_ids = np.zeros(num_elements, dtype=np.int32)
 		
-		# Fast copy of all vertex positions into a flat numpy array
-		verts_flat = np.zeros(num_verts * 3, dtype=np.float64)
-		mesh.vertices.foreach_get('co', verts_flat)
-		X_surface = verts_flat.reshape(-1, 3)
+		# # 3. Perform Spatial Distance Identification
+		# BONE_THRESHOLD = 0.02
+		# MUSCLE_THRESHOLD = 0.03
 		
-		# Apply object's world matrix transform so simulation matches world space
-		world_matrix = np.array(obj.matrix_world)
-		X_surface_homo = np.hstack([X_surface, np.ones((num_verts, 1))])
-		X_world = (X_surface_homo @ world_matrix.T)[:, :3]
+		# # Distance scan against Inner Keyable Bone (Alembic Tracker)
+		# inner_bone_verts = mesh_data_registry.get('inner_bone')
+		# if inner_bone_verts is not None:
+		# 	for idx, centroid in enumerate(element_centroids):
+		# 		if np.min(np.linalg.norm(inner_bone_verts - centroid, axis=1)) < BONE_THRESHOLD:
+		# 			element_material_ids[idx] = 3
+					
+		# # Distance scan against Outer Rigid Bone
+		# outer_bone_verts = mesh_data_registry.get('outer_bone')
+		# if outer_bone_verts is not None:
+		# 	for idx, centroid in enumerate(element_centroids):
+		# 		if element_material_ids[idx] == 3: continue
+		# 		if np.min(np.linalg.norm(outer_bone_verts - centroid, axis=1)) < BONE_THRESHOLD:
+		# 			element_material_ids[idx] = 2
+
+		# # Dynamic loop handling for an arbitrary list of separate muscle tissue inputs
+		# muscle_keys = [k for k in mesh_data_registry.keys() if 'muscle' in k]
+		# for m_key in muscle_keys:
+		# 	m_verts = mesh_data_registry[m_key]
+		# 	for idx, centroid in enumerate(element_centroids):
+		# 		if element_material_ids[idx] > 1: continue
+		# 		if np.min(np.linalg.norm(m_verts - centroid, axis=1)) < MUSCLE_THRESHOLD:
+		# 			element_material_ids[idx] = 1
+
+		# =========================================================================
+		# 4. MAP ELEMENT MATERIAL IDENTITIES TO MESH VERTICES
+		# =========================================================================
+		# Allocate a flat RGBA color buffer array for every single vertex in the cage
+		vertex_colors_flat = np.zeros(num_vertices * 4, dtype=np.float32)
 		
-		# 2. Compute Delaunay Tetrahedrons
-		print(f"Triangulating {len(X_world)} vertices...")
-		tri = Delaunay(X_world)
-		all_tets = tri.simplices  # Shape: (M, 4) array of vertex indices
-		
-		# 3. Filter out Tets outside the organic volume (Point-In-Mesh Check)
-		# We compute the barycenter (midpoint) of every generated tetrahedron
-		tet_centers = X_world[all_tets].mean(axis=1)
-		
-		# Use Blender's BVH tree to check which centers are truly inside the mesh
-		# For a social media prototype, a quick distance check or raycast works well
-		bm = bmesh.new()
-		bm.from_mesh(mesh)
-		bvh = bmesh.ops.find_closest_element(bm, faces=bm.faces, matrix=obj.matrix_world)
-		
-		valid_tets = []
-		for idx, center in enumerate(tet_centers):
-			# Quick raycast test to ensure center point is inside the manifold bounds
-			# (For this proof of concept, we keep all Delaunay shapes for the core geometry)
-			valid_tets.append(all_tets[idx])
+		# Accumulate element identities to find the dominant material per node point
+		vertex_material_votes = np.zeros((num_vertices, 4), dtype=np.int32)
+		for idx, tet in enumerate(tets):
+			mat_id = element_material_ids[idx]
+			vertex_material_votes[tet, mat_id] += 1
 			
-		tets = np.array(valid_tets, dtype=np.int32)
+		# Choose the dominant material tag per individual vertex
+		dominant_vertex_mats = np.argmax(vertex_material_votes, axis=1)
 		
-		# 4. Precompute Material Space Matrices (Dm^-1) for Neo-Hookean Math
-		# Doing this on frame 0 ensures your frame-by-frame loop remains fast!
-		x0 = X_world[tets[:, 0]]
-		x1 = X_world[tets[:, 1]]
-		x2 = X_world[tets[:, 2]]
-		x3 = X_world[tets[:, 3]]
+		# Fill the flat color buffer matching our layout registry definitions
+		for v_idx in range(num_vertices):
+			mat_id = dominant_vertex_mats[v_idx]
+			color_vector = self.COLOR_REGISTRY[mat_id]["color"]
+			vertex_colors_flat[v_idx*4 : v_idx*4 + 4] = color_vector
+
+		# =========================================================================
+		# 5. INJECT RAW NUMPY DATA INTO BLENDER 5 COLOR ATTRIBUTE LAYER
+		# =========================================================================
+		mesh_data = visualizer_obj.data
 		
-		Dm = np.zeros((tets.shape[0], 3, 3), dtype=np.float64)
-		Dm[:, :, 0] = x1 - x0
-		Dm[:, :, 1] = x2 - x0
-		Dm[:, :, 2] = x3 - x0
+		# Clear preexisting attributes with the same identifier to prevent data naming bloat
+		if "ABJ_FEM_Colors" in mesh_data.attributes:
+			mesh_data.attributes.remove(mesh_data.attributes["ABJ_FEM_Colors"])
+			
+		# Instantiating color layers in Blender 5 uses attributes.new()
+		color_attribute = mesh_data.attributes.new(
+			name="ABJ_FEM_Colors", 
+			type='FLOAT_COLOR', 
+			domain='POINT'
+		)
 		
-		# Batch calculate inverses and rest volumes
-		inv_Dm = np.linalg.inv(Dm)
-		rest_volumes = np.abs(np.linalg.det(Dm)) / 6.0
+		# Use block memory copying via foreach_set to push colors instantly without lag
+		color_attribute.data.foreach_set("color", vertex_colors_flat)
+		mesh_data.update()
 		
-		print(f"Successfully generated {len(tets)} organic-aligned tetrahedrons!")
-		return X_world, tets, inv_Dm, rest_volumes
-
-		# Execute the extraction pipeline
-		# X_world, tets, inv_Dm, rest_volumes = generate_tets_from_active_object()
-
+		print(f"Viewport Painted: Inner Bone Color {self.COLOR_REGISTRY[3]['color']} | Outer Bone Color {self.COLOR_REGISTRY[2]['color']}")
+		
+		# Return data mappings and current active color definitions to feed your UI panel
+		return element_material_ids
 
 
+	def identify_and_expand_tet_parameters(self, unified_point_pool, tets, mesh_data_registry, visualizer_obj):
+		"""
+		Identifies element classification via spatial distance checks and 
+		maps FEM physical properties (stiffness, mass, damping) to the element pool.
+		
+		mesh_data_registry: Dictionary containing the raw (N, 3) vertex arrays for each layer
+							e.g., {'inner_bone': arr, 'outer_bone': arr, 'muscle_1': arr, ...}
+		"""
+		num_elements = len(tets)
+		
+		# =========================================================================
+		# MODULE 1: COMPUTE VECTORIZED ELEMENT CENTROIDS
+		# =========================================================================
+		# Gather coordinates for all 4 corners of all tets simultaneously
+		v0 = unified_point_pool[tets[:, 0]]
+		v1 = unified_point_pool[tets[:, 1]]
+		v2 = unified_point_pool[tets[:, 2]]
+		v3 = unified_point_pool[tets[:, 3]]
+		
+		# Calculate the exact center point (barycenter) of every tetrahedron
+		element_centroids = (v0 + v1 + v2 + v3) / 4.0
+		
+		# Initialize our identity tracking map (Default to 0: Skin Envelope)
+		element_material_ids = np.zeros(num_elements, dtype=np.int32)
+		
+		# =========================================================================
+		# MODULE 2: SPATIAL MAPPING TO MULTIPLE INPUT MESHES
+		# =========================================================================
+		# Define closeness thresholds (in meters) to match your Plasticity scale
+		BONE_THRESHOLD = 0.02 
+		MUSCLE_THRESHOLD = 0.03
+		
+		# Layer 3: Check proximity to the Animated Alembic Inner Bone
+		# inner_bone_verts = mesh_data_registry.get('inner_bone')
+		inner_bone_verts = None
+		for i in mesh_data_registry:
+			if i['name'] == 'inner_bone':
+				inner_bone_verts = i['verts']
+
+		if inner_bone_verts is not None:
+			for idx, centroid in enumerate(element_centroids):
+				# Vectorized distance from this single centroid to all inner bone verts
+				min_dist = np.min(np.linalg.norm(inner_bone_verts - centroid, axis=1))
+				if min_dist < BONE_THRESHOLD:
+					element_material_ids[idx] = 3
+					
+		# Layer 2: Check proximity to the Rigid Outer Bone
+		# outer_bone_verts = mesh_data_registry.get('outer_bone')
+
+		outer_bone_verts = None
+		for i in mesh_data_registry:
+			if i['name'] == 'outer_bone':
+				outer_bone_verts = i['verts']
+
+		if outer_bone_verts is not None:
+			for idx, centroid in enumerate(element_centroids):
+				if element_material_ids[idx] == 3: 
+					continue # Skip if already captured by inner core
+				min_dist = np.min(np.linalg.norm(outer_bone_verts - centroid, axis=1))
+				if min_dist < BONE_THRESHOLD:
+					element_material_ids[idx] = 2
+
+		# Layer 1: Loop dynamically over an arbitrary list of separate muscle tissue inputs
+		# This allows you to scale up from 1 muscle to 20 without altering core code shapes
+		muscle_keys = None
+
+		for i in mesh_data_registry:
+			if i['name'] == 'muscle':
+				muscle_keys = i['verts']
+
+		# muscle_keys = [k for k in mesh_data_registry.keys() if 'muscle' in k]
+		# for m_key in muscle_keys:
+		# 	m_verts = mesh_data_registry[m_key]
+		# 	for idx, centroid in enumerate(element_centroids):
+		# 		if element_material_ids[idx] > 1: 
+		# 			continue # Skip if already marked as rigid bone structure
+		# 		min_dist = np.min(np.linalg.norm(m_verts - centroid, axis=1))
+		# 		if min_dist < MUSCLE_THRESHOLD:
+		# 			element_material_ids[idx] = 1 # Flagged as deformable muscle element
+
+		# =========================================================================
+		# MODULE 3: MAP INDEPENDENT PHYSICAL PARAMETERS FROM IDENTITIES
+		# =========================================================================
+		# Allocate property tracking buffers matching total element array dimensions
+		element_stiffness = np.ones(num_elements, dtype=np.float64)
+		element_damping = np.ones(num_elements, dtype=np.float64)
+		
+		# Assign specific mechanical traits to the mapped element states
+		element_stiffness[element_material_ids == 0] = 5000.0   # Compliant Skin
+		element_stiffness[element_material_ids == 1] = 25000.0  # Flexible Muscle
+		element_stiffness[element_material_ids == 2] = 500000.0 # Rigid Outer Bone
+		element_stiffness[element_material_ids == 3] = 900000.0 # Locked Inner Bone Track
+		
+		element_damping[element_material_ids == 0] = 10.0  # Loose skin sway
+		element_damping[element_material_ids == 1] = 45.0  # Muscle ripple absorption
+		element_damping[element_material_ids == 2] = 150.0 # Rigid bone dampening
+		element_damping[element_material_ids == 3] = 500.0 # Ultra-tight keyframe tracking
+		
+		print(f"Material Identification Mapping Matrix Finalized.")
+		print(f"Bone Tets: {np.sum(element_material_ids >= 2)} | Muscle Tets: {np.sum(element_material_ids == 1)} | Skin Tets: {np.sum(element_material_ids == 0)}")
 
 
-	def SDF_01(self):
-
-		X_world, tets, inv_Dm, rest_volumes = self.tetGen()
 
 
 
+
+		# Inside your viewport setup logic, allocate a face/edge identifier attribute
+		attribute_name = "ABJ_Material_Identity"
+		id_attribute = visualizer_obj.data.attributes.new(name=attribute_name, type='INT', domain='POINT')
+
+		# Inject the mapped vector array straight to the C-layer layout properties
+		# This allows Geometry Nodes to read the data array natively without lagging the viewport
+		# (We broadcast the element values back down to the vertex points for simple node mapping)
+		vertex_ids = np.zeros(len(unified_point_pool), dtype=np.int32)
+		for idx, tet in enumerate(tets):
+			vertex_ids[tet] = element_material_ids[idx]
+
+		id_attribute.data.foreach_set("value", vertex_ids)
+
+		return element_material_ids, element_stiffness, element_damping
+
+	def FEM_mesh_generation(self, detail_scale, thinness_protection_threshold):
+
+		#input STL's generated by plasticity
+		#the outer tissue has 2 main pieces 
+		# - an outer shell
+		#and a hollow center with normals reversed
+		#these are then joined together into one object
+
+
+		outer_bone_obj = bpy.data.objects.get("Outer_Bone")
+		inner_bone_obj = bpy.data.objects.get("Interior_Bone")
+		
+		if not outer_bone_obj or not inner_bone_obj:
+			print("Error: Missing target meshes.")
+			return
+			
+		m_verts_flat = np.zeros(len(outer_bone_obj.data.vertices) * 3, dtype=np.float32)
+		outer_bone_obj.data.vertices.foreach_get("co", m_verts_flat)
+		target_obj_geom_local = m_verts_flat.reshape(-1, 3)
+		
+		# 1. Point Cloud Grid Sizing and Filter
+		min_b = np.min(target_obj_geom_local, axis=0)
+		max_b = np.max(target_obj_geom_local, axis=0)
+		
+		x = np.arange(min_b[0], max_b[0], detail_scale)
+		y = np.arange(min_b[1], max_b[1], detail_scale)
+		z = np.arange(min_b[2], max_b[2], detail_scale)
+		grid_x, grid_y, grid_z = np.meshgrid(x, y, z, indexing='ij')
+		background_points_local = np.stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()], axis=-1)
+		
+		filtered_internal_local = self.run_inside_mesh_filter_via_nodes(outer_bone_obj, background_points_local)
+		
+		# 2. Triangulation, Sliver Pruning, and Topological Remapping
+		unified_point_pool_local = np.vstack([target_obj_geom_local, filtered_internal_local]).astype(np.float64)
+		tri = Delaunay(unified_point_pool_local, qhull_options="Qz")
+		raw_tets = tri.simplices
+		
+		# Scaled element masking
+		v0 = unified_point_pool_local[raw_tets[:, 0]]
+		v1 = unified_point_pool_local[raw_tets[:, 1]]
+		v2 = unified_point_pool_local[raw_tets[:, 2]]
+		v3 = unified_point_pool_local[raw_tets[:, 3]]
+		volumes = np.abs(np.einsum('ij,ij->i', np.cross(v2 - v0, v3 - v0), v1 - v0)) / 6.0
+		l01_sq = np.sum((v1 - v0)**2, axis=1)
+		l02_sq = np.sum((v2 - v0)**2, axis=1)
+		l03_sq = np.sum((v3 - v0)**2, axis=1)
+		l12_sq = np.sum((v2 - v1)**2, axis=1)
+		l13_sq = np.sum((v3 - v1)**2, axis=1)
+		l23_sq = np.sum((v3 - v2)**2, axis=1)
+		rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
+		quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
+		
+		healthy_mask = (quality_scores >= thinness_protection_threshold) & (volumes > 1e-9)
+		filtered_tets = raw_tets[healthy_mask]
+		
+		used_verts = np.unique(filtered_tets)
+		cleaned_pool_local = unified_point_pool_local[used_verts]
+		
+		index_remap = np.zeros(len(unified_point_pool_local), dtype=np.int32)
+		index_remap[used_verts] = np.arange(len(used_verts))
+		final_tets = index_remap[filtered_tets]
+		
+		# 3. Viewport Instantiation
+		visualizer_obj = self.visualize_tets_in_viewport(cleaned_pool_local, final_tets, "ABJ_Anatomical_Tet_Cage")
+		
+		# 4. Generate the Interactive Node Modifiers
+		self.apply_viewport_wire_nodes(visualizer_obj, inner_bone_obj, wire_radius=0.002, wire_resolution=4)
+		
+		print(f"--- Initialization Complete: {len(final_tets)} Elements Passed to Node Pipeline ---")
+		return cleaned_pool_local, final_tets
+
+	def FEM_01(self):
+
+		# self.FEM_mesh_generation(0.015, 0.05)
+		self.FEM_mesh_generation(0.05, 0.05)
+
+		# self.FEM_geometryNodeNameChecker()
+
+
+	def spectral_compositor_debugging_exit_visualizer_atmospheric(self, nodetree, nodeToView, readPixelX, readPixelY):
+
+		# nodetree.links.new(nodeToView.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		# nodetree.links.new(nodeToView.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		# self.autoArrangeNodes(nodetree)
+		# self.autoArrangeNodes(worldtree)
+
+		# self.compositor_setup = True
+
+		# return
+
+		############################
+		#the user must have saved a new, default scene to a file and have a folder called 'compositing_files' in that directory
+		############################
+
+		'''
+		###########
+		#DEFAULT CAMERA
+		#############
+		# self.pos_camera_global = (10, 10, 10) #spectral
+		# self.pos_camera_global = (20, -30, 15) #spectral
+		# self.pos_camera_global = (5, -20, 10) #spectral ####
+		# self.pos_camera_global = (2, -15, 10) #spectral
+		self.pos_camera_global = (2, -13.5, 8) #spectral
+
+		cam1_data = bpy.ops.object.camera_add(
+			location=(self.pos_camera_global),  # x, y, z coordinates
+			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
+		)
+
+
+		self.myCam.data.clip_start = 1
+		# self.myCam.data.clip_start = .1
+		# self.myCam.data.clip_start = .5
+		# self.myCam.data.clip_end = 100
+		self.myCam.data.clip_end = 500
+
+		self.myCam.location = self.pos_camera_global
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
+		self.myV = -f
+
+		bpy.context.scene.camera = self.myCam
+
+		'''
+
+
+
+
+
+
+
+		self.updateScene() # need
+		# self.look_at(self.myCam, myInputMesh3.location)
+
+		bpy.context.scene.render.engine = 'CYCLES'
+		bpy.context.scene.cycles.device = 'GPU'
+
+		# bpy.context.scene.render.resolution_x = 3840
+		# bpy.context.scene.render.resolution_y = 2160
+
+		# bpy.context.scene.cycles.samples = 1024
+		bpy.context.scene.cycles.samples = 256
+
+		bpy.context.scene.cycles.denoising_use_gpu = True
+
+		# bpy.context.scene.view_settings.view_transform = 'AgX'
+		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
+
+
+		##########
+		## DEBUG_SPECTRAL_COMPOSITOR
+		#########
+		if "Cube" in bpy.data.objects:
+			cube_obj = bpy.data.objects["Cube"]
+			# Unlink and remove the object completely
+			bpy.data.objects.remove(cube_obj, do_unlink=True)
+
+		########
+		##### 00
+		########
+		bpy.ops.mesh.primitive_monkey_add()
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.location = mathutils.Vector((0, 0, 5))
+		bpy.ops.object.shade_smooth()
+
+		mat1 = self.newShader("principled_test_00", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+
+		bpy.ops.object.modifier_add(type='SUBSURF')
+		myObj = bpy.context.active_object
+		myObj.modifiers["Subdivision"].levels = 1
+		myObj.modifiers["Subdivision"].use_adaptive_subdivision = True
+		myObj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		displacement_node.inputs[2].default_value = 0.3
+
+		self.autoArrangeNodes(mat.node_tree)
+
+		########
+		##### 01
+		########
+		bpy.ops.mesh.primitive_monkey_add()
+		myInputMesh2 = bpy.context.active_object
+		myInputMesh2.select_set(1)
+		myInputMesh2.location = mathutils.Vector((1, 8, 5))
+		bpy.ops.object.shade_smooth()
+
+		mat1 = self.newShader("principled_test_01", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_01"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_01"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.1
+		bpy.data.materials["principled_test_01"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+
+		bpy.ops.object.modifier_add(type='SUBSURF')
+		myObj = bpy.context.active_object
+		myObj.modifiers["Subdivision"].levels = 1
+		myObj.modifiers["Subdivision"].use_adaptive_subdivision = True
+		myObj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_01")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		displacement_node.inputs[2].default_value = 0.3
+
+		self.autoArrangeNodes(mat.node_tree)
+
+		# mat1 = self.newShader("greenM", "emission", 0, 1, 0)
+		# mat1 = self.newShader("greenM", "diffuse", 0, 1, 0)
+		# bpy.context.active_object.data.materials.clear()
+		# bpy.context.active_object.data.materials.append(mat1)
+
+		########
+		##### 02
+		########
+		bpy.ops.mesh.primitive_monkey_add()
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.location = mathutils.Vector((3, 13, 5))
+		bpy.ops.object.shade_smooth()
+
+		mat1 = self.newShader("principled_test_02", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_02"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_02"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.1
+		bpy.data.materials["principled_test_02"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+
+
+		bpy.ops.object.modifier_add(type='SUBSURF')
+		myObj = bpy.context.active_object
+		myObj.modifiers["Subdivision"].levels = 1
+		myObj.modifiers["Subdivision"].use_adaptive_subdivision = True
+		myObj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_02")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		displacement_node.inputs[2].default_value = 0.3
+
+		self.autoArrangeNodes(mat.node_tree)
+
+		########
+		##### 03
+		########
+		bpy.ops.mesh.primitive_monkey_add()
+		myInputMesh = bpy.context.active_object
+		myInputMesh.select_set(1)
+		myInputMesh.location = mathutils.Vector((5, 16, 5))
+		bpy.ops.object.shade_smooth()
+
+		mat1 = self.newShader("principled_test_03", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_03"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_03"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.1
+		bpy.data.materials["principled_test_03"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+
+		bpy.ops.object.modifier_add(type='SUBSURF')
+		myObj = bpy.context.active_object
+		myObj.modifiers["Subdivision"].levels = 1
+		myObj.modifiers["Subdivision"].use_adaptive_subdivision = True
+		myObj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_03")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		displacement_node.inputs[2].default_value = 0.3
+
+		self.autoArrangeNodes(mat.node_tree)
+
+		####
+		# CUBE GROUND
+		####
+		bpy.ops.mesh.primitive_cube_add()
+		myInputMesh3 = bpy.context.active_object
+		myInputMesh3.select_set(1)
+		myInputMesh3.location = mathutils.Vector((0, 0, -5))
+		myInputMesh3.scale = mathutils.Vector((20, 20, 2))
+
+		# mat1 = self.newShader("blueM", "emission", 0, 0, 1)
+		# mat1 = self.newShader("blueM", "diffuse", 0, 0, 1)
+		# bpy.context.active_object.data.materials.clear()
+		# bpy.context.active_object.data.materials.append(mat1)
+
+		mat1 = self.newShader("principled_test_grd", "principled", 0, 0, 1)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+
+		self.autoArrangeNodes(mat.node_tree)
+
+		###########
+		# WORLD
+		###########
+
+		world = bpy.context.scene.world
+		worldtree = world.node_tree
+		worldtree.nodes.clear()
+
+		# output_node_world = next((n for n in worldtree.nodes if n.type == 'ShaderNodeOutputWorld'), None)
+		# if not output_node:
+		# 	output_node_world = worldtree.nodes.new(type='ShaderNodeOutputWorld')
+
+		# output_node = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		# bg_node = worldtree.nodes.new(type="ShaderNodeBackground")
+		output_node_world = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		node_sky = worldtree.nodes.new('ShaderNodeTexSky')
+		worldtree.links.new(node_sky.outputs["Color"], output_node_world.inputs["Surface"])
+
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_size = 0.372541
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_intensity = 21.3
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_rotation = -1.57603
+
+		# return
+
+		# node_sky.sun_size = 0.372541
+		# node_sky.sun_intensity = 21.3
+		node_sky.sun_rotation = 1.65806
+
+		self.look_at(self.myCam, myInputMesh2.location)
+
+		nodetree.links.new(nodeToView.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		nodetree.links.new(nodeToView.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		self.autoArrangeNodes(nodetree)
+		self.autoArrangeNodes(worldtree)
+
+		self.compositor_setup = True
+
+		########################################################
+		#write node to disc and read pixel
+		########################################################
+		bpy.context.scene.view_settings.view_transform = 'AgX'
+		bpy.context.scene.view_settings.look = 'AgX - Punchy'
+
+		bpy.context.scene.render.use_multiview = False
+
+		# temp_filepath = bpy.path.abspath("//compositor_pixel_temp.png")
+		temp_filepath = "//compositing_files/readSingleOutputPixel.png"
+		original_filepath = bpy.context.scene.render.filepath
+
+		bpy.context.scene.render.filepath = temp_filepath
+
+		# 2. Render to write the compositor result out to disk
+		bpy.ops.render.render(write_still=True)
 
 		return
 
+		# Restore original render filepath
+		bpy.context.scene.render.filepath = original_filepath
+
+		# 3. Load the saved image back via bpy.data.images to inspect pixel data safely
+		img = bpy.data.images.load(temp_filepath, check_existing=False)
+
+		# bpy.data.images[temp_filepath].reload()
+		# "E:/projects_3d/ABJ_Shader_Debugger_for_Blender/scenes/compositing_files/readSingleOutputPixel.png"
+		# bpy.data.images["E:/projects_3d/ABJ_Shader_Debugger_for_Blender/scenes/compositing_files/readSingleOutputPixel.png"].reload()
+
+		# bpy.ops.image.reload()
+
+		self.updateScene()
+
+		for img in bpy.data.images:
+			if img.filepath.endswith("readSingleOutputPixel.png"):
+				img.reload()
+
+		# bpy.data.images["readSingleOutputPixel.png"].reload()
+
+		# 4. Choose your target single pixel coordinates (x, y)
+		width = img.size[0]
+		height = img.size[1]
+
+		# Check bounds
+		if 0 <= readPixelX < width and 0 <= readPixelY < height:
+			# Calculate 1D index for RGBA array (4 channels per pixel)
+			pixel_index = (readPixelY * width + readPixelX) * 4
+			
+			r = img.pixels[pixel_index]
+			g = img.pixels[pixel_index + 1]
+			b = img.pixels[pixel_index + 2]
+			a = img.pixels[pixel_index + 3]
+			
+			# print(f"Pixel at ({readPixelX}, {readPixelY}) -> R: {r:.4f}, G: {g:.4f}, B: {b:.4f}, A: {a:.4f}")
+			print(f"Pixel at ({readPixelX}, {readPixelY}) -> R: {r}, G: {g}, B: {b}, A: {a}")
+		else:
+			print("Coordinates are out of image bounds.")
+
+		# 5. Clean up temporary image data block from Blender memory
+		bpy.data.images.remove(img)
+
+
+	def atmospheric_rayleigh_setup_sky_texture_vector_sync(self, compositor_node_group, myL, mySun_arrow, ntree):
+		"""
+		Connects a FunctionNodeInputVector node from your compositor group 
+		to the World Shader's Sky Texture node using automated scripted drivers.
+		"""
+		# 1. Target the Sky Texture node inside the active World Shader tree
+		if not bpy.context.scene.world or not bpy.context.scene.world.node_tree:
+			print("[ABJ Debugger Error] No active World Node Tree found to sync.")
+			return
+			
+		world_tree = bpy.context.scene.world.node_tree
+
+		world_tree.nodes.clear()
+
+		output_node_world = world_tree.nodes.new(type="ShaderNodeOutputWorld")
+
+		sky_node = next((n for n in world_tree.nodes if n.type == 'TEX_SKY'), None)
+		
+		if not sky_node:
+			print("[ABJ Debugger Warning] No Sky Texture node found in World Shader. Creating one...")
+			sky_node = world_tree.nodes.new('ShaderNodeTexSky')
+
+		sky_node.sun_elevation = 0
+		bpy.context.scene.view_settings.exposure = -3
+		
+		world_tree.links.new(sky_node.outputs["Color"], output_node_world.inputs["Surface"])
+
+		self.autoArrangeNodes(world_tree)
+
+		# -------------------------------------------------------------------------
+		# DRIVER A: SUN ELEVATION on sky texture
+		# -------------------------------------------------------------------------
+		# Clear existing driver if present to prevent duplication
+		sky_node.driver_remove("sun_elevation")
+		driver = sky_node.driver_add("sun_elevation").driver
+		driver.type = 'SCRIPTED'
+		# driver_elev.expression = "degrees(asin(max(-1.0, min(1.0, z))))"
+		
+		# Hook the 'z' value of your input vector to a variable named 'z'
+		var_z = driver.variables.new()
+		var_z.name = 'var'
+		var_z.type = 'SINGLE_PROP'
+
+		var_z.targets[0].id_type = 'OBJECT' 
+		var_z.targets[0].id = mySun_arrow
+		var_z.targets[0].data_path = "location[2]"
+
+		driver.expression = "clamp(var * 10, 0, radians(180))"
+
+		#########################################################################
+		# -------------------------------------------------------------------------
+		# DRIVER B: myL
+		# -------------------------------------------------------------------------
+		node = ntree.nodes.get(myL.name)
+
+		mySync = node.driver_add("vector", 0)
+		driver_myL = mySync.driver
+		driver_myL.type = 'SCRIPTED'
+
+		var_z_myL = driver_myL.variables.new()
+		var_z_myL.name = 'var'
+		var_z_myL.type = 'SINGLE_PROP'
+
+		var_z_myL.targets[0].id_type = 'OBJECT' 
+		var_z_myL.targets[0].id = mySun_arrow
+		var_z_myL.targets[0].data_path = "location[2]"
+
+		driver_myL.expression = "clamp(degrees(var * 10), 0, 180)"
+		
+		# Expression converts Cartesian Z to degrees: degrees(asin(z))
+		# driver_elev.expression = "degrees(asin(max(-1.0, min(1.0, z))))"
+
+		 # FIX: Explicitly target array index [2] which is the Z-axis of the vector!
+		# var_z.targets[0].data_path = f"nodes['{myL.name}'].vector[2]" 
+		# var_z.targets[0].data_path = f"node_tree.nodes['{myL.name}'].vector[2]" 
+		# var_z.targets[0].data_path = f"{base_path}[2]" # Direct array index mapping for the Z float
+		# var_z.targets[0].data_path = f"node_tree.nodes['{myL.name}'].vector[2]"
+    
+		# return
+
+		# -------------------------------------------------------------------------
+		# DRIVER B: SUN ROTATION
+		# -------------------------------------------------------------------------
+	
+		sky_node.driver_remove("sun_rotation")
+		driver_rot = sky_node.driver_add("sun_rotation").driver
+		driver_rot.type = 'SCRIPTED'
+
+
+
+		var_x = driver_rot.variables.new()
+		var_x.name = 'varX'
+		var_x.type = 'SINGLE_PROP'
+		var_x.targets[0].id_type = 'OBJECT' 
+		var_x.targets[0].id = mySun_arrow
+		var_x.targets[0].data_path = "location[0]"
+
+
+		var_y = driver_rot.variables.new()
+		var_y.name = 'varY'
+		var_y.type = 'SINGLE_PROP'
+		var_y.targets[0].id_type = 'OBJECT' 
+		var_y.targets[0].id = mySun_arrow
+		var_y.targets[0].data_path = "location[1]"
+
+
+
+
+		# driver_rot.expression = "atan2(radians(varY) * 1, radians(varX) * 1)" ######### good
+		driver_rot.expression = "atan2(radians(varX) * 1, radians(varY) * 1)" 
+		# driver_rot.expression = "atan2(radians(varX) * 1, radians(-varY) * 1)" 
 
 
 
 
 
 
+
+
+
+		# driver_rot.expression = "atan2(radians(varY) * 1, radians(varX) * 1) - radians(90)" #########
+		# driver_rot.expression = "atan2(radians(varY) * 1, radians(-varX) * 1)"
+		
+
+	def atmospheric_rayleigh_01(self):
 		self.deselectAll()
 		self.deleteAllObjects()
 		self.mega_purge()
-	
-		# selected_objects = bpy.context.selected_objects
-		# # for obj in selected_objects:
-		# bpy.context.view_layer.objects.active = k
 
-		# for i in bpy.context.scene.objects:
-		# 	if i.name == i:
+		bpy.context.scene.render.engine = 'CYCLES'
+		bpy.context.scene.cycles.device = 'GPU'
 
-		# for i in bpy.context.selected_objects:
-		# 	for j in self.shadingStages_perFace_stepList:
-		# 		if j["shadingPlane"] == i.name:
+		#build sun arrow
+		# self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 
-		# for i in bpy.context.scene.objects:
-		# 		if i.name == '':
+		# return
+
+
+		###########
+		#DEFAULT CAMERA
+		#############
+		# self.pos_camera_global = (10, 10, 10) #spectral
+		# self.pos_camera_global = (20, -30, 15) #spectral
+		# self.pos_camera_global = (5, -20, 10) #spectral ####
+		# self.pos_camera_global = (2, -15, 10) #spectral
+		self.pos_camera_global = (2, -13.5, 8) #spectral
+
+		cam1_data = bpy.ops.object.camera_add(
+			location=(self.pos_camera_global),  # x, y, z coordinates
+			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
+		)
+
+		self.myCam = bpy.data.objects["Camera"]
+
+		self.myCam.data.clip_start = 1
+		# self.myCam.data.clip_start = .1
+		# self.myCam.data.clip_start = .5
+		# self.myCam.data.clip_end = 100
+		self.myCam.data.clip_end = 500
+
+		self.myCam.location = self.pos_camera_global
+		self.updateScene() # need
+
+		self.look_at(self.myCam, self.myOrigin)
+
+		f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
+		self.myV = -f
+
+		bpy.context.scene.camera = self.myCam
+
+
+		bpy.context.scene.view_layers["ViewLayer"].use_pass_z = True
+		group_name = "ABJ_Rayleigh_Atmosphere_Compositor"
+		
+		# Check if group already exists to prevent duplication
+		ntree = None
+		if group_name in bpy.data.node_groups:
+			ntree = bpy.data.node_groups[group_name]
+			ntree.nodes.clear() 
+		else:
+			ntree = bpy.data.node_groups.new(name=group_name, type='CompositorNodeTree')
+
+		bpy.context.scene.compositing_node_group = ntree
+
+		for node in ntree.nodes:
+			ntree.nodes.remove(node)
+
+		node0 = ntree.nodes.new("CompositorNodeRLayers")
+		self.nodeViewer = ntree.nodes.new("CompositorNodeViewer")
+
+		# Hardcoded Spectrometric Matrix Arrays (38 slices, 380nm - 750nm), 10nm slice
+		RAYLEIGH_WEIGHTS = [
+			4.7963, 4.3232, 3.9063, 3.5372, 3.2100, 2.9194, 2.6608, 2.4305, 2.2253, 2.0421,
+			1.8783, 1.7314, 1.6000, 1.4822, 1.3764, 1.2813, 1.1957, 1.1184, 1.0483, 0.9474,
+			0.8837, 0.8252, 0.7716, 0.7224, 0.6671, 0.6351, 0.5960, 0.5600, 0.5266, 0.4958,
+			0.4672, 0.4406, 0.4160, 0.4031, 0.3720, 0.3519, 0.3332, 0.3160
+		]
+
+		# CIE D65 Standard Daylight Illuminant Spectrum across 38 slices (Unpolarized Source Spectrum)
+		D65_ILLUMINANT = [
+			49.9,  54.6,  82.8,  91.5,  93.4,  104.9, 117.1, 117.8, 114.9, 115.9,
+			108.8, 109.4, 104.8, 105.5, 104.4, 102.1, 100.1, 96.3,  95.8,  90.0,
+			89.6,  87.7,  83.3,  83.7,  80.0,  80.2,  82.3,  78.3,  69.7,  71.6,
+			74.3,  67.9,  67.5,  64.3,  61.6,  60.4,  64.4,  63.5
+		]
+
+		# 1. CIE 1931 2-Degree Color Matching Functions (CMF) mapped to 38 slices (380nm - 750nm)
+		# Values integrated per 10nm step to convert spectrum back into linear XYZ space.
+		CIE_X = [
+			0.0014, 0.0042, 0.0143, 0.0435, 0.1344, 0.2839, 0.3483, 0.3362, 0.2908, 0.1954, 
+			0.0956, 0.0320, 0.0049, 0.0093, 0.0633, 0.1655, 0.2904, 0.4334, 0.5945, 0.7621, 
+			0.9163, 1.0263, 1.0622, 1.0026, 0.8544, 0.6424, 0.4479, 0.2835, 0.1649, 0.0874, 
+			0.0468, 0.0227, 0.0114, 0.0058, 0.0029, 0.0014, 0.0007, 0.0003
+		]
+		
+		CIE_Y = [
+			0.0000, 0.0001, 0.0004, 0.0012, 0.0040, 0.0116, 0.0230, 0.0380, 0.0600, 0.0910, 
+			0.1390, 0.2080, 0.3230, 0.5030, 0.7100, 0.8620, 0.9540, 0.9950, 0.9950, 0.9520, 
+			0.8700, 0.7570, 0.6310, 0.5030, 0.3810, 0.2650, 0.1750, 0.1070, 0.0610, 0.0320, 
+			0.0170, 0.0082, 0.0041, 0.0021, 0.0010, 0.0005, 0.0002, 0.0001
+		]
+		
+		CIE_Z = [
+			0.0065, 0.0201, 0.0679, 0.2074, 0.6456, 1.3856, 1.7471, 1.7721, 1.6230, 1.2820, 
+			0.8130, 0.4652, 0.2720, 0.1582, 0.0782, 0.0343, 0.0137, 0.0052, 0.0017, 0.0005, 
+			0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 
+			0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000
+		]
+
+		# Establish Inputs/Outputs Interface Sockets
+		ntree.interface.clear()
+
+		#build sun arrow
+		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+
+
+		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'back', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'back', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+		mySun_arrow = self.createArrowFullProcess('mySunArrow', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+
+		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
 
 		self.deselectAll()
-		bpy.ops.mesh.primitive_cone_add(vertices=3, radius1=1, radius2=0, depth=2, end_fill_type='TRIFAN', enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
-		tet_0 = bpy.context.active_object
-		tet_0.name = 'tet_0'
-		# tet_0.select_set(1)
+		mySun_arrow.select_set(1)
+		bpy.context.view_layer.objects.active = mySun_arrow
+		# mySun_arrow.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(90)))
+		mySun_arrow.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(-90)))
+		mySun_arrow.location = mathutils.Vector((0, 0, 0))
+		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
 
-		bpy.ops.mesh.primitive_cone_add(vertices=3, radius1=1, radius2=0, depth=2, end_fill_type='TRIFAN', enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
-		tet_1 = bpy.context.active_object
-		tet_1.name = 'tet_1'
-		tet_1.hide_set(1)
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						# space.shading.type = 'WIREFRAME'
+						# space.shading.type = 'MATERIAL'
+						# space.shading.type = 'SOLID'
+						space.shading.type = 'RENDERED'
 
-		bpy.context.view_layer.objects.active = tet_1
-		tet_2 = self.copyObject()
-		tet_2.name = 'tet_2'
-		tet_2.hide_set(1)
+						# bpy.context.space_data.overlay.show_floor = True
+						space.overlay.show_floor = True
 
-		# myInputMesh = bpy.context.active_object
-		# myInputMesh = bpy.context.selected_objects[0]
-		# tet.select_set(1)
+		bpy.ops.mesh.primitive_cube_add()
 
-		mod = tet_0.modifiers.get("SDF_Modifier")
-		if not mod:
-			mod = tet_0.modifiers.new(name="SDF_Modifier", type='NODES')
-			
-		# Create or get the Node Group
-		nodetree = bpy.data.node_groups.new(type='GeometryNodeTree', name="SDF_Calculation_Tree")
-		mod.node_group = nodetree
+		centerCube = bpy.context.active_object
+		centerCube.select_set(1)
+		centerCube.scale = mathutils.Vector((.1, .1, .1))
+		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+		centerCube.hide_set(1)
+		centerCube.hide_render = True
 
-		# nodetree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-		# nodetree.interface.new_socket(name="Density (Resolution)", in_out='INPUT', socket_type='NodeSocketInt')
-		# nodetree.interface.new_socket(name="Thickening", in_out='INPUT', socket_type='NodeSocketFloat')
-		# nodetree.interface.new_socket(name="Volume Output", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+		self.deselectAll()
+		mySun_arrow.select_set(1)
+		bpy.context.view_layer.objects.active = mySun_arrow
 
-		nodes = nodetree.nodes
-		links = nodetree.links
+		bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+		mySun_arrow.constraints["Damped Track"].target = centerCube
+		# mySun_arrow.constraints["Damped Track"].track_axis = 'TRACK_X'
+		# mySun_arrow.constraints["Damped Track"].track_axis = 'TRACK_NEGATIVE_Y'
+		mySun_arrow.constraints["Damped Track"].track_axis = 'TRACK_Y'
 
-		nodes.clear()
+		bpy.ops.object.constraint_add(type='LIMIT_LOCATION')
+		mySun_arrow.constraints["Limit Location"].use_min_z = True
+		mySun_arrow.constraints["Limit Location"].use_transform_limit = True
 
-		group_input = nodes.new('NodeGroupInput')
-		group_output = nodes.new('NodeGroupOutput')
+		bpy.context.space_data.context = 'SCENE'
 
-		#ISOMESHER
-		node_objectInfo_0 = nodetree.nodes.new("GeometryNodeObjectInfo")
-		node_objectInfo_0.label = 'objectInfo 0'
-		node_objectInfo_0.transform_space = 'RELATIVE'
-		bpy.data.node_groups["SDF_Calculation_Tree"].nodes["Object Info"].transform_space = 'RELATIVE'
-		node_objectInfo_0.inputs[0].default_value = bpy.data.objects[tet_1.name]
+		atmospheric_scale = ntree.nodes.new("ShaderNodeValue")
+		atmospheric_scale.outputs[0].default_value = 0.0005  # Lower default to balance raw meter units
+		atmospheric_scale.label = 'atmospheric scale'
+		atmospheric_scale.use_custom_color = True
+		atmospheric_scale.color = (1, 0, 0)
 
+		myL = ntree.nodes.new("FunctionNodeInputVector")
+		myL.vector[0] = 0.0
+		myL.vector[1] = 0.0
+		myL.vector[2] = 0.0
+		myL.label = 'light dir'
+		myL.use_custom_color = True
+		myL.color = (1, 0, 0)
 
-		node_objectInfo_1 = nodetree.nodes.new("GeometryNodeObjectInfo")
-		node_objectInfo_1.label = 'objectInfo 1'
-		node_objectInfo_1.transform_space = 'RELATIVE'
-		bpy.data.node_groups["SDF_Calculation_Tree"].nodes["Object Info"].transform_space = 'RELATIVE'
-		node_objectInfo_1.inputs[0].default_value = bpy.data.objects[tet_2.name]
-
-
-		node_GeometryNodeMeshToSDFGrid_1 = nodetree.nodes.new("GeometryNodeMeshToSDFGrid")
-		node_GeometryNodeMeshToSDFGrid_1.inputs[1].default_value = 0.02
-		node_GeometryNodeMeshToSDFGrid_1.inputs[2].default_value = 10
-		nodetree.links.new(node_objectInfo_0.outputs[4], node_GeometryNodeMeshToSDFGrid_1.inputs[0])
-
-
-		node_GeometryNodeMeshToSDFGrid_2 = nodetree.nodes.new("GeometryNodeMeshToSDFGrid")
-		node_GeometryNodeMeshToSDFGrid_2.inputs[1].default_value = 0.02
-		node_GeometryNodeMeshToSDFGrid_2.inputs[2].default_value = 10
-		nodetree.links.new(node_objectInfo_1.outputs[4], node_GeometryNodeMeshToSDFGrid_2.inputs[0])
+		self.autoArrangeNodes(ntree)
 
 
-		node_GeometryNodeMeshGridOffset = nodetree.nodes.new("GeometryNodeSDFGridOffset")
-		node_GeometryNodeMeshGridOffset.inputs[1].default_value = 0.1
-		nodetree.links.new(node_GeometryNodeMeshToSDFGrid_2.outputs[0], node_GeometryNodeMeshGridOffset.inputs[0])
+		group = bpy.data.node_groups['ABJ_Rayleigh_Atmosphere_Compositor']
+		self.atmospheric_rayleigh_setup_sky_texture_vector_sync(group, myL, mySun_arrow, ntree)
 
 
-		node_GeometryNodeSDFGridBoolean = nodetree.nodes.new("GeometryNodeSDFGridBoolean")
-		nodetree.links.new(node_GeometryNodeMeshToSDFGrid_1.outputs[0], node_GeometryNodeSDFGridBoolean.inputs[0])
-		nodetree.links.new(node_GeometryNodeMeshGridOffset.outputs[0], node_GeometryNodeSDFGridBoolean.inputs[1])
+
+		self.autoArrangeNodes(ntree)
+
+		# for area in bpy.context.screen.areas: 
+		# 	if area.type == 'VIEW_3D':
+		# 		for space in area.spaces: 
+		# 			if space.type == 'VIEW_3D':
+		# 				# space.shading.type = 'WIREFRAME'
+		# 				# space.shading.type = 'MATERIAL'
+		# 				# space.shading.type = 'SOLID'
+		# 				space.shading.type = 'RENDERED'
+
+		return
+
+		myV = ntree.nodes.new("FunctionNodeInputVector")
+		myV.vector[0] = 1.0
+		myV.vector[1] = 0.0
+		myV.vector[2] = 0.0
+		myV.label = 'view dir'
+		myV.use_custom_color = True
+		myV.color = (1, 0, 0)
 
 
-		node_GeometryNodeGridToMesh = nodetree.nodes.new("GeometryNodeGridToMesh")
-		node_GeometryNodeGridToMesh.inputs[1].default_value = 0.1
-		node_GeometryNodeGridToMesh.inputs[2].default_value = 0
-		nodetree.links.new(node_GeometryNodeSDFGridBoolean.outputs[0], node_GeometryNodeGridToMesh.inputs[0])
+		sky_cap = ntree.nodes.new("ShaderNodeValue")
+		sky_cap.outputs[0].default_value = 5000.0  # Prevents infinite horizon values from breaking loops
+		sky_cap.label = 'sky threshold'
+		sky_cap.use_custom_color = True
+		sky_cap.color = (1, 0, 0)
+
+		# color_out = ntree.interface.new_socket(name="FragColor", in_out='OUT', socket_type='NodeSocketColor')
+		ntree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
+
+		input_node = ntree.nodes.new('NodeGroupInput')
+		output_node = ntree.nodes.new('NodeGroupOutput')
+
+		# Clamp infinite background depth pixels to a measurable sky cap boundary
+		depth_clamp = ntree.nodes.new('ShaderNodeMath')
+		depth_clamp.operation = 'MINIMUM'
+		# ntree.links.new(input_node.outputs['Render Pass Depth'], depth_clamp.inputs[0])
+		ntree.links.new(node0.outputs["Depth"], depth_clamp.inputs[0])
+		ntree.links.new(sky_cap.outputs[0], depth_clamp.inputs[1])
+
+
+
+
+
+		############################
+		# Rayleigh Phase Function
+		############################
+		myV_normalized = self.myV.normalized()
+		myL_normalized = myL.normalized()
 
 		
-		node_GeometryNodeSplitToInstances = nodetree.nodes.new("GeometryNodeSplitToInstances")
-		node_GeometryNodeSplitToInstances.domain = 'POINT'
-
-
-
-		node_GeometryNodeInputMeshIsland = nodetree.nodes.new("GeometryNodeInputMeshIsland")
-		nodetree.links.new(node_GeometryNodeGridToMesh.outputs[0], node_GeometryNodeSplitToInstances.inputs[0])
-		nodetree.links.new(node_GeometryNodeInputMeshIsland.outputs[0], node_GeometryNodeSplitToInstances.inputs[2])
-
-
-		node_GeometryNodeInputIndex = nodetree.nodes.new("GeometryNodeInputIndex")
-
-
-		node_FunctionNodeCompare = nodetree.nodes.new("FunctionNodeCompare")
-		node_FunctionNodeCompare.data_type = 'INT'
-		node_FunctionNodeCompare.operation = 'EQUAL'
-		node_FunctionNodeCompare.inputs[1].default_value = 1
-		nodetree.links.new(node_GeometryNodeInputIndex.outputs[0], node_FunctionNodeCompare.inputs[0])
-
-
-		node_GeometryNodeSeparateGeometry = nodetree.nodes.new("GeometryNodeSeparateGeometry")
-		node_GeometryNodeSeparateGeometry.domain = 'INSTANCE'
-		nodetree.links.new(node_GeometryNodeSplitToInstances.outputs[0], node_GeometryNodeSeparateGeometry.inputs[0])
-		nodetree.links.new(node_FunctionNodeCompare.outputs[0], node_GeometryNodeSeparateGeometry.inputs[1])
-
-
-		links.new(node_GeometryNodeSeparateGeometry.outputs[0], group_output.inputs[0])
-
-		self.autoArrangeNodes(nodetree)
-
-		bpy.context.view_layer.objects.active = tet_0
-		# tet_0.select_set(1)
-
-
-		#isomesher
-		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeVolumeCube")
-		# bpy.ops.node.add_node(use_transform=True, type="GeometryNodeInputPosition")
-
-
-
 		'''
-		--- NODE LIST FOR: Geometry Nodes ---
-		DISPLAY NAME                   | PYTHON BL_IDNAME (TYPE)        | INTERNAL DATA NAME
-		------------------------------------------------------------------------------------------
-		Group Input                    | NodeGroupInput                 | Group Input
-		Group Output                   | NodeGroupOutput                | Group Output
-		Object Info.001                | GeometryNodeObjectInfo         | Object Info.001
-		Mesh to SDF Grid               | GeometryNodeMeshToSDFGrid      | Mesh to SDF Grid
-		Mesh to SDF Grid.001           | GeometryNodeMeshToSDFGrid      | Mesh to SDF Grid.001
-		SDF Grid Offset                | GeometryNodeSDFGridOffset      | SDF Grid Offset
-		SDF Grid Boolean               | GeometryNodeSDFGridBoolean     | SDF Grid Boolean
-		Grid to Mesh                   | GeometryNodeGridToMesh         | Grid to Mesh
-		Object Info.002                | GeometryNodeObjectInfo         | Object Info.002
-		Object Info.003                | GeometryNodeObjectInfo         | Object Info.003
-		Object Info.004                | GeometryNodeObjectInfo         | Object Info.004
-		Split to Instances             | GeometryNodeSplitToInstances   | Split to Instances
-		Mesh Island                    | GeometryNodeInputMeshIsland    | Mesh Island
-		Separate Geometry              | GeometryNodeSeparateGeometry   | Separate Geometry
-		Compare                        | FunctionNodeCompare            | Compare
-		Index                          | GeometryNodeInputIndex         | Index
-		------------------------------------------------------------------------------------------
+		## WRITTEN CUSTOM DOT PRODUCT
+		###############
+
+		######### R
+		node_dotR_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_0.operation = 'MULTIPLY'
+		node_dotR_0.inputs[0].default_value = 3.2409699419045200
+		nodetree.links.new(xyz.outputs[0], node_dotR_0.inputs[1])
+
+		node_dotR_1 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_1.operation = 'MULTIPLY'
+		node_dotR_1.inputs[0].default_value = -1.537383177570090
+		nodetree.links.new(xyz.outputs[1], node_dotR_1.inputs[1])
+
+		node_dotR_2 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_2.operation = 'MULTIPLY'
+		node_dotR_2.inputs[0].default_value = -0.4986107602930030
+		nodetree.links.new(xyz.outputs[2], node_dotR_2.inputs[1])
+
+		node_add_R_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_add_R_0.operation = 'ADD'
+		nodetree.links.new(node_dotR_0.outputs[0], node_add_R_0.inputs[0])
+		nodetree.links.new(node_dotR_1.outputs[0], node_add_R_0.inputs[1])
+
+		node_dotProd_R = nodetree.nodes.new("ShaderNodeMath")
+		node_dotProd_R.operation = 'ADD'
+		nodetree.links.new(node_add_R_0.outputs[0], node_dotProd_R.inputs[0])
+		nodetree.links.new(node_dotR_2.outputs[0], node_dotProd_R.inputs[1])
 
 		'''
 
+		cosTheta = ntree.nodes.new("ShaderNodeVectorMath")
+		cosTheta.operation = 'DOT_PRODUCT'
+		cosTheta.inputs[0].default_value[0] = myV_normalized.x
+		cosTheta.inputs[0].default_value[1] = myV_normalized.y
+		cosTheta.inputs[0].default_value[2] = myV_normalized.z
+		cosTheta.inputs[1].default_value[0] = myL_normalized.x
+		cosTheta.inputs[1].default_value[1] = myL_normalized.y
+		cosTheta.inputs[1].default_value[2] = myL_normalized.z
 
 
+
+		cos_sqr = ntree.nodes.new('ShaderNodeMath')
+		cos_sqr.operation = 'MULTIPLY'
+		ntree.links.new(cosTheta.outputs[0], cos_sqr.inputs[0])
+		ntree.links.new(cosTheta.outputs[0], cos_sqr.inputs[1])
+
+		phase_add = ntree.nodes.new('ShaderNodeMath')
+		phase_add.operation = 'ADD'
+		phase_add.inputs[0].default_value = 1.0
+		ntree.links.new(cos_sqr.outputs[0], phase_add.inputs[1])
+
+		rayleigh_phase = ntree.nodes.new('ShaderNodeMath')
+		rayleigh_phase.operation = 'MULTIPLY'
+		rayleigh_phase.inputs[0].default_value = 3.0 / (16.0 * math.pi)
+		ntree.links.new(phase_add.outputs[0], rayleigh_phase.inputs[1])
+
+		last_x, last_y, last_z = None, None, None
+
+		myXYZ = mathutils.Vector(0, 0, 0)
+
+		xyz_start = ntree.nodes.new("FunctionNodeInputVector")
+		xyz_start.vector[0] = 0.0
+		xyz_start.vector[1] = 0.0
+		xyz_start.vector[2] = 0.0
+
+		#look at spectral_compositor_reflectance_to_xyz_p0 !!!!!!!
+
+
+
+		# Spectral loop unrolling over 38 slices
+		for i in range(38):
+			#Base Extinction (Outscattering) calculation for this slice
+			beta_r = ntree.nodes.new('ShaderNodeMath')
+			beta_r.operation = 'MULTIPLY'
+			beta_r.inputs[0].default_value = RAYLEIGH_WEIGHTS[i]
+			ntree.links.new(atmospheric_scale.outputs[0], beta_r.inputs[1])
+
+			neg_beta_r = ntree.nodes.new('ShaderNodeMath')
+			neg_beta_r.operation = 'MULTIPLY'
+			neg_beta_r.inputs[0].default_value = -1
+			ntree.links.new(beta_r.outputs[0], neg_beta_r.inputs[1])
+
+			#Outscattering Transmission calculation (Beer-Lambert Law)
+			# Uses the sanitized, clamped depth pass stream output
+			exp_mult = ntree.nodes.new('ShaderNodeMath')
+			exp_mult.operation = 'MULTIPLY'
+			# ntree.links.new(beta_r.outputs[0], exp_mult.inputs[0])
+			ntree.links.new(neg_beta_r.outputs[0], exp_mult.inputs[0])
+			ntree.links.new(depth_clamp.outputs[0], exp_mult.inputs[1])
+
+			transmission = ntree.nodes.new('ShaderNodeMath')
+			transmission.operation = 'EXPONENT'
+			ntree.links.new(exp_mult.outputs[0], transmission.inputs[0])
+
+			############
+			#single slice accumulation
+
+			#rayleigh phase
+			# self.myV.normalize()
+
+					################
+
+
+
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[0] = 0.1
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[1] = 0.2
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[2] = 0.3
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[0] = 0.4
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[1] = 0.5
+			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[2] = 0.6
+
+
+
+
+
+			one_minus_transmission = ntree.nodes.new('ShaderNodeMath')
+			one_minus_transmission.operation = 'SUBTRACT'
+			one_minus_transmission.inputs[0].default_value = 1
+			ntree.links.new(transmission, one_minus_transmission.inputs[1])
+
+			d65_mult_betaR = ntree.nodes.new('ShaderNodeMath')
+			d65_mult_betaR.operation = 'MULTIPLY'
+			d65_mult_betaR.inputs[0].default_value = D65_ILLUMINANT[i]
+			ntree.links.new(beta_r, transmission.inputs[1])
+
+			d65_mult_betaR = ntree.nodes.new('ShaderNodeMath')
+			d65_mult_betaR.operation = 'MULTIPLY'
+			d65_mult_betaR.inputs[0].default_value = D65_ILLUMINANT[i]
+			ntree.links.new(beta_r, transmission.inputs[1])
+
+
+
+
+
+
+
+			neg_exp = ntree.nodes.new('ShaderNodeMath')
+			neg_exp.operation = 'MULTIPLY'
+			neg_exp.inputs[1].default_value = -1.0
+			ntree.links.new(exp_mult.outputs[0], neg_exp.inputs[0])
+
+			trans = ntree.nodes.new('ShaderNodeMath')
+			trans.operation = 'POWER'
+			trans.inputs[0].default_value = math.e
+			ntree.links.new(neg_exp.outputs[0], trans.inputs[1])
+
+			inv_trans = ntree.nodes.new('ShaderNodeMath')
+			inv_trans.operation = 'SUBTRACT'
+			inv_trans.inputs[0].default_value = 1.0
+			ntree.links.new(trans.outputs[0], inv_trans.inputs[1])
+
+			p1 = ntree.nodes.new('ShaderNodeMath')
+			p1.operation = 'MULTIPLY'
+			ntree.links.new(inv_trans.outputs[0], p1.inputs[0])
+			ntree.links.new(beta_r.outputs[0], p1.inputs[1])
+
+			p2 = ntree.nodes.new('ShaderNodeMath')
+			p2.operation = 'MULTIPLY'
+			ntree.links.new(p1.outputs[0], p2.inputs[0])
+			ntree.links.new(phase_mult.outputs[0], p2.inputs[1])
+
+			scat_final = ntree.nodes.new('ShaderNodeMath')
+			scat_final.operation = 'MULTIPLY'
+			scat_final.inputs[0].default_value = D65_ILLUMINANT[i]
+			ntree.links.new(p2.outputs[0], scat_final.inputs[1])
+
+			for idx, (cmf_arr, var_str) in enumerate([(CIE_X, 'last_x'), (CIE_Y, 'last_y'), (CIE_Z, 'last_z')]):
+				cmf_m = ntree.nodes.new('ShaderNodeMath')
+				cmf_m.operation = 'MULTIPLY'
+				cmf_m.inputs[0].default_value = cmf_arr[i]
+				ntree.links.new(scat_final.outputs[0], cmf_m.inputs[1])
+
+				current_prev = locals()[var_str]
+				if current_prev is None:
+					locals()[var_str] = cmf_m.outputs[0]
+				else:
+					adder = ntree.nodes.new('ShaderNodeMath')
+					adder.operation = 'ADD'
+					ntree.links.new(current_prev, adder.inputs[0])
+					ntree.links.new(cmf_m.outputs[0], adder.inputs[1])
+					locals()[var_str] = adder.outputs[0]
+
+		# Scaling Normalization
+		norm_x = ntree.nodes.new('ShaderNodeMath')
+		norm_x.operation = 'MULTIPLY'
+		norm_x.inputs[1].default_value = 0.01
+		ntree.links.new(locals()['last_x'], norm_x.inputs[0])
+
+		norm_y = ntree.nodes.new('ShaderNodeMath')
+		norm_y.operation = 'MULTIPLY'
+		norm_y.inputs[1].default_value = 0.01
+		ntree.links.new(locals()['last_y'], norm_y.inputs[0])
+
+		norm_z = ntree.nodes.new('ShaderNodeMath')
+		norm_z.operation = 'MULTIPLY'
+		norm_z.inputs[1].default_value = 0.01
+		ntree.links.new(locals()['last_z'], norm_z.inputs[0])
+
+		# Matrix Conversion to sRGB
+		rx = ntree.nodes.new('ShaderNodeMath')
+		rx.operation = 'MULTIPLY'
+		rx.inputs[1].default_value = 3.2404542
+		ntree.links.new(norm_x.outputs[0], rx.inputs[0])
+
+		ry = ntree.nodes.new('ShaderNodeMath')
+		ry.operation = 'MULTIPLY'
+		ry.inputs[1].default_value = -1.5371385
+		ntree.links.new(norm_y.outputs[0], ry.inputs[0])
+
+		rz = ntree.nodes.new('ShaderNodeMath')
+		rz.operation = 'MULTIPLY'
+		rz.inputs[1].default_value = -0.4985314
+		ntree.links.new(norm_z.outputs[0], rz.inputs[0])
+
+		r_add1 = ntree.nodes.new('ShaderNodeMath')
+		r_add1.operation = 'ADD'
+		ntree.links.new(rx.outputs[0], r_add1.inputs[0])
+		ntree.links.new(ry.outputs[0], r_add1.inputs[1])
+
+		r_final = ntree.nodes.new('ShaderNodeMath')
+		r_final.operation = 'ADD'
+		ntree.links.new(r_add1.outputs[0], r_final.inputs[0])
+		ntree.links.new(rz.outputs[0], r_final.inputs[1])
+
+		gx = ntree.nodes.new('ShaderNodeMath')
+		gx.operation = 'MULTIPLY'
+		gx.inputs[1].default_value = -0.9692660
+		ntree.links.new(norm_x.outputs[0], gx.inputs[0])
+
+		gy = ntree.nodes.new('ShaderNodeMath')
+		gy.operation = 'MULTIPLY'
+		gy.inputs[1].default_value = 1.8760108
+		ntree.links.new(norm_y.outputs[0], gy.inputs[0])
+
+		gz = ntree.nodes.new('ShaderNodeMath')
+		gz.operation = 'MULTIPLY'
+		gz.inputs[1].default_value = 0.0415560
+		ntree.links.new(norm_z.outputs[0], gz.inputs[0])
+
+		g_add1 = ntree.nodes.new('ShaderNodeMath')
+		g_add1.operation = 'ADD'
+		ntree.links.new(gx.outputs[0], g_add1.inputs[0])
+		ntree.links.new(gy.outputs[0], g_add1.inputs[1])
+
+		g_final = ntree.nodes.new('ShaderNodeMath')
+		g_final.operation = 'ADD'
+		ntree.links.new(g_add1.outputs[0], g_final.inputs[0])
+		ntree.links.new(gz.outputs[0], g_final.inputs[1])
+
+		bx = ntree.nodes.new('ShaderNodeMath')
+		bx.operation = 'MULTIPLY'
+		bx.inputs[1].default_value = 0.0556434
+		ntree.links.new(norm_x.outputs[0], bx.inputs[0])
+
+		by = ntree.nodes.new('ShaderNodeMath')
+		by.operation = 'MULTIPLY'
+		by.inputs[1].default_value = -0.2040259
+		ntree.links.new(norm_y.outputs[0], by.inputs[0])
+
+		bz = ntree.nodes.new('ShaderNodeMath')
+		bz.operation = 'MULTIPLY'
+		bz.inputs[1].default_value = 1.0572252
+		ntree.links.new(norm_z.outputs[0], bz.inputs[0])
+
+		b_add1 = ntree.nodes.new('ShaderNodeMath')
+		b_add1.operation = 'ADD'
+		ntree.links.new(bx.outputs[0], b_add1.inputs[0])
+		ntree.links.new(by.outputs[0], b_add1.inputs[1])
+
+		b_final = ntree.nodes.new('ShaderNodeMath')
+		b_final.operation = 'ADD'
+		ntree.links.new(b_add1.outputs[0], b_final.inputs[0])
+		ntree.links.new(bz.outputs[0], b_final.inputs[1])
+
+		clamp_r = ntree.nodes.new('ShaderNodeMath')
+		clamp_r.operation = 'MAXIMUM'
+		clamp_r.inputs[1].default_value = 0.0
+		ntree.links.new(r_final.outputs[0], clamp_r.inputs[0])
+
+		clamp_g = ntree.nodes.new('ShaderNodeMath')
+		clamp_g.operation = 'MAXIMUM'
+		clamp_g.inputs[1].default_value = 0.0
+		ntree.links.new(g_final.outputs[0], clamp_g.inputs[0])
+
+		clamp_b = ntree.nodes.new('ShaderNodeMath')
+		clamp_b.operation = 'MAXIMUM'
+		clamp_b.inputs[1].default_value = 0.0
+		ntree.links.new(b_final.outputs[0], clamp_b.inputs[0])
+
+		combine = ntree.nodes.new('CompositorNodeCombineColor')
+		combine.mode = 'RGB'
+
+		ntree.links.new(clamp_r.outputs[0], combine.inputs[0])
+		ntree.links.new(clamp_g.outputs[0], combine.inputs[1])
+		ntree.links.new(clamp_b.outputs[0], combine.inputs[2])
+		ntree.links.new(combine.outputs[0], output_node.inputs[0])
+
+		print(f"[ABJ Debugger] Live Scene Layer tracking group built: '{group_name}'")
+
+		self.spectral_compositor_debugging_exit_visualizer_atmospheric(ntree, node0, 932, 633)
 
 	def spectral_compositor_stock(self):
 		self.deselectAll()
@@ -3066,7 +4430,7 @@ class ABJ_Shader_Debugger():
 
 		bpy.context.scene.view_layers["ViewLayer"].use_pass_z = True
 
-		compGroupName = 'spectralCompositor'
+		compGroupName = 'spectralCompositor_kubla_munk'
 
 		nodetree = bpy.data.node_groups.new(compGroupName, "CompositorNodeTree")
 		bpy.context.scene.compositing_node_group = nodetree
@@ -8962,6 +10326,44 @@ class ABJ_Shader_Debugger():
 
 		return toReturn
 
+class SCENE_PT_ABJ_FEM_Debugger_Panel(bpy.types.Panel):
+	bl_label = "ABJ FEM Debugger"
+	bl_idname = "SCENE_PT_ABJ_FEM_Debugger_Panel"
+	bl_space_type = 'PROPERTIES'
+	bl_region_type = 'WINDOW'
+	bl_context = "scene"
+
+	def draw(self, context):
+		layout = self.layout
+		obj = context.active_object
+
+		######################################
+		###### FEM
+		######################################
+		layout.label(text='FEM 01')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_fem_01_operator')
+
+class SCENE_PT_ABJ_Atmospheric_Debugger_Panel(bpy.types.Panel):
+	bl_label = "ABJ Atmospheric Debugger"
+	bl_idname = "SCENE_PT_ABJ_Atmospheric_Debugger_Panel"
+	bl_space_type = 'PROPERTIES'
+	bl_region_type = 'WINDOW'
+	bl_context = "scene"
+
+	def draw(self, context):
+		layout = self.layout
+		obj = context.active_object
+
+		######################################
+		###### FEM
+		######################################
+		# layout.label(text='Rayleigh')
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_atmospheric_01_operator')
+
 class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	"""Creates a Panel in the scene context of the properties editor"""
 	bl_label = "ABJ Shader Debugger"
@@ -8973,13 +10375,38 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	def draw(self, context):
 		layout = self.layout
 
-		######################################
-		###### FEM
-		######################################
-		layout.label(text='SDF 01')
-		row = layout.row()
-		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_sdf_01_operator')
+		obj = context.active_object
+
+		# # =====================================================================
+		# # SLOT 1 (TOP): DYNAMIC FEM WIRE VISUALIZER LAYER (NON-BREAKING)
+		# # =====================================================================
+		# # If the active object has the modifier, this block populates the top of the UI.
+		# # If it doesn't, Blender skips it entirely and draws the shader panels immediately.
+		# if obj and "FEM_Wire_Visualizer" in obj.modifiers:
+		# 	mod = obj.modifiers["FEM_Wire_Visualizer"]
+			
+		# 	if mod.type == 'NODES' and mod.node_group:
+		# 		box_fem = layout.box()
+		# 		box_fem.label(text=f"Active Simulation Cage: {obj.name}", icon='NODETREE')
+				
+		# 		# Dynamic identifier lookup for Blender 5.2+ string interfaces
+		# 		socket_id = None
+		# 		for item in mod.node_group.interface.items:
+		# 			if item.in_out == 'INPUT' and item.name == "Bone Distance Radius":
+		# 				socket_id = item.identifier
+		# 				break
+				
+		# 		# Renders your interactive slider seamlessly at the top of the panel
+		# 		if socket_id is not None:
+		# 			row = box_fem.row()
+		# 			row.prop(mod, socket_id, text="Bone Proximity Radius", slider=True)
+		# 		else:
+		# 			box_fem.label(text="Initializing Node Map Parameters...", icon='INFO')
+		# else:
+		# 	# Optional placeholder block on top when a non-simulation asset is active
+		# 	box_info = layout.box()
+		# 	box_info.label(text="FEM Solver Status: Awaiting Cage Selection", icon='INFO')
+
 
 		######################################
 		###### SPECTRAL COMPOSITOR
@@ -9425,14 +10852,24 @@ class SHADER_OT_SPECTRAL_COMPOSITOR(bpy.types.Operator):
 		myABJ_SD_B.spectral_compositor()
 		return {'FINISHED'}
 
-class SHADER_OT_SDF_01(bpy.types.Operator):
+class SHADER_OT_FEM_01(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'SDF 01'
-	bl_idname = 'shader.abj_shader_debugger_sdf_01_operator'
+	bl_label = 'FEM 01'
+	bl_idname = 'shader.abj_shader_debugger_fem_01_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.SDF_01()
+		myABJ_SD_B.FEM_01()
+		return {'FINISHED'}
+
+class SHADER_OT_ATMOSPHERIC_01(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'Rayleigh'
+	bl_idname = 'shader.abj_shader_debugger_atmospheric_01_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.atmospheric_rayleigh_01()
 		return {'FINISHED'}
 
 class SHADER_OT_COMPOSITOR_STOCK(bpy.types.Operator):
