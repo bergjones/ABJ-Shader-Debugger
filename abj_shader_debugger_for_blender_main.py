@@ -3350,7 +3350,6 @@ class ABJ_Shader_Debugger():
 		return cleaned_pool_local, final_tets
 
 	def FEM_01(self):
-
 		# self.FEM_mesh_generation(0.015, 0.05)
 		self.FEM_mesh_generation(0.05, 0.05)
 
@@ -3362,56 +3361,59 @@ class ABJ_Shader_Debugger():
 		# nodetree.links.new(nodeToView.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
 		# nodetree.links.new(nodeToView.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
 
-		# self.autoArrangeNodes(nodetree)
+		self.autoArrangeNodes(nodetree)
+
+		"""
+		Appends a dedicated File Output node to the tail of your spectral compositor.
+		This bypasses animation frame skipping by forcing Blender to serialize the 
+		composited data to disk before advancing the animation timeline frame index.
+		"""
+		# Create an explicit file output hard-sink node
+		file_out = nodetree.nodes.new('CompositorNodeOutputFile')
+		file_out.label = "ABJ_Spectral_exr_out"
+		file_out.use_custom_color = True
+		file_out.color = (0, 1, 0)
+		
+		# Configure the path target destination
+		file_out.directory = "//compositing_files//render_output/"
+		file_out.file_name = "spectral_frame_######"
+
+		file_out.format.media_type = 'IMAGE'
+
+		# Force high-fidelity data preservation format tracking configurations
+		file_out.format.file_format = 'PNG'
+		# file_out.format.file_format = 'OPEN_EXR'
+		# file_out.format.color_depth = '16' # 16-bit Float prevents any distance color banding
+		# file_out.format.media_type = 'MULTI_LAYER_IMAGE'
+
+		nodeToView_separated = nodetree.nodes.new("ShaderNodeSeparateXYZ")
+		nodeToView_separated.label = 'luminance1_sep'
+		nodetree.links.new(nodeToView.outputs[0], nodeToView_separated.inputs[0])
+
+		combine_color = nodetree.nodes.new("CompositorNodeCombineColor")
+		combine_color.label = 'combine_final'
+		nodetree.links.new(nodeToView_separated.outputs[0], combine_color.inputs[0])
+		nodetree.links.new(nodeToView_separated.outputs[1], combine_color.inputs[1])
+		nodetree.links.new(nodeToView_separated.outputs[2], combine_color.inputs[2])
+
+		# slot_color = file_out.file_output_items.new("RGBA", "Final")
+		slot_color = file_out.file_output_items.new("RGBA", "")
+
+		nodetree.links.new(combine_color.outputs[0], file_out.inputs[0])
+		
+		print("[ABJ Debugger] Frame-skipping protection enabled via explicit File Output Sink node.")
+
+		nodetree.links.new(combine_color.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		nodetree.links.new(combine_color.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		self.autoArrangeNodes(nodetree)
 		# self.autoArrangeNodes(worldtree)
 
 		# self.compositor_setup = True
 
-		# return
-
 		############################
 		#the user must have saved a new, default scene to a file and have a folder called 'compositing_files' in that directory
 		############################
-
-		'''
-		###########
-		#DEFAULT CAMERA
-		#############
-		# self.pos_camera_global = (10, 10, 10) #spectral
-		# self.pos_camera_global = (20, -30, 15) #spectral
-		# self.pos_camera_global = (5, -20, 10) #spectral ####
-		# self.pos_camera_global = (2, -15, 10) #spectral
-		self.pos_camera_global = (2, -13.5, 8) #spectral
-
-		cam1_data = bpy.ops.object.camera_add(
-			location=(self.pos_camera_global),  # x, y, z coordinates
-			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
-		)
-
-
-		self.myCam.data.clip_start = 1
-		# self.myCam.data.clip_start = .1
-		# self.myCam.data.clip_start = .5
-		# self.myCam.data.clip_end = 100
-		self.myCam.data.clip_end = 500
-
-		self.myCam.location = self.pos_camera_global
-		self.updateScene() # need
-
-		self.look_at(self.myCam, self.myOrigin)
-
-		f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
-		self.myV = -f
-
-		bpy.context.scene.camera = self.myCam
-
-		'''
-
-
-
-
-
-
 
 		self.updateScene() # need
 		# self.look_at(self.myCam, myInputMesh3.location)
@@ -3423,21 +3425,72 @@ class ABJ_Shader_Debugger():
 		# bpy.context.scene.render.resolution_y = 2160
 
 		# bpy.context.scene.cycles.samples = 1024
-		bpy.context.scene.cycles.samples = 256
+		# bpy.context.scene.cycles.samples = 256
+		bpy.context.scene.cycles.samples = 64
 
 		bpy.context.scene.cycles.denoising_use_gpu = True
 
 		# bpy.context.scene.view_settings.view_transform = 'AgX'
 		# bpy.context.scene.view_settings.look = 'AgX - Punchy'
 
+		# ##########
+		# ## DEBUG_SPECTRAL_COMPOSITOR
+		# #########
+		# if "Cube" in bpy.data.objects:
+		# 	cube_obj = bpy.data.objects["Cube"]
+		# 	# Unlink and remove the object completely
+		# 	bpy.data.objects.remove(cube_obj, do_unlink=True)
 
-		##########
-		## DEBUG_SPECTRAL_COMPOSITOR
-		#########
-		if "Cube" in bpy.data.objects:
-			cube_obj = bpy.data.objects["Cube"]
-			# Unlink and remove the object completely
-			bpy.data.objects.remove(cube_obj, do_unlink=True)
+		# return
+
+
+
+
+
+
+		######### generate test objects for demo
+
+		# bpy.ops.mesh.primitive_cube_add(size=.5, location=(0, 0, 0))
+		bpy.ops.mesh.primitive_uv_sphere_add(radius=.25, location=(0, 0, 0))
+		base_obj = bpy.context.active_object
+		bpy.ops.object.shade_smooth()
+
+
+		# Shared mesh data for true instancing
+		mesh_data = base_obj.data
+
+		# Define X and Y positions for the instances
+		import math
+		positions = [(x * 3.0, y * 3.0) for x in range(-5, 6) for y in range(-5, 6)]
+
+		# Deselect all
+		bpy.ops.object.select_all(action='DESELECT')
+
+		fixed_height = 0.0  # Keep all at the same height
+
+		mat1 = self.newShader("principled_test_grd", "principled", 0, 0, 1)
+
+		for i, (px, py) in enumerate(positions):
+			# Create a new object sharing the same mesh data (instance)
+			new_obj = bpy.data.objects.new(f"Cube_Instance_{i}", mesh_data)
+			
+			# Link to the current scene collection
+			bpy.context.collection.objects.link(new_obj)
+			
+			# Set position (keeping Z constant)
+			new_obj.location = (px, py, fixed_height)
+
+
+			bpy.context.active_object.data.materials.clear()
+			bpy.context.active_object.data.materials.append(mat1)
+			bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+			bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+
+
+
+
+
+
 
 		########
 		##### 00
@@ -3445,7 +3498,9 @@ class ABJ_Shader_Debugger():
 		bpy.ops.mesh.primitive_monkey_add()
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
-		myInputMesh.location = mathutils.Vector((0, 0, 5))
+		# myInputMesh.location = mathutils.Vector((0, 0, 5))
+		myInputMesh.location = mathutils.Vector((0, -3, -.2))
+		myInputMesh.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(90)))
 		bpy.ops.object.shade_smooth()
 
 		mat1 = self.newShader("principled_test_00", "principled", 1, 0, 0)
@@ -3485,7 +3540,9 @@ class ABJ_Shader_Debugger():
 		bpy.ops.mesh.primitive_monkey_add()
 		myInputMesh2 = bpy.context.active_object
 		myInputMesh2.select_set(1)
-		myInputMesh2.location = mathutils.Vector((1, 8, 5))
+		# myInputMesh2.location = mathutils.Vector((1, 8, 5))
+		myInputMesh2.location = mathutils.Vector((-14, 8, -.8))
+		myInputMesh2.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(90)))
 		bpy.ops.object.shade_smooth()
 
 		mat1 = self.newShader("principled_test_01", "principled", 1, 0, 0)
@@ -3530,7 +3587,8 @@ class ABJ_Shader_Debugger():
 		bpy.ops.mesh.primitive_monkey_add()
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
-		myInputMesh.location = mathutils.Vector((3, 13, 5))
+		myInputMesh.location = mathutils.Vector((-30, 24, -.3))
+		myInputMesh.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(90)))
 		bpy.ops.object.shade_smooth()
 
 		mat1 = self.newShader("principled_test_02", "principled", 1, 0, 0)
@@ -3571,7 +3629,8 @@ class ABJ_Shader_Debugger():
 		bpy.ops.mesh.primitive_monkey_add()
 		myInputMesh = bpy.context.active_object
 		myInputMesh.select_set(1)
-		myInputMesh.location = mathutils.Vector((5, 16, 5))
+		myInputMesh.location = mathutils.Vector((-44, 47, -.23))
+		myInputMesh.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(90)))
 		bpy.ops.object.shade_smooth()
 
 		mat1 = self.newShader("principled_test_03", "principled", 1, 0, 0)
@@ -3626,6 +3685,8 @@ class ABJ_Shader_Debugger():
 		bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
 
 		self.autoArrangeNodes(mat.node_tree)
+
+		return
 
 		###########
 		# WORLD
@@ -3766,7 +3827,6 @@ class ABJ_Shader_Debugger():
 		sky_node.driver_remove("sun_elevation")
 		driver = sky_node.driver_add("sun_elevation").driver
 		driver.type = 'SCRIPTED'
-		# driver_elev.expression = "degrees(asin(max(-1.0, min(1.0, z))))"
 		
 		# Hook the 'z' value of your input vector to a variable named 'z'
 		var_z = driver.variables.new()
@@ -3798,27 +3858,14 @@ class ABJ_Shader_Debugger():
 		var_z_myL.targets[0].data_path = "location[2]"
 
 		driver_myL.expression = "clamp(degrees(var * 10), 0, 180)"
-		
-		# Expression converts Cartesian Z to degrees: degrees(asin(z))
-		# driver_elev.expression = "degrees(asin(max(-1.0, min(1.0, z))))"
 
-		 # FIX: Explicitly target array index [2] which is the Z-axis of the vector!
-		# var_z.targets[0].data_path = f"nodes['{myL.name}'].vector[2]" 
-		# var_z.targets[0].data_path = f"node_tree.nodes['{myL.name}'].vector[2]" 
-		# var_z.targets[0].data_path = f"{base_path}[2]" # Direct array index mapping for the Z float
-		# var_z.targets[0].data_path = f"node_tree.nodes['{myL.name}'].vector[2]"
-    
-		# return
-
+		#########################################################################
 		# -------------------------------------------------------------------------
-		# DRIVER B: SUN ROTATION
+		# DRIVER C: SUN ROTATION
 		# -------------------------------------------------------------------------
-	
 		sky_node.driver_remove("sun_rotation")
 		driver_rot = sky_node.driver_add("sun_rotation").driver
 		driver_rot.type = 'SCRIPTED'
-
-
 
 		var_x = driver_rot.variables.new()
 		var_x.name = 'varX'
@@ -3827,7 +3874,6 @@ class ABJ_Shader_Debugger():
 		var_x.targets[0].id = mySun_arrow
 		var_x.targets[0].data_path = "location[0]"
 
-
 		var_y = driver_rot.variables.new()
 		var_y.name = 'varY'
 		var_y.type = 'SINGLE_PROP'
@@ -3835,24 +3881,7 @@ class ABJ_Shader_Debugger():
 		var_y.targets[0].id = mySun_arrow
 		var_y.targets[0].data_path = "location[1]"
 
-
-
-
-		# driver_rot.expression = "atan2(radians(varY) * 1, radians(varX) * 1)" ######### good
-		driver_rot.expression = "atan2(radians(varX) * 1, radians(varY) * 1)" 
-		# driver_rot.expression = "atan2(radians(varX) * 1, radians(-varY) * 1)" 
-
-
-
-
-
-
-
-
-
-		# driver_rot.expression = "atan2(radians(varY) * 1, radians(varX) * 1) - radians(90)" #########
-		# driver_rot.expression = "atan2(radians(varY) * 1, radians(-varX) * 1)"
-		
+		driver_rot.expression = "atan2(radians(varX), radians(varY))" 
 
 	def atmospheric_rayleigh_01(self):
 		self.deselectAll()
@@ -3875,14 +3904,36 @@ class ABJ_Shader_Debugger():
 		# self.pos_camera_global = (20, -30, 15) #spectral
 		# self.pos_camera_global = (5, -20, 10) #spectral ####
 		# self.pos_camera_global = (2, -15, 10) #spectral
-		self.pos_camera_global = (2, -13.5, 8) #spectral
+		# self.pos_camera_global = (2, -13.5, 8) #spectral
+		self.pos_camera_global = (13.7, -8, 0.76) #spectral ###atmospheric
 
 		cam1_data = bpy.ops.object.camera_add(
 			location=(self.pos_camera_global),  # x, y, z coordinates
-			rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
+			# rotation=(0.0, 0.0, 0.0)   # x, y, z rotation in radians
+			# rotation=(90, 0, 248)   # x, y, z rotation in radians
+			# rotation=(math.degrees(90), math.degrees(0), math.degrees(248))   # x, y, z rotation in radians
+			# rotation=(math.radians(90), math.radians(0), math.radians(248))   # x, y, z rotation in radians
 		)
 
 		self.myCam = bpy.data.objects["Camera"]
+
+
+
+
+
+
+		# loc_camera = cam.matrix_world.to_translation()
+
+		# # 2. Compute direction vector and convert to quaternion (-Z forward, Y up)
+		# direction = target_point - loc_camera
+		# rot_quat = direction.to_track_quat('-Z', 'Y')
+
+		# self.myOrigin
+		# self.look_at(self.myCam, self.myOrigin)
+
+
+
+
 
 		self.myCam.data.clip_start = 1
 		# self.myCam.data.clip_start = .1
@@ -3908,7 +3959,7 @@ class ABJ_Shader_Debugger():
 		ntree = None
 		if group_name in bpy.data.node_groups:
 			ntree = bpy.data.node_groups[group_name]
-			ntree.nodes.clear() 
+			# ntree.nodes.clear() 
 		else:
 			ntree = bpy.data.node_groups.new(name=group_name, type='CompositorNodeTree')
 
@@ -3917,8 +3968,16 @@ class ABJ_Shader_Debugger():
 		for node in ntree.nodes:
 			ntree.nodes.remove(node)
 
+		# color_out = ntree.interface.new_socket(name="FragColor", in_out='OUT', socket_type='NodeSocketColor')
+		ntree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
+
+		input_node = ntree.nodes.new('NodeGroupInput')
+		self.nodeOut = ntree.nodes.new('NodeGroupOutput')
+
 		node0 = ntree.nodes.new("CompositorNodeRLayers")
 		self.nodeViewer = ntree.nodes.new("CompositorNodeViewer")
+
+
 
 		# Hardcoded Spectrometric Matrix Arrays (38 slices, 380nm - 750nm), 10nm slice
 		RAYLEIGH_WEIGHTS = [
@@ -3959,18 +4018,8 @@ class ABJ_Shader_Debugger():
 			0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000
 		]
 
-		# Establish Inputs/Outputs Interface Sockets
-		ntree.interface.clear()
-
 		#build sun arrow
-		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
-		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
-
-
-		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'back', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
-		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'back', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 		mySun_arrow = self.createArrowFullProcess('mySunArrow', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
-		# mySun_arrow = self.createArrowFullProcess('myCubeLight_og', 'front', True, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
 
 		bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
 
@@ -3981,6 +4030,8 @@ class ABJ_Shader_Debugger():
 		mySun_arrow.rotation_euler = mathutils.Vector((math.radians(0), math.radians(0), math.radians(-90)))
 		mySun_arrow.location = mathutils.Vector((0, 0, 0))
 		bpy.ops.object.transform_apply(location=1, rotation=1, scale=1)
+
+		mySun_arrow.location = (-0.441291, 0.266461, 0)
 
 		for area in bpy.context.screen.areas: 
 			if area.type == 'VIEW_3D':
@@ -4017,13 +4068,62 @@ class ABJ_Shader_Debugger():
 		mySun_arrow.constraints["Limit Location"].use_min_z = True
 		mySun_arrow.constraints["Limit Location"].use_transform_limit = True
 
+		mySun_arrow.hide_render = True
+
+
 		bpy.context.space_data.context = 'SCENE'
 
 		atmospheric_scale = ntree.nodes.new("ShaderNodeValue")
-		atmospheric_scale.outputs[0].default_value = 0.0005  # Lower default to balance raw meter units
+		# atmospheric_scale.outputs[0].default_value = 0.0005  # Lower default to balance raw meter units
+		atmospheric_scale.outputs[0].default_value = 5  # Lower default to balance raw meter units
 		atmospheric_scale.label = 'atmospheric scale'
 		atmospheric_scale.use_custom_color = True
 		atmospheric_scale.color = (1, 0, 0)
+
+		########
+		#### myL auto sync
+		#######
+		myL_usable = ntree.nodes.new("GeometryNodeObjectInfo")
+		myL_usable.inputs[0].default_value = mySun_arrow
+
+		subtractVec_myL = ntree.nodes.new("ShaderNodeVectorMath")
+		subtractVec_myL.operation = 'SUBTRACT'
+		ntree.links.new(myL_usable.outputs[1], subtractVec_myL.inputs[1])
+
+		myL_norm = ntree.nodes.new("ShaderNodeVectorMath")
+		myL_norm.operation = 'NORMALIZE'
+		ntree.links.new(subtractVec_myL.outputs[0], myL_norm.inputs[0])
+
+		myL_norm_sep = ntree.nodes.new("ShaderNodeSeparateXYZ")
+		ntree.links.new(myL_norm.outputs[1], myL_norm_sep.inputs[0])
+
+
+		##conversion keep for backup
+		'''
+		
+
+		myL_usable_sep = ntree.nodes.new("ShaderNodeSeparateXYZ")
+		ntree.links.new(myL_usable.outputs[1], myL_usable_sep.inputs[0])
+
+		mult10_myL = ntree.nodes.new("ShaderNodeMath")
+		mult10_myL.operation = 'MULTIPLY'
+		mult10_myL.inputs[0].default_value = 10
+		ntree.links.new(myL_usable_sep.outputs[2], mult10_myL.inputs[1])
+
+		toDegree = ntree.nodes.new("ShaderNodeMath")
+		toDegree.operation = 'DEGREES'
+		ntree.links.new(mult10_myL.outputs[0], toDegree.inputs[0])
+
+		myClamp_myL = self.spectral_compositor_clamp_0180(ntree, myL_usable_sep)
+
+		# driver_myL.expression = "clamp(degrees(var * 10), 0, 180)"
+
+		# bpy.ops.node.add_node(use_transform=True, type="ShaderNodeMath")
+		# bpy.data.node_groups["ABJ_Rayleigh_Atmosphere_Compositor"].nodes["Math.001"].operation = 'MULTIPLY'
+
+		'''
+
+		# return
 
 		myL = ntree.nodes.new("FunctionNodeInputVector")
 		myL.vector[0] = 0.0
@@ -4033,64 +4133,77 @@ class ABJ_Shader_Debugger():
 		myL.use_custom_color = True
 		myL.color = (1, 0, 0)
 
-		self.autoArrangeNodes(ntree)
-
 
 		group = bpy.data.node_groups['ABJ_Rayleigh_Atmosphere_Compositor']
 		self.atmospheric_rayleigh_setup_sky_texture_vector_sync(group, myL, mySun_arrow, ntree)
-
-
-
 		self.autoArrangeNodes(ntree)
 
-		# for area in bpy.context.screen.areas: 
-		# 	if area.type == 'VIEW_3D':
-		# 		for space in area.spaces: 
-		# 			if space.type == 'VIEW_3D':
-		# 				# space.shading.type = 'WIREFRAME'
-		# 				# space.shading.type = 'MATERIAL'
-		# 				# space.shading.type = 'SOLID'
-		# 				space.shading.type = 'RENDERED'
+		####
+		# myV
+		####
+		inputCam = ntree.nodes.new("GeometryNodeObjectInfo")
+		inputCam.inputs[0].default_value = self.myCam
 
-		return
+		subtractVec = ntree.nodes.new("ShaderNodeVectorMath")
+		subtractVec.operation = 'SUBTRACT'
+		ntree.links.new(inputCam.outputs[1], subtractVec.inputs[1])
 
-		myV = ntree.nodes.new("FunctionNodeInputVector")
-		myV.vector[0] = 1.0
-		myV.vector[1] = 0.0
-		myV.vector[2] = 0.0
+		normalizeVec = ntree.nodes.new("ShaderNodeVectorMath")
+		normalizeVec.operation = 'NORMALIZE'
+		ntree.links.new(subtractVec.outputs[0], normalizeVec.inputs[0])
+
+		myV = ntree.nodes.new("ShaderNodeVectorMath")
+		myV.operation = 'MULTIPLY'
 		myV.label = 'view dir'
-		myV.use_custom_color = True
-		myV.color = (1, 0, 0)
+		myV.inputs[1].default_value[0] = -1
+		myV.inputs[1].default_value[1] = -1
+		myV.inputs[1].default_value[2] = -1
+		ntree.links.new(normalizeVec.outputs[0], myV.inputs[0])
 
-
+		######
 		sky_cap = ntree.nodes.new("ShaderNodeValue")
 		sky_cap.outputs[0].default_value = 5000.0  # Prevents infinite horizon values from breaking loops
 		sky_cap.label = 'sky threshold'
 		sky_cap.use_custom_color = True
 		sky_cap.color = (1, 0, 0)
 
-		# color_out = ntree.interface.new_socket(name="FragColor", in_out='OUT', socket_type='NodeSocketColor')
-		ntree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
 
-		input_node = ntree.nodes.new('NodeGroupInput')
-		output_node = ntree.nodes.new('NodeGroupOutput')
+
+
+
+		###########
+		#DEPTH
+		###########
+		# add map range node
+		node_mapRange = ntree.nodes.new("ShaderNodeMapRange")
+		node_mapRange.location = (0,0)
+		node_mapRange.label = 'depth_adjustable'
+		node_mapRange.data_type = 'FLOAT'
+		node_mapRange.clamp = True
+		node_mapRange.inputs[1].default_value = 0
+		node_mapRange.inputs[2].default_value = 3000
+		# node_mapRange.inputs[3].default_value = -0.25
+		# node_mapRange.inputs[4].default_value = 1
+
+		node_mapRange.use_custom_color = True
+		node_mapRange.color = (1, 0, 0)
+		ntree.links.new(node0.outputs["Depth"], node_mapRange.inputs[0])
 
 		# Clamp infinite background depth pixels to a measurable sky cap boundary
 		depth_clamp = ntree.nodes.new('ShaderNodeMath')
 		depth_clamp.operation = 'MINIMUM'
 		# ntree.links.new(input_node.outputs['Render Pass Depth'], depth_clamp.inputs[0])
-		ntree.links.new(node0.outputs["Depth"], depth_clamp.inputs[0])
+		ntree.links.new(node_mapRange.outputs[0], depth_clamp.inputs[0])
 		ntree.links.new(sky_cap.outputs[0], depth_clamp.inputs[1])
 
 
-
-
+		# return
 
 		############################
 		# Rayleigh Phase Function
 		############################
-		myV_normalized = self.myV.normalized()
-		myL_normalized = myL.normalized()
+		# myV_normalized = self.myV.normalized()
+		# myL_normalized = myL.normalized()
 
 		
 		'''
@@ -4122,279 +4235,272 @@ class ABJ_Shader_Debugger():
 		node_dotProd_R.operation = 'ADD'
 		nodetree.links.new(node_add_R_0.outputs[0], node_dotProd_R.inputs[0])
 		nodetree.links.new(node_dotR_2.outputs[0], node_dotProd_R.inputs[1])
-
 		'''
 
 		cosTheta = ntree.nodes.new("ShaderNodeVectorMath")
 		cosTheta.operation = 'DOT_PRODUCT'
-		cosTheta.inputs[0].default_value[0] = myV_normalized.x
-		cosTheta.inputs[0].default_value[1] = myV_normalized.y
-		cosTheta.inputs[0].default_value[2] = myV_normalized.z
-		cosTheta.inputs[1].default_value[0] = myL_normalized.x
-		cosTheta.inputs[1].default_value[1] = myL_normalized.y
-		cosTheta.inputs[1].default_value[2] = myL_normalized.z
-
-
+		ntree.links.new(myV.outputs[0], cosTheta.inputs[0])
+		ntree.links.new(myL_norm.outputs[0], cosTheta.inputs[1])
 
 		cos_sqr = ntree.nodes.new('ShaderNodeMath')
 		cos_sqr.operation = 'MULTIPLY'
+		cos_sqr.label = 'cos_sqr'
 		ntree.links.new(cosTheta.outputs[0], cos_sqr.inputs[0])
 		ntree.links.new(cosTheta.outputs[0], cos_sqr.inputs[1])
 
 		phase_add = ntree.nodes.new('ShaderNodeMath')
+		phase_add.label = 'phase_add'
 		phase_add.operation = 'ADD'
 		phase_add.inputs[0].default_value = 1.0
 		ntree.links.new(cos_sqr.outputs[0], phase_add.inputs[1])
 
 		rayleigh_phase = ntree.nodes.new('ShaderNodeMath')
+		rayleigh_phase.label = 'rayleigh_phase'
 		rayleigh_phase.operation = 'MULTIPLY'
 		rayleigh_phase.inputs[0].default_value = 3.0 / (16.0 * math.pi)
 		ntree.links.new(phase_add.outputs[0], rayleigh_phase.inputs[1])
 
-		last_x, last_y, last_z = None, None, None
 
-		myXYZ = mathutils.Vector(0, 0, 0)
+		#look at spectral_compositor_reflectance_to_xyz_p0 !!!!!!!
+		#look at accumulate_spectral_atmosphere_38_p0 and accumulate_spectral_atmosphere_38_p1
 
+
+		xyz_accumulate = self.accumulate_spectral_atmosphere_38_p0(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, depth_clamp, rayleigh_phase)
+
+		xyz_accumulate_mult_01 = ntree.nodes.new("ShaderNodeVectorMath")
+		xyz_accumulate_mult_01.operation = 'MULTIPLY'
+		xyz_accumulate_mult_01.inputs[1].default_value[0] = .01
+		xyz_accumulate_mult_01.inputs[1].default_value[1] = .01
+		xyz_accumulate_mult_01.inputs[1].default_value[2] = .01
+		ntree.links.new(xyz_accumulate.outputs[0], xyz_accumulate_mult_01.inputs[0])
+
+
+		#Convert Linear XYZ to Linear sRGB Rec. 709 D65 Matrix Transform
+		# vec3 rgb;
+		# rgb.r =  3.2404542 * XYZ.x - 1.5371385 * XYZ.y - 0.4985314 * XYZ.z;
+		# rgb.g = -0.9692660 * XYZ.x + 1.8760108 * XYZ.y + 0.0415560 * XYZ.z;
+		# rgb.b =  0.0556434 * XYZ.x - 0.2040259 * XYZ.y + 1.0572252 * XYZ.z;
+
+
+
+		spectral_atmospheric_xyz_to_srgb_end = self.spectral_compositor_xyz_to_srgb_atmospheric(ntree, xyz_accumulate_mult_01)
+
+		self.autoArrangeNodes(ntree)
+
+		# return
+
+
+
+		node_max = ntree.nodes.new("ShaderNodeVectorMath")
+		node_max.operation = 'MAXIMUM'
+		node_max.inputs[0].default_value[0] = 0
+		node_max.inputs[0].default_value[1] = 0
+		node_max.inputs[0].default_value[2] = 0
+
+		ntree.links.new(spectral_atmospheric_xyz_to_srgb_end.outputs[0], node_max.inputs[1])
+
+		final_spectral_atmosphere_add = ntree.nodes.new("ShaderNodeVectorMath")
+		final_spectral_atmosphere_add.operation = 'ADD'
+		# final_spectral_atmosphere_add.inputs[0].default_value = 0
+		ntree.links.new(node0.outputs[0], final_spectral_atmosphere_add.inputs[0])
+		ntree.links.new(node_max.outputs[0], final_spectral_atmosphere_add.inputs[1])
+
+
+		self.spectral_compositor_debugging_exit_visualizer_atmospheric(ntree, final_spectral_atmosphere_add, 932, 633)
+
+
+
+
+
+		
+	def accumulate_spectral_atmosphere_slice_inscattered(self, ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, idx):
+		#Base Extinction (Outscattering) calculation for this slice
+		beta_r = ntree.nodes.new('ShaderNodeMath')
+		beta_r.operation = 'MULTIPLY'
+		beta_r.inputs[0].default_value = RAYLEIGH_WEIGHTS[idx]
+		ntree.links.new(atmospheric_scale.outputs[0], beta_r.inputs[1])
+
+		neg_beta_r = ntree.nodes.new('ShaderNodeMath')
+		neg_beta_r.operation = 'MULTIPLY'
+		neg_beta_r.inputs[0].default_value = -1
+		ntree.links.new(beta_r.outputs[0], neg_beta_r.inputs[1])
+
+		#Outscattering Transmission calculation (Beer-Lambert Law)
+		# Uses the sanitized, clamped depth pass stream output
+		exp_mult = ntree.nodes.new('ShaderNodeMath')
+		exp_mult.operation = 'MULTIPLY'
+		# ntree.links.new(beta_r.outputs[0], exp_mult.inputs[0])
+		ntree.links.new(neg_beta_r.outputs[0], exp_mult.inputs[0])
+		ntree.links.new(depth_clamp.outputs[0], exp_mult.inputs[1])
+
+		transmission = ntree.nodes.new('ShaderNodeMath')
+		transmission.operation = 'EXPONENT'
+		ntree.links.new(exp_mult.outputs[0], transmission.inputs[0])
+
+		############
+		#Accumulate single-scattered light inside this slice array
+		slice_inscattered_1_minus_transmission = ntree.nodes.new('ShaderNodeMath')
+		slice_inscattered_1_minus_transmission.operation = 'SUBTRACT'
+		slice_inscattered_1_minus_transmission.inputs[0].default_value = 1
+		ntree.links.new(transmission.outputs[0], slice_inscattered_1_minus_transmission.inputs[1])
+
+		slice_inscattered_0 = ntree.nodes.new('ShaderNodeMath')
+		slice_inscattered_0.operation = 'MULTIPLY'
+		slice_inscattered_0.inputs[0].default_value = D65_ILLUMINANT[idx]
+		ntree.links.new(beta_r.outputs[0], slice_inscattered_0.inputs[1])
+
+		slice_inscattered_1 = ntree.nodes.new('ShaderNodeMath')
+		slice_inscattered_1.operation = 'MULTIPLY'
+		ntree.links.new(slice_inscattered_0.outputs[0], slice_inscattered_1.inputs[0])
+		ntree.links.new(rayleigh_phase.outputs[0], slice_inscattered_1.inputs[1])
+
+		slice_inscattered_2 = ntree.nodes.new('ShaderNodeMath')
+		slice_inscattered_2.operation = 'MULTIPLY'
+		ntree.links.new(slice_inscattered_1.outputs[0], slice_inscattered_2.inputs[0])
+		ntree.links.new(slice_inscattered_1_minus_transmission.outputs[0], slice_inscattered_2.inputs[1])
+
+		return slice_inscattered_2
+
+	def accumulate_spectral_atmosphere_38_p0(self, ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, depth_clamp, rayleigh_phase):
 		xyz_start = ntree.nodes.new("FunctionNodeInputVector")
 		xyz_start.vector[0] = 0.0
 		xyz_start.vector[1] = 0.0
 		xyz_start.vector[2] = 0.0
 
-		#look at spectral_compositor_reflectance_to_xyz_p0 !!!!!!!
+		inscattered_00 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 0)
+		accumulate_00 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_00, 0, xyz_start)
 
+		inscattered_01 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 1)
+		accumulate_01 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_01, 1, accumulate_00)
 
+		inscattered_02 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 2)
+		accumulate_02 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_02, 2, accumulate_01)
 
-		# Spectral loop unrolling over 38 slices
-		for i in range(38):
-			#Base Extinction (Outscattering) calculation for this slice
-			beta_r = ntree.nodes.new('ShaderNodeMath')
-			beta_r.operation = 'MULTIPLY'
-			beta_r.inputs[0].default_value = RAYLEIGH_WEIGHTS[i]
-			ntree.links.new(atmospheric_scale.outputs[0], beta_r.inputs[1])
+		inscattered_03 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 3)
+		accumulate_03 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_03, 3, accumulate_02)
 
-			neg_beta_r = ntree.nodes.new('ShaderNodeMath')
-			neg_beta_r.operation = 'MULTIPLY'
-			neg_beta_r.inputs[0].default_value = -1
-			ntree.links.new(beta_r.outputs[0], neg_beta_r.inputs[1])
+		inscattered_04 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 4)
+		accumulate_04 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_04, 4, accumulate_03)
 
-			#Outscattering Transmission calculation (Beer-Lambert Law)
-			# Uses the sanitized, clamped depth pass stream output
-			exp_mult = ntree.nodes.new('ShaderNodeMath')
-			exp_mult.operation = 'MULTIPLY'
-			# ntree.links.new(beta_r.outputs[0], exp_mult.inputs[0])
-			ntree.links.new(neg_beta_r.outputs[0], exp_mult.inputs[0])
-			ntree.links.new(depth_clamp.outputs[0], exp_mult.inputs[1])
+		inscattered_05 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 5)
+		accumulate_05 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_05, 5, accumulate_04)
 
-			transmission = ntree.nodes.new('ShaderNodeMath')
-			transmission.operation = 'EXPONENT'
-			ntree.links.new(exp_mult.outputs[0], transmission.inputs[0])
+		inscattered_06 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 6)
+		accumulate_06 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_06, 6, accumulate_05)
 
-			############
-			#single slice accumulation
+		inscattered_07 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 7)
+		accumulate_07 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_07, 7, accumulate_06)
 
-			#rayleigh phase
-			# self.myV.normalize()
+		inscattered_08 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 8)
+		accumulate_08 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_08, 8, accumulate_07)
 
-					################
+		inscattered_09 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 9)
+		accumulate_09 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_09, 9, accumulate_08)
 
+		inscattered_10 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 10)
+		accumulate_10 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_10, 10, accumulate_09)
 
+		inscattered_11 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 11)
+		accumulate_11 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_11, 11, accumulate_10)
 
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[0] = 0.1
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[1] = 0.2
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[0].default_value[2] = 0.3
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[0] = 0.4
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[1] = 0.5
-			bpy.data.node_groups["Compositor Nodes"].nodes["Vector Math"].inputs[1].default_value[2] = 0.6
+		inscattered_12 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 12)
+		accumulate_12 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_12, 12, accumulate_11)
 
+		inscattered_13 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 13)
+		accumulate_13 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_13, 13, accumulate_12)
 
+		inscattered_14 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 14)
+		accumulate_14 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_14, 14, accumulate_13)
 
+		inscattered_15 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 15)
+		accumulate_15 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_15, 15, accumulate_14)
 
+		inscattered_16 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 16)
+		accumulate_16 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_16, 16, accumulate_15)
 
-			one_minus_transmission = ntree.nodes.new('ShaderNodeMath')
-			one_minus_transmission.operation = 'SUBTRACT'
-			one_minus_transmission.inputs[0].default_value = 1
-			ntree.links.new(transmission, one_minus_transmission.inputs[1])
+		inscattered_17 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 17)
+		accumulate_17 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_17, 17, accumulate_16)
 
-			d65_mult_betaR = ntree.nodes.new('ShaderNodeMath')
-			d65_mult_betaR.operation = 'MULTIPLY'
-			d65_mult_betaR.inputs[0].default_value = D65_ILLUMINANT[i]
-			ntree.links.new(beta_r, transmission.inputs[1])
+		inscattered_18 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 18)
+		accumulate_18 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_18, 18, accumulate_17)
 
-			d65_mult_betaR = ntree.nodes.new('ShaderNodeMath')
-			d65_mult_betaR.operation = 'MULTIPLY'
-			d65_mult_betaR.inputs[0].default_value = D65_ILLUMINANT[i]
-			ntree.links.new(beta_r, transmission.inputs[1])
+		inscattered_19 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 19)
+		accumulate_19 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_19, 19, accumulate_18)
 
+		inscattered_20 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 20)
+		accumulate_20 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_20, 20, accumulate_19)
 
+		inscattered_21 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 21)
+		accumulate_21 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_21, 21, accumulate_20)
 
+		inscattered_22 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 22)
+		accumulate_22 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_22, 22, accumulate_21)
 
+		inscattered_23 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 23)
+		accumulate_23 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_23, 23, accumulate_22)
 
+		inscattered_24 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 24)
+		accumulate_24 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_24, 24, accumulate_23)
 
+		inscattered_25 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 25)
+		accumulate_25 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_25, 25, accumulate_24)
 
-			neg_exp = ntree.nodes.new('ShaderNodeMath')
-			neg_exp.operation = 'MULTIPLY'
-			neg_exp.inputs[1].default_value = -1.0
-			ntree.links.new(exp_mult.outputs[0], neg_exp.inputs[0])
+		inscattered_26 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 26)
+		accumulate_26 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_26, 26, accumulate_25)
 
-			trans = ntree.nodes.new('ShaderNodeMath')
-			trans.operation = 'POWER'
-			trans.inputs[0].default_value = math.e
-			ntree.links.new(neg_exp.outputs[0], trans.inputs[1])
+		inscattered_27 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 27)
+		accumulate_27 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_27, 27, accumulate_26)
 
-			inv_trans = ntree.nodes.new('ShaderNodeMath')
-			inv_trans.operation = 'SUBTRACT'
-			inv_trans.inputs[0].default_value = 1.0
-			ntree.links.new(trans.outputs[0], inv_trans.inputs[1])
+		inscattered_28 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 28)
+		accumulate_28 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_28, 28, accumulate_27)
 
-			p1 = ntree.nodes.new('ShaderNodeMath')
-			p1.operation = 'MULTIPLY'
-			ntree.links.new(inv_trans.outputs[0], p1.inputs[0])
-			ntree.links.new(beta_r.outputs[0], p1.inputs[1])
+		inscattered_29 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 29)
+		accumulate_29 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_29, 29, accumulate_28)
 
-			p2 = ntree.nodes.new('ShaderNodeMath')
-			p2.operation = 'MULTIPLY'
-			ntree.links.new(p1.outputs[0], p2.inputs[0])
-			ntree.links.new(phase_mult.outputs[0], p2.inputs[1])
+		inscattered_30 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 30)
+		accumulate_30 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_30, 30, accumulate_29)
 
-			scat_final = ntree.nodes.new('ShaderNodeMath')
-			scat_final.operation = 'MULTIPLY'
-			scat_final.inputs[0].default_value = D65_ILLUMINANT[i]
-			ntree.links.new(p2.outputs[0], scat_final.inputs[1])
+		inscattered_31 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 31)
+		accumulate_31 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_31, 31, accumulate_30)
 
-			for idx, (cmf_arr, var_str) in enumerate([(CIE_X, 'last_x'), (CIE_Y, 'last_y'), (CIE_Z, 'last_z')]):
-				cmf_m = ntree.nodes.new('ShaderNodeMath')
-				cmf_m.operation = 'MULTIPLY'
-				cmf_m.inputs[0].default_value = cmf_arr[i]
-				ntree.links.new(scat_final.outputs[0], cmf_m.inputs[1])
+		inscattered_32 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 32)
+		accumulate_32 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_32, 32, accumulate_31)
 
-				current_prev = locals()[var_str]
-				if current_prev is None:
-					locals()[var_str] = cmf_m.outputs[0]
-				else:
-					adder = ntree.nodes.new('ShaderNodeMath')
-					adder.operation = 'ADD'
-					ntree.links.new(current_prev, adder.inputs[0])
-					ntree.links.new(cmf_m.outputs[0], adder.inputs[1])
-					locals()[var_str] = adder.outputs[0]
+		inscattered_33 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 33)
+		accumulate_33 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_33, 33, accumulate_32)
 
-		# Scaling Normalization
-		norm_x = ntree.nodes.new('ShaderNodeMath')
-		norm_x.operation = 'MULTIPLY'
-		norm_x.inputs[1].default_value = 0.01
-		ntree.links.new(locals()['last_x'], norm_x.inputs[0])
+		inscattered_34 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 34)
+		accumulate_34 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_34, 34, accumulate_33)
 
-		norm_y = ntree.nodes.new('ShaderNodeMath')
-		norm_y.operation = 'MULTIPLY'
-		norm_y.inputs[1].default_value = 0.01
-		ntree.links.new(locals()['last_y'], norm_y.inputs[0])
+		inscattered_35 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 35)
+		accumulate_35 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_35, 35, accumulate_34)
 
-		norm_z = ntree.nodes.new('ShaderNodeMath')
-		norm_z.operation = 'MULTIPLY'
-		norm_z.inputs[1].default_value = 0.01
-		ntree.links.new(locals()['last_z'], norm_z.inputs[0])
+		inscattered_36 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 36)
+		accumulate_36 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_36, 36, accumulate_35)
 
-		# Matrix Conversion to sRGB
-		rx = ntree.nodes.new('ShaderNodeMath')
-		rx.operation = 'MULTIPLY'
-		rx.inputs[1].default_value = 3.2404542
-		ntree.links.new(norm_x.outputs[0], rx.inputs[0])
+		inscattered_37 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 37)
+		accumulate_37 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_37, 37, accumulate_36)
 
-		ry = ntree.nodes.new('ShaderNodeMath')
-		ry.operation = 'MULTIPLY'
-		ry.inputs[1].default_value = -1.5371385
-		ntree.links.new(norm_y.outputs[0], ry.inputs[0])
+		accumulate_37.label = 'reflectanceEnd'
+		accumulate_37.use_custom_color = True
+		accumulate_37.color = (0, 0, 1)
 
-		rz = ntree.nodes.new('ShaderNodeMath')
-		rz.operation = 'MULTIPLY'
-		rz.inputs[1].default_value = -0.4985314
-		ntree.links.new(norm_z.outputs[0], rz.inputs[0])
+		return accumulate_37
 
-		r_add1 = ntree.nodes.new('ShaderNodeMath')
-		r_add1.operation = 'ADD'
-		ntree.links.new(rx.outputs[0], r_add1.inputs[0])
-		ntree.links.new(ry.outputs[0], r_add1.inputs[1])
+	def accumulate_spectral_atmosphere_38_p1(self, ntree, CIE_x, CIE_y, CIE_z, inscatteredNode, idx, inputAdd):
+		inscatter_mult_by_CIE = ntree.nodes.new("ShaderNodeVectorMath")
+		inscatter_mult_by_CIE.operation = 'MULTIPLY'
+		inscatter_mult_by_CIE.inputs[1].default_value[0] = CIE_x[idx]
+		inscatter_mult_by_CIE.inputs[1].default_value[1] = CIE_y[idx]
+		inscatter_mult_by_CIE.inputs[1].default_value[2] = CIE_z[idx]
+		ntree.links.new(inscatteredNode.outputs[0], inscatter_mult_by_CIE.inputs[0])
 
-		r_final = ntree.nodes.new('ShaderNodeMath')
-		r_final.operation = 'ADD'
-		ntree.links.new(r_add1.outputs[0], r_final.inputs[0])
-		ntree.links.new(rz.outputs[0], r_final.inputs[1])
+		node_add = ntree.nodes.new("ShaderNodeVectorMath")
+		node_add.operation = 'ADD'
+		ntree.links.new(inputAdd.outputs[0], node_add.inputs[0])
+		ntree.links.new(inscatter_mult_by_CIE.outputs[0], node_add.inputs[1])
 
-		gx = ntree.nodes.new('ShaderNodeMath')
-		gx.operation = 'MULTIPLY'
-		gx.inputs[1].default_value = -0.9692660
-		ntree.links.new(norm_x.outputs[0], gx.inputs[0])
-
-		gy = ntree.nodes.new('ShaderNodeMath')
-		gy.operation = 'MULTIPLY'
-		gy.inputs[1].default_value = 1.8760108
-		ntree.links.new(norm_y.outputs[0], gy.inputs[0])
-
-		gz = ntree.nodes.new('ShaderNodeMath')
-		gz.operation = 'MULTIPLY'
-		gz.inputs[1].default_value = 0.0415560
-		ntree.links.new(norm_z.outputs[0], gz.inputs[0])
-
-		g_add1 = ntree.nodes.new('ShaderNodeMath')
-		g_add1.operation = 'ADD'
-		ntree.links.new(gx.outputs[0], g_add1.inputs[0])
-		ntree.links.new(gy.outputs[0], g_add1.inputs[1])
-
-		g_final = ntree.nodes.new('ShaderNodeMath')
-		g_final.operation = 'ADD'
-		ntree.links.new(g_add1.outputs[0], g_final.inputs[0])
-		ntree.links.new(gz.outputs[0], g_final.inputs[1])
-
-		bx = ntree.nodes.new('ShaderNodeMath')
-		bx.operation = 'MULTIPLY'
-		bx.inputs[1].default_value = 0.0556434
-		ntree.links.new(norm_x.outputs[0], bx.inputs[0])
-
-		by = ntree.nodes.new('ShaderNodeMath')
-		by.operation = 'MULTIPLY'
-		by.inputs[1].default_value = -0.2040259
-		ntree.links.new(norm_y.outputs[0], by.inputs[0])
-
-		bz = ntree.nodes.new('ShaderNodeMath')
-		bz.operation = 'MULTIPLY'
-		bz.inputs[1].default_value = 1.0572252
-		ntree.links.new(norm_z.outputs[0], bz.inputs[0])
-
-		b_add1 = ntree.nodes.new('ShaderNodeMath')
-		b_add1.operation = 'ADD'
-		ntree.links.new(bx.outputs[0], b_add1.inputs[0])
-		ntree.links.new(by.outputs[0], b_add1.inputs[1])
-
-		b_final = ntree.nodes.new('ShaderNodeMath')
-		b_final.operation = 'ADD'
-		ntree.links.new(b_add1.outputs[0], b_final.inputs[0])
-		ntree.links.new(bz.outputs[0], b_final.inputs[1])
-
-		clamp_r = ntree.nodes.new('ShaderNodeMath')
-		clamp_r.operation = 'MAXIMUM'
-		clamp_r.inputs[1].default_value = 0.0
-		ntree.links.new(r_final.outputs[0], clamp_r.inputs[0])
-
-		clamp_g = ntree.nodes.new('ShaderNodeMath')
-		clamp_g.operation = 'MAXIMUM'
-		clamp_g.inputs[1].default_value = 0.0
-		ntree.links.new(g_final.outputs[0], clamp_g.inputs[0])
-
-		clamp_b = ntree.nodes.new('ShaderNodeMath')
-		clamp_b.operation = 'MAXIMUM'
-		clamp_b.inputs[1].default_value = 0.0
-		ntree.links.new(b_final.outputs[0], clamp_b.inputs[0])
-
-		combine = ntree.nodes.new('CompositorNodeCombineColor')
-		combine.mode = 'RGB'
-
-		ntree.links.new(clamp_r.outputs[0], combine.inputs[0])
-		ntree.links.new(clamp_g.outputs[0], combine.inputs[1])
-		ntree.links.new(clamp_b.outputs[0], combine.inputs[2])
-		ntree.links.new(combine.outputs[0], output_node.inputs[0])
-
-		print(f"[ABJ Debugger] Live Scene Layer tracking group built: '{group_name}'")
-
-		self.spectral_compositor_debugging_exit_visualizer_atmospheric(ntree, node0, 932, 633)
+		return node_add
 
 	def spectral_compositor_stock(self):
 		self.deselectAll()
@@ -4637,7 +4743,7 @@ class ABJ_Shader_Debugger():
 			###########
 			spectralR_divide = nodetree.nodes.new("ShaderNodeMath")
 			spectralR_divide.operation = 'DIVIDE'
-			ksMix_mult_R2.label = 'spectralR_divide'
+			spectralR_divide.label = 'spectralR_divide'
 			nodetree.links.new(ksMix_R1_and_R2.outputs[0], spectralR_divide.inputs[0])
 			nodetree.links.new(totalConcentration.outputs[0], spectralR_divide.inputs[1])
 
@@ -4645,8 +4751,8 @@ class ABJ_Shader_Debugger():
 
 		reflectanceEnd = self.spectral_compositor_reflectance_to_xyz_p0(nodetree, R)
 		reflectanceEnd.label = 'reflectanceEnd'
-		node_mapRange.use_custom_color = True
-		node_mapRange.color = (1, 0, 0)
+		reflectanceEnd.use_custom_color = True
+		reflectanceEnd.color = (0, 0, 1)
 
 		# print('READPIXEL : reflectanceEnd')
 		# self.spectral_compositor_debugging_exit_visualizer(nodetree, reflectanceEnd, 932, 633)
@@ -4682,6 +4788,110 @@ class ABJ_Shader_Debugger():
 		nodetree.links.new(node_multiplyR.outputs[0], node_divide.inputs[1])
 
 		return node_divide
+
+
+	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
+	def spectral_compositor_xyz_to_srgb_atmospheric(self, nodetree, xyz_combo):
+
+		xyz = nodetree.nodes.new("ShaderNodeSeparateXYZ")
+		xyz.label = 'xyz'
+		nodetree.links.new(xyz_combo.outputs[0], xyz.inputs[0])
+	
+		################
+		## WRITTEN CUSTOM DOT PRODUCT
+		###############
+
+		######### R
+		node_dotR_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_0.operation = 'MULTIPLY'
+		node_dotR_0.inputs[0].default_value = 3.2409699419045200
+		nodetree.links.new(xyz.outputs[0], node_dotR_0.inputs[1])
+
+		node_dotR_1 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_1.operation = 'MULTIPLY'
+		node_dotR_1.inputs[0].default_value = -1.537383177570090
+		nodetree.links.new(xyz.outputs[1], node_dotR_1.inputs[1])
+
+		node_dotR_2 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotR_2.operation = 'MULTIPLY'
+		node_dotR_2.inputs[0].default_value = -0.4986107602930030
+		nodetree.links.new(xyz.outputs[2], node_dotR_2.inputs[1])
+
+		node_add_R_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_add_R_0.operation = 'ADD'
+		nodetree.links.new(node_dotR_0.outputs[0], node_add_R_0.inputs[0])
+		nodetree.links.new(node_dotR_1.outputs[0], node_add_R_0.inputs[1])
+
+		node_dotProd_R = nodetree.nodes.new("ShaderNodeMath")
+		node_dotProd_R.operation = 'ADD'
+		nodetree.links.new(node_add_R_0.outputs[0], node_dotProd_R.inputs[0])
+		nodetree.links.new(node_dotR_2.outputs[0], node_dotProd_R.inputs[1])
+
+		# print('READPIXEL : node_dotProd_R')
+		# self.spectral_compositor_debugging_exit_visualizer(nodetree, node_dotProd_R, 932, 633)
+		# return
+
+		######### G
+		node_dotG_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotG_0.operation = 'MULTIPLY'
+		node_dotG_0.inputs[0].default_value = -0.9692436362808790
+		nodetree.links.new(xyz.outputs[0], node_dotG_0.inputs[1])
+
+		node_dotG_1 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotG_1.operation = 'MULTIPLY'
+		node_dotG_1.inputs[0].default_value = 1.875967501507720
+		nodetree.links.new(xyz.outputs[1], node_dotG_1.inputs[1])
+
+		node_dotG_2 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotG_2.operation = 'MULTIPLY'
+		node_dotG_2.inputs[0].default_value = 0.0415550574071756
+		nodetree.links.new(xyz.outputs[2], node_dotG_2.inputs[1])
+
+		node_add_G_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_add_G_0.operation = 'ADD'
+		nodetree.links.new(node_dotG_0.outputs[0], node_add_G_0.inputs[0])
+		nodetree.links.new(node_dotG_1.outputs[0], node_add_G_0.inputs[1])
+
+		node_dotProd_G = nodetree.nodes.new("ShaderNodeMath")
+		node_dotProd_G.operation = 'ADD'
+		nodetree.links.new(node_add_G_0.outputs[0], node_dotProd_G.inputs[0])
+		nodetree.links.new(node_dotG_2.outputs[0], node_dotProd_G.inputs[1])
+
+		########### B
+		node_dotB_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotB_0.operation = 'MULTIPLY'
+		node_dotB_0.inputs[0].default_value = 0.0556300796969936
+		nodetree.links.new(xyz.outputs[0], node_dotB_0.inputs[1])
+
+		node_dotB_1 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotB_1.operation = 'MULTIPLY'
+		node_dotB_1.inputs[0].default_value = -0.203976958888976
+		nodetree.links.new(xyz.outputs[1], node_dotB_1.inputs[1])
+
+		node_dotB_2 = nodetree.nodes.new("ShaderNodeMath")
+		node_dotB_2.operation = 'MULTIPLY'
+		node_dotB_2.inputs[0].default_value = 1.0569715142428700
+		nodetree.links.new(xyz.outputs[2], node_dotB_2.inputs[1])
+
+		node_add_B_0 = nodetree.nodes.new("ShaderNodeMath")
+		node_add_B_0.operation = 'ADD'
+		nodetree.links.new(node_dotB_0.outputs[0], node_add_B_0.inputs[0])
+		nodetree.links.new(node_dotB_1.outputs[0], node_add_B_0.inputs[1])
+
+		node_dotProd_B = nodetree.nodes.new("ShaderNodeMath")
+		node_dotProd_B.operation = 'ADD'
+		nodetree.links.new(node_add_B_0.outputs[0], node_dotProd_B.inputs[0])
+		nodetree.links.new(node_dotB_2.outputs[0], node_dotProd_B.inputs[1])
+
+		#####
+
+		dotProdCombo_custom = nodetree.nodes.new("ShaderNodeCombineXYZ")
+		nodetree.links.new(node_dotProd_R.outputs[0], dotProdCombo_custom.inputs[0]) 
+		nodetree.links.new(node_dotProd_G.outputs[0], dotProdCombo_custom.inputs[1]) 
+		nodetree.links.new(node_dotProd_B.outputs[0], dotProdCombo_custom.inputs[2]) 
+
+		return dotProdCombo_custom
+
 	
 	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
 	def spectral_compositor_xyz_to_srgb(self, nodetree, xyz_combo):
@@ -4799,6 +5009,20 @@ class ABJ_Shader_Debugger():
 
 		return node_max
 	
+	def spectral_compositor_clamp_0180(self, nodetree, inputNode):
+		node_min = nodetree.nodes.new("ShaderNodeMath")
+		node_min.operation = 'MINIMUM'
+		node_min.inputs[1].default_value = 180
+		nodetree.links.new(inputNode.outputs[0], node_min.inputs[0])
+		# nodetree.links.new(inputNode.outputs['Result'], node_min.inputs[0])
+
+		node_max = nodetree.nodes.new("ShaderNodeMath")
+		node_max.operation = 'MAXIMUM'
+		node_max.inputs[0].default_value = 0
+		nodetree.links.new(node_min.outputs[0], node_max.inputs[1])
+
+		return node_max
+
 	#This function is based on spectral3_glsl.py, under MIT license by Ronald van Wijnen (see file)
 	def spectral_compositor_linear_to_srgb(self, nodetree, dotProdCombo):
 
