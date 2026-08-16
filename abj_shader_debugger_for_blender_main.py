@@ -3387,7 +3387,7 @@ class ABJ_Shader_Debugger():
 		# file_out.format.media_type = 'MULTI_LAYER_IMAGE'
 
 		nodeToView_separated = nodetree.nodes.new("ShaderNodeSeparateXYZ")
-		nodeToView_separated.label = 'luminance1_sep'
+		nodeToView_separated.label = 'separated final color'
 		nodetree.links.new(nodeToView.outputs[0], nodeToView_separated.inputs[0])
 
 		combine_color = nodetree.nodes.new("CompositorNodeCombineColor")
@@ -3891,12 +3891,6 @@ class ABJ_Shader_Debugger():
 		bpy.context.scene.render.engine = 'CYCLES'
 		bpy.context.scene.cycles.device = 'GPU'
 
-		#build sun arrow
-		# self.myCubeLight_og = self.createArrowFullProcess('myCubeLight_og', 'front', False, self.myOrigin, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0)
-
-		# return
-
-
 		###########
 		#DEFAULT CAMERA
 		#############
@@ -3916,10 +3910,6 @@ class ABJ_Shader_Debugger():
 		)
 
 		self.myCam = bpy.data.objects["Camera"]
-
-
-
-
 
 
 		# loc_camera = cam.matrix_world.to_translation()
@@ -3946,8 +3936,8 @@ class ABJ_Shader_Debugger():
 
 		self.look_at(self.myCam, self.myOrigin)
 
-		f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
-		self.myV = -f
+		# f = self.abjNormalize_written(self.myOrigin - self.myCam.location)
+		# self.myV = -f
 
 		bpy.context.scene.camera = self.myCam
 
@@ -3977,14 +3967,19 @@ class ABJ_Shader_Debugger():
 		node0 = ntree.nodes.new("CompositorNodeRLayers")
 		self.nodeViewer = ntree.nodes.new("CompositorNodeViewer")
 
-
-
 		# Hardcoded Spectrometric Matrix Arrays (38 slices, 380nm - 750nm), 10nm slice
 		RAYLEIGH_WEIGHTS = [
 			4.7963, 4.3232, 3.9063, 3.5372, 3.2100, 2.9194, 2.6608, 2.4305, 2.2253, 2.0421,
 			1.8783, 1.7314, 1.6000, 1.4822, 1.3764, 1.2813, 1.1957, 1.1184, 1.0483, 0.9474,
 			0.8837, 0.8252, 0.7716, 0.7224, 0.6671, 0.6351, 0.5960, 0.5600, 0.5266, 0.4958,
 			0.4672, 0.4406, 0.4160, 0.4031, 0.3720, 0.3519, 0.3332, 0.3160
+		]
+
+		MIE_WEIGHTS = [
+			1.6111, 1.5583, 1.5085, 1.4614, 1.4168, 1.3745, 1.3344, 1.2963, 1.2600, 1.2254,
+			1.1925, 1.1610, 1.1310, 1.1023, 1.0748, 1.0484, 1.0232, 0.9989, 0.9757, 0.9533,
+			0.9318, 0.9111, 0.8912, 0.8720, 0.8536, 0.8358, 0.8186, 0.8021, 0.7861, 0.7707,
+			0.7558, 0.7414, 0.7275, 0.7141, 0.7011, 0.6885, 0.6763, 0.664
 		]
 
 		# CIE D65 Standard Daylight Illuminant Spectrum across 38 slices (Unpolarized Source Spectrum)
@@ -4070,7 +4065,6 @@ class ABJ_Shader_Debugger():
 
 		mySun_arrow.hide_render = True
 
-
 		bpy.context.space_data.context = 'SCENE'
 
 		atmospheric_scale = ntree.nodes.new("ShaderNodeValue")
@@ -4096,34 +4090,6 @@ class ABJ_Shader_Debugger():
 
 		myL_norm_sep = ntree.nodes.new("ShaderNodeSeparateXYZ")
 		ntree.links.new(myL_norm.outputs[1], myL_norm_sep.inputs[0])
-
-
-		##conversion keep for backup
-		'''
-		
-
-		myL_usable_sep = ntree.nodes.new("ShaderNodeSeparateXYZ")
-		ntree.links.new(myL_usable.outputs[1], myL_usable_sep.inputs[0])
-
-		mult10_myL = ntree.nodes.new("ShaderNodeMath")
-		mult10_myL.operation = 'MULTIPLY'
-		mult10_myL.inputs[0].default_value = 10
-		ntree.links.new(myL_usable_sep.outputs[2], mult10_myL.inputs[1])
-
-		toDegree = ntree.nodes.new("ShaderNodeMath")
-		toDegree.operation = 'DEGREES'
-		ntree.links.new(mult10_myL.outputs[0], toDegree.inputs[0])
-
-		myClamp_myL = self.spectral_compositor_clamp_0180(ntree, myL_usable_sep)
-
-		# driver_myL.expression = "clamp(degrees(var * 10), 0, 180)"
-
-		# bpy.ops.node.add_node(use_transform=True, type="ShaderNodeMath")
-		# bpy.data.node_groups["ABJ_Rayleigh_Atmosphere_Compositor"].nodes["Math.001"].operation = 'MULTIPLY'
-
-		'''
-
-		# return
 
 		myL = ntree.nodes.new("FunctionNodeInputVector")
 		myL.vector[0] = 0.0
@@ -4167,10 +4133,6 @@ class ABJ_Shader_Debugger():
 		sky_cap.use_custom_color = True
 		sky_cap.color = (1, 0, 0)
 
-
-
-
-
 		###########
 		#DEPTH
 		###########
@@ -4195,15 +4157,6 @@ class ABJ_Shader_Debugger():
 		# ntree.links.new(input_node.outputs['Render Pass Depth'], depth_clamp.inputs[0])
 		ntree.links.new(node_mapRange.outputs[0], depth_clamp.inputs[0])
 		ntree.links.new(sky_cap.outputs[0], depth_clamp.inputs[1])
-
-
-		# return
-
-		############################
-		# Rayleigh Phase Function
-		############################
-		# myV_normalized = self.myV.normalized()
-		# myL_normalized = myL.normalized()
 
 		
 		'''
@@ -4260,77 +4213,155 @@ class ABJ_Shader_Debugger():
 		rayleigh_phase.inputs[0].default_value = 3.0 / (16.0 * math.pi)
 		ntree.links.new(phase_add.outputs[0], rayleigh_phase.inputs[1])
 
+		############
+		#MIE
+		############
+		mie_scale = ntree.nodes.new("ShaderNodeValue")
+		mie_scale.outputs[0].default_value = 5  # Lower default to balance raw meter units
+		mie_scale.label = 'mie scale'
+		mie_scale.use_custom_color = True
+		mie_scale.color = (1, 0, 0)
 
-		#look at spectral_compositor_reflectance_to_xyz_p0 !!!!!!!
-		#look at accumulate_spectral_atmosphere_38_p0 and accumulate_spectral_atmosphere_38_p1
+		mie_anisotropy = ntree.nodes.new("ShaderNodeValue")
+		mie_anisotropy.outputs[0].default_value = 0 
+		mie_anisotropy.label = 'mie anisotropy'
+		mie_anisotropy.use_custom_color = True
+		mie_anisotropy.color = (1, 0, 0)
 
+		g2 = ntree.nodes.new('ShaderNodeMath')
+		g2.operation = 'MULTIPLY'
+		g2.label = 'g2'
+		ntree.links.new(mie_anisotropy.outputs[0], g2.inputs[0])
+		ntree.links.new(mie_anisotropy.outputs[0], g2.inputs[1])
 
-		xyz_accumulate = self.accumulate_spectral_atmosphere_38_p0(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, depth_clamp, rayleigh_phase)
+		one_minus_g2 = ntree.nodes.new('ShaderNodeMath')
+		one_minus_g2.operation = 'SUBTRACT'
+		one_minus_g2.outputs[0].default_value = 1 
+		ntree.links.new(g2.outputs[0], one_minus_g2.inputs[1])
+
+		mie_phase_0 = ntree.nodes.new('ShaderNodeMath')
+		mie_phase_0.label = 'mie phase 0'
+		mie_phase_0.operation = 'MULTIPLY'
+		mie_phase_0.inputs[0].default_value = 1.0 / (4.0 * math.pi)
+		ntree.links.new(one_minus_g2.outputs[0], mie_phase_0.inputs[1])
+
+		#pow
+		two_g = ntree.nodes.new('ShaderNodeMath')
+		two_g.label = 'mie phase 0'
+		two_g.operation = 'MULTIPLY'
+		two_g.inputs[0].default_value = 2
+		ntree.links.new(mie_anisotropy.outputs[0], two_g.inputs[1])
+
+		two_g_mult_cos_theta = ntree.nodes.new('ShaderNodeMath')
+		two_g_mult_cos_theta.label = 'two G mult cos theta'
+		two_g_mult_cos_theta.operation = 'MULTIPLY'
+		ntree.links.new(two_g.outputs[0], two_g_mult_cos_theta.inputs[0])
+		ntree.links.new(cosTheta.outputs[0], two_g_mult_cos_theta.inputs[1])
+
+		one_plus_g2 = ntree.nodes.new('ShaderNodeMath')
+		one_plus_g2.operation = 'ADD'
+		one_plus_g2.outputs[0].default_value = 1 
+		ntree.links.new(g2.outputs[0], one_plus_g2.inputs[1])
+
+		mie_phase_pow_subtract = ntree.nodes.new('ShaderNodeMath')
+		mie_phase_pow_subtract.operation = 'SUBTRACT'
+		ntree.links.new(one_plus_g2.outputs[0], mie_phase_pow_subtract.inputs[0])
+		ntree.links.new(two_g_mult_cos_theta.outputs[0], mie_phase_pow_subtract.inputs[1])
+
+		mie_pow = ntree.nodes.new("ShaderNodeMath")
+		mie_pow.operation = 'POWER'
+		mie_pow.label = 'node_pow'
+		mie_pow.inputs[1].default_value = 1.5
+		ntree.links.new(mie_phase_pow_subtract.outputs[0], mie_pow.inputs[0])
+
+		mie_phase = ntree.nodes.new('ShaderNodeMath')
+		mie_phase.label = 'mie phase 1'
+		mie_phase.operation = 'DIVIDE'
+		ntree.links.new(mie_phase_0.outputs[0], mie_phase.inputs[0])
+		ntree.links.new(mie_pow.outputs[0], mie_phase.inputs[1])
+
+		#################
+
+		xyz_inscattering_accumulate = self.accumulate_spectral_atmosphere_38_p0(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase)
+		xyz_transmission_accumulate = self.accumulate_spectral_atmosphere_38_p0_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, mie_scale, depth_clamp)
 
 		xyz_accumulate_mult_01 = ntree.nodes.new("ShaderNodeVectorMath")
 		xyz_accumulate_mult_01.operation = 'MULTIPLY'
 		xyz_accumulate_mult_01.inputs[1].default_value[0] = .01
 		xyz_accumulate_mult_01.inputs[1].default_value[1] = .01
 		xyz_accumulate_mult_01.inputs[1].default_value[2] = .01
-		ntree.links.new(xyz_accumulate.outputs[0], xyz_accumulate_mult_01.inputs[0])
+		ntree.links.new(xyz_inscattering_accumulate.outputs[0], xyz_accumulate_mult_01.inputs[0])
 
-
-		#Convert Linear XYZ to Linear sRGB Rec. 709 D65 Matrix Transform
-		# vec3 rgb;
-		# rgb.r =  3.2404542 * XYZ.x - 1.5371385 * XYZ.y - 0.4985314 * XYZ.z;
-		# rgb.g = -0.9692660 * XYZ.x + 1.8760108 * XYZ.y + 0.0415560 * XYZ.z;
-		# rgb.b =  0.0556434 * XYZ.x - 0.2040259 * XYZ.y + 1.0572252 * XYZ.z;
-
-
+		xyz_accumulate_mult_02 = ntree.nodes.new("ShaderNodeVectorMath")
+		xyz_accumulate_mult_02.operation = 'MULTIPLY'
+		xyz_accumulate_mult_02.inputs[1].default_value[0] = .01
+		xyz_accumulate_mult_02.inputs[1].default_value[1] = .01
+		xyz_accumulate_mult_02.inputs[1].default_value[2] = .01
+		ntree.links.new(xyz_transmission_accumulate.outputs[0], xyz_accumulate_mult_02.inputs[0])
 
 		spectral_atmospheric_xyz_to_srgb_end = self.spectral_compositor_xyz_to_srgb_atmospheric(ntree, xyz_accumulate_mult_01)
+		spectral_atmospheric_xyz_to_srgb_en_transmission = self.spectral_compositor_xyz_to_srgb_atmospheric(ntree, xyz_accumulate_mult_02)
 
 		self.autoArrangeNodes(ntree)
 
-		# return
+		splitRGB = ntree.nodes.new("ShaderNodeSeparateXYZ")
+		splitRGB.label = 'split transmission'
+		ntree.links.new(spectral_atmospheric_xyz_to_srgb_en_transmission.outputs[0], splitRGB.inputs[0])
 
+		split0 = self.spectral_compositor_clamp_01_idx(ntree, splitRGB, 0)
+		split1 = self.spectral_compositor_clamp_01_idx(ntree, splitRGB, 1)
+		split2 = self.spectral_compositor_clamp_01_idx(ntree, splitRGB, 2)
 
+		transmissionClampedRGB = ntree.nodes.new("ShaderNodeCombineXYZ")
+		ntree.links.new(split0.outputs[0], transmissionClampedRGB.inputs[0]) 
+		ntree.links.new(split1.outputs[0], transmissionClampedRGB.inputs[1]) 
+		ntree.links.new(split2.outputs[0], transmissionClampedRGB.inputs[2]) 
 
-		node_max = ntree.nodes.new("ShaderNodeVectorMath")
-		node_max.operation = 'MAXIMUM'
-		node_max.inputs[0].default_value[0] = 0
-		node_max.inputs[0].default_value[1] = 0
-		node_max.inputs[0].default_value[2] = 0
+		inscattering_max = ntree.nodes.new("ShaderNodeVectorMath")
+		inscattering_max.operation = 'MAXIMUM'
+		inscattering_max.inputs[0].default_value[0] = 0
+		inscattering_max.inputs[0].default_value[1] = 0
+		inscattering_max.inputs[0].default_value[2] = 0
+		ntree.links.new(spectral_atmospheric_xyz_to_srgb_end.outputs[0], inscattering_max.inputs[1])
 
-		ntree.links.new(spectral_atmospheric_xyz_to_srgb_end.outputs[0], node_max.inputs[1])
+		sceneMultTransmission = ntree.nodes.new("ShaderNodeVectorMath")
+		sceneMultTransmission.operation = 'MULTIPLY'
+		ntree.links.new(node0.outputs[0], sceneMultTransmission.inputs[0])
+		ntree.links.new(transmissionClampedRGB.outputs[0], sceneMultTransmission.inputs[1])
 
 		final_spectral_atmosphere_add = ntree.nodes.new("ShaderNodeVectorMath")
 		final_spectral_atmosphere_add.operation = 'ADD'
-		# final_spectral_atmosphere_add.inputs[0].default_value = 0
-		ntree.links.new(node0.outputs[0], final_spectral_atmosphere_add.inputs[0])
-		ntree.links.new(node_max.outputs[0], final_spectral_atmosphere_add.inputs[1])
-
+		ntree.links.new(sceneMultTransmission.outputs[0], final_spectral_atmosphere_add.inputs[0])
+		ntree.links.new(inscattering_max.outputs[0], final_spectral_atmosphere_add.inputs[1])
 
 		self.spectral_compositor_debugging_exit_visualizer_atmospheric(ntree, final_spectral_atmosphere_add, 932, 633)
 
-
-
-
-
-		
-	def accumulate_spectral_atmosphere_slice_inscattered(self, ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, idx):
+	def accumulate_spectral_atmosphere_slice_transmission(self, ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, idx):
 		#Base Extinction (Outscattering) calculation for this slice
 		beta_r = ntree.nodes.new('ShaderNodeMath')
 		beta_r.operation = 'MULTIPLY'
 		beta_r.inputs[0].default_value = RAYLEIGH_WEIGHTS[idx]
 		ntree.links.new(atmospheric_scale.outputs[0], beta_r.inputs[1])
 
-		neg_beta_r = ntree.nodes.new('ShaderNodeMath')
-		neg_beta_r.operation = 'MULTIPLY'
-		neg_beta_r.inputs[0].default_value = -1
-		ntree.links.new(beta_r.outputs[0], neg_beta_r.inputs[1])
+		beta_m = ntree.nodes.new('ShaderNodeMath')
+		beta_m.operation = 'MULTIPLY'
+		beta_m.inputs[0].default_value = MIE_WEIGHTS[idx]
+		ntree.links.new(mie_scale.outputs[0], beta_m.inputs[1])
+
+		beta_total = ntree.nodes.new('ShaderNodeMath')
+		beta_total.operation = 'MULTIPLY'
+		ntree.links.new(beta_r.outputs[0], beta_total.inputs[0])
+		ntree.links.new(beta_m.outputs[0], beta_total.inputs[1])
+
+		neg_beta_total = ntree.nodes.new('ShaderNodeMath')
+		neg_beta_total.operation = 'MULTIPLY'
+		neg_beta_total.inputs[0].default_value = -1
+		ntree.links.new(beta_total.outputs[0], neg_beta_total.inputs[1])
 
 		#Outscattering Transmission calculation (Beer-Lambert Law)
-		# Uses the sanitized, clamped depth pass stream output
 		exp_mult = ntree.nodes.new('ShaderNodeMath')
 		exp_mult.operation = 'MULTIPLY'
-		# ntree.links.new(beta_r.outputs[0], exp_mult.inputs[0])
-		ntree.links.new(neg_beta_r.outputs[0], exp_mult.inputs[0])
+		ntree.links.new(neg_beta_total.outputs[0], exp_mult.inputs[0])
 		ntree.links.new(depth_clamp.outputs[0], exp_mult.inputs[1])
 
 		transmission = ntree.nodes.new('ShaderNodeMath')
@@ -4338,150 +4369,333 @@ class ABJ_Shader_Debugger():
 		ntree.links.new(exp_mult.outputs[0], transmission.inputs[0])
 
 		############
+		return transmission
+
+		
+	def accumulate_spectral_atmosphere_slice_inscattered(self, ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, idx):
+		#Base Extinction (Outscattering) calculation for this slice
+		beta_r = ntree.nodes.new('ShaderNodeMath')
+		beta_r.operation = 'MULTIPLY'
+		beta_r.inputs[0].default_value = RAYLEIGH_WEIGHTS[idx]
+		ntree.links.new(atmospheric_scale.outputs[0], beta_r.inputs[1])
+
+		beta_m = ntree.nodes.new('ShaderNodeMath')
+		beta_m.operation = 'MULTIPLY'
+		beta_m.inputs[0].default_value = MIE_WEIGHTS[idx]
+		ntree.links.new(mie_scale.outputs[0], beta_m.inputs[1])
+
+		beta_total = ntree.nodes.new('ShaderNodeMath')
+		beta_total.operation = 'MULTIPLY'
+		ntree.links.new(beta_r.outputs[0], beta_total.inputs[0])
+		ntree.links.new(beta_m.outputs[0], beta_total.inputs[1])
+
+		neg_beta_total = ntree.nodes.new('ShaderNodeMath')
+		neg_beta_total.operation = 'MULTIPLY'
+		neg_beta_total.inputs[0].default_value = -1
+		ntree.links.new(beta_total.outputs[0], neg_beta_total.inputs[1])
+
+		#Outscattering Transmission calculation (Beer-Lambert Law)
+		exp_mult = ntree.nodes.new('ShaderNodeMath')
+		exp_mult.operation = 'MULTIPLY'
+		ntree.links.new(neg_beta_total.outputs[0], exp_mult.inputs[0])
+		ntree.links.new(depth_clamp.outputs[0], exp_mult.inputs[1])
+
+		transmission = ntree.nodes.new('ShaderNodeMath')
+		transmission.operation = 'EXPONENT'
+		ntree.links.new(exp_mult.outputs[0], transmission.inputs[0])
+
+		############
+
+		scatteredEnergy_0 = ntree.nodes.new('ShaderNodeMath')
+		scatteredEnergy_0.operation = 'MULTIPLY'
+		ntree.links.new(beta_r.outputs[0], scatteredEnergy_0.inputs[0])
+		ntree.links.new(rayleigh_phase.outputs[0], scatteredEnergy_0.inputs[1])
+
+		scatteredEnergy_1 = ntree.nodes.new('ShaderNodeMath')
+		scatteredEnergy_1.operation = 'MULTIPLY'
+		ntree.links.new(beta_m.outputs[0], scatteredEnergy_1.inputs[0])
+		ntree.links.new(mie_phase.outputs[0], scatteredEnergy_1.inputs[1])
+
+		scatteredEnergy_add = ntree.nodes.new('ShaderNodeMath')
+		scatteredEnergy_add.operation = 'ADD'
+		ntree.links.new(scatteredEnergy_0.outputs[0], scatteredEnergy_add.inputs[0])
+		ntree.links.new(scatteredEnergy_1.outputs[0], scatteredEnergy_add.inputs[1])
+
 		#Accumulate single-scattered light inside this slice array
-		slice_inscattered_1_minus_transmission = ntree.nodes.new('ShaderNodeMath')
-		slice_inscattered_1_minus_transmission.operation = 'SUBTRACT'
-		slice_inscattered_1_minus_transmission.inputs[0].default_value = 1
-		ntree.links.new(transmission.outputs[0], slice_inscattered_1_minus_transmission.inputs[1])
+		one_minus_transmission = ntree.nodes.new('ShaderNodeMath')
+		one_minus_transmission.operation = 'SUBTRACT'
+		one_minus_transmission.inputs[0].default_value = 1
+		ntree.links.new(transmission.outputs[0], one_minus_transmission.inputs[1])
+
+		beta_max = ntree.nodes.new("ShaderNodeMath")
+		beta_max.operation = 'MAXIMUM'
+		beta_max.inputs[0].default_value = 1e-6
+		ntree.links.new(beta_total.outputs[0], beta_max.inputs[1])
+
+		divide_oneMinusTransmission_by_betaMax = ntree.nodes.new("ShaderNodeMath")
+		divide_oneMinusTransmission_by_betaMax.operation = 'DIVIDE'
+		ntree.links.new(one_minus_transmission.outputs[0], divide_oneMinusTransmission_by_betaMax.inputs[0])
+		ntree.links.new(beta_total.outputs[0], divide_oneMinusTransmission_by_betaMax.inputs[1])
 
 		slice_inscattered_0 = ntree.nodes.new('ShaderNodeMath')
 		slice_inscattered_0.operation = 'MULTIPLY'
 		slice_inscattered_0.inputs[0].default_value = D65_ILLUMINANT[idx]
-		ntree.links.new(beta_r.outputs[0], slice_inscattered_0.inputs[1])
+		ntree.links.new(scatteredEnergy_add.outputs[0], slice_inscattered_0.inputs[1])
 
 		slice_inscattered_1 = ntree.nodes.new('ShaderNodeMath')
 		slice_inscattered_1.operation = 'MULTIPLY'
 		ntree.links.new(slice_inscattered_0.outputs[0], slice_inscattered_1.inputs[0])
-		ntree.links.new(rayleigh_phase.outputs[0], slice_inscattered_1.inputs[1])
+		ntree.links.new(divide_oneMinusTransmission_by_betaMax.outputs[0], slice_inscattered_1.inputs[1])
 
-		slice_inscattered_2 = ntree.nodes.new('ShaderNodeMath')
-		slice_inscattered_2.operation = 'MULTIPLY'
-		ntree.links.new(slice_inscattered_1.outputs[0], slice_inscattered_2.inputs[0])
-		ntree.links.new(slice_inscattered_1_minus_transmission.outputs[0], slice_inscattered_2.inputs[1])
-
-		return slice_inscattered_2
-
-	def accumulate_spectral_atmosphere_38_p0(self, ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, depth_clamp, rayleigh_phase):
+		return slice_inscattered_1
+	
+	def accumulate_spectral_atmosphere_38_p0_transmission(self, ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, mie_scale, depth_clamp):
 		xyz_start = ntree.nodes.new("FunctionNodeInputVector")
 		xyz_start.vector[0] = 0.0
 		xyz_start.vector[1] = 0.0
 		xyz_start.vector[2] = 0.0
 
-		inscattered_00 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 0)
+		transmission_00 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 0)
+		accumulate_00 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_00, 0, xyz_start)
+
+		transmission_01 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 1)
+		accumulate_01 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_01, 1, accumulate_00)
+
+		transmission_02 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 2)
+		accumulate_02 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_02, 2, accumulate_01)
+
+		transmission_03 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 3)
+		accumulate_03 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_03, 3, accumulate_02)
+
+		transmission_04 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 4)
+		accumulate_04 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_04, 4, accumulate_03)
+
+		transmission_05 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 5)
+		accumulate_05 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_05, 5, accumulate_04)
+
+		transmission_06 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 6)
+		accumulate_06 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_06, 6, accumulate_05)
+
+		transmission_07 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 7)
+		accumulate_07 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_07, 7, accumulate_06)
+
+		transmission_08 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 8)
+		accumulate_08 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_08, 8, accumulate_07)
+
+		transmission_09 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 9)
+		accumulate_09 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_09, 9, accumulate_08)
+
+		transmission_10 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 10)
+		accumulate_10 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_10, 10, accumulate_09)
+
+		transmission_11 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 11)
+		accumulate_11 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_11, 11, accumulate_10)
+
+		transmission_12 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 12)
+		accumulate_12 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_12, 12, accumulate_11)
+
+		transmission_13 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 13)
+		accumulate_13 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_13, 13, accumulate_12)
+
+		transmission_14 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 14)
+		accumulate_14 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_14, 14, accumulate_13)
+
+		transmission_15 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 15)
+		accumulate_15 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_15, 15, accumulate_14)
+
+		transmission_16 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 16)
+		accumulate_16 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_16, 16, accumulate_15)
+
+		transmission_17 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 17)
+		accumulate_17 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_17, 17, accumulate_16)
+
+		transmission_18 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 18)
+		accumulate_18 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_18, 18, accumulate_17)
+
+		transmission_19 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 19)
+		accumulate_19 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_19, 19, accumulate_18)
+
+		transmission_20 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 20)
+		accumulate_20 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_20, 20, accumulate_19)
+
+		transmission_21 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 21)
+		accumulate_21 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_21, 21, accumulate_20)
+
+		transmission_22 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 22)
+		accumulate_22 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_22, 22, accumulate_21)
+
+		transmission_23 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 23)
+		accumulate_23 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_23, 23, accumulate_22)
+
+		transmission_24 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 24)
+		accumulate_24 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_24, 24, accumulate_23)
+
+		transmission_25 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 25)
+		accumulate_25 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_25, 25, accumulate_24)
+
+		transmission_26 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 26)
+		accumulate_26 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_26, 26, accumulate_25)
+
+		transmission_27 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 27)
+		accumulate_27 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_27, 27, accumulate_26)
+
+		transmission_28 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 28)
+		accumulate_28 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_28, 28, accumulate_27)
+
+		transmission_29 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 29)
+		accumulate_29 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_29, 29, accumulate_28)
+
+		transmission_30 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 30)
+		accumulate_30 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_30, 30, accumulate_29)
+
+		transmission_31 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 31)
+		accumulate_31 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_31, 31, accumulate_30)
+
+		transmission_32 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 32)
+		accumulate_32 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_32, 32, accumulate_31)
+
+		transmission_33 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 33)
+		accumulate_33 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_33, 33, accumulate_32)
+
+		transmission_34 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 34)
+		accumulate_34 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_34, 34, accumulate_33)
+
+		transmission_35 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 35)
+		accumulate_35 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_35, 35, accumulate_34)
+
+		transmission_36 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 36)
+		accumulate_36 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_36, 36, accumulate_35)
+
+		transmission_37 = self.accumulate_spectral_atmosphere_slice_transmission(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, atmospheric_scale, mie_scale, depth_clamp, 37)
+		accumulate_37 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, transmission_37, 37, accumulate_36)
+
+		accumulate_37.label = 'transmission XYZ accumulated'
+		accumulate_37.use_custom_color = True
+		accumulate_37.color = (0, 0, 1)
+
+		return accumulate_37
+	
+	def accumulate_spectral_atmosphere_38_p0(self, ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, CIE_X, CIE_Y, CIE_Z, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase):
+		xyz_start = ntree.nodes.new("FunctionNodeInputVector")
+		xyz_start.vector[0] = 0.0
+		xyz_start.vector[1] = 0.0
+		xyz_start.vector[2] = 0.0
+
+		inscattered_00 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 0)
 		accumulate_00 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_00, 0, xyz_start)
 
-		inscattered_01 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 1)
+		inscattered_01 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 1)
 		accumulate_01 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_01, 1, accumulate_00)
 
-		inscattered_02 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 2)
+		inscattered_02 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 2)
 		accumulate_02 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_02, 2, accumulate_01)
 
-		inscattered_03 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 3)
+		inscattered_03 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 3)
 		accumulate_03 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_03, 3, accumulate_02)
 
-		inscattered_04 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 4)
+		inscattered_04 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 4)
 		accumulate_04 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_04, 4, accumulate_03)
 
-		inscattered_05 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 5)
+		inscattered_05 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 5)
 		accumulate_05 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_05, 5, accumulate_04)
 
-		inscattered_06 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 6)
+		inscattered_06 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 6)
 		accumulate_06 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_06, 6, accumulate_05)
 
-		inscattered_07 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 7)
+		inscattered_07 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 7)
 		accumulate_07 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_07, 7, accumulate_06)
 
-		inscattered_08 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 8)
+		inscattered_08 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 8)
 		accumulate_08 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_08, 8, accumulate_07)
 
-		inscattered_09 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 9)
+		inscattered_09 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 9)
 		accumulate_09 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_09, 9, accumulate_08)
 
-		inscattered_10 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 10)
+		inscattered_10 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 10)
 		accumulate_10 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_10, 10, accumulate_09)
 
-		inscattered_11 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 11)
+		inscattered_11 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 11)
 		accumulate_11 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_11, 11, accumulate_10)
 
-		inscattered_12 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 12)
+		inscattered_12 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 12)
 		accumulate_12 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_12, 12, accumulate_11)
 
-		inscattered_13 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 13)
+		inscattered_13 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 13)
 		accumulate_13 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_13, 13, accumulate_12)
 
-		inscattered_14 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 14)
+		inscattered_14 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 14)
 		accumulate_14 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_14, 14, accumulate_13)
 
-		inscattered_15 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 15)
+		inscattered_15 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 15)
 		accumulate_15 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_15, 15, accumulate_14)
 
-		inscattered_16 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 16)
+		inscattered_16 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 16)
 		accumulate_16 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_16, 16, accumulate_15)
 
-		inscattered_17 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 17)
+		inscattered_17 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 17)
 		accumulate_17 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_17, 17, accumulate_16)
 
-		inscattered_18 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 18)
+		inscattered_18 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 18)
 		accumulate_18 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_18, 18, accumulate_17)
 
-		inscattered_19 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 19)
+		inscattered_19 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 19)
 		accumulate_19 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_19, 19, accumulate_18)
 
-		inscattered_20 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 20)
+		inscattered_20 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 20)
 		accumulate_20 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_20, 20, accumulate_19)
 
-		inscattered_21 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 21)
+		inscattered_21 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 21)
 		accumulate_21 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_21, 21, accumulate_20)
 
-		inscattered_22 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 22)
+		inscattered_22 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 22)
 		accumulate_22 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_22, 22, accumulate_21)
 
-		inscattered_23 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 23)
+		inscattered_23 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 23)
 		accumulate_23 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_23, 23, accumulate_22)
 
-		inscattered_24 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 24)
+		inscattered_24 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 24)
 		accumulate_24 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_24, 24, accumulate_23)
 
-		inscattered_25 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 25)
+		inscattered_25 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 25)
 		accumulate_25 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_25, 25, accumulate_24)
 
-		inscattered_26 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 26)
+		inscattered_26 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 26)
 		accumulate_26 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_26, 26, accumulate_25)
 
-		inscattered_27 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 27)
+		inscattered_27 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 27)
 		accumulate_27 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_27, 27, accumulate_26)
 
-		inscattered_28 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 28)
+		inscattered_28 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 28)
 		accumulate_28 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_28, 28, accumulate_27)
 
-		inscattered_29 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 29)
+		inscattered_29 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 29)
 		accumulate_29 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_29, 29, accumulate_28)
 
-		inscattered_30 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 30)
+		inscattered_30 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 30)
 		accumulate_30 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_30, 30, accumulate_29)
 
-		inscattered_31 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 31)
+		inscattered_31 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 31)
 		accumulate_31 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_31, 31, accumulate_30)
 
-		inscattered_32 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 32)
+		inscattered_32 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 32)
 		accumulate_32 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_32, 32, accumulate_31)
 
-		inscattered_33 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 33)
+		inscattered_33 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 33)
 		accumulate_33 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_33, 33, accumulate_32)
 
-		inscattered_34 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 34)
+		inscattered_34 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 34)
 		accumulate_34 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_34, 34, accumulate_33)
 
-		inscattered_35 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 35)
+		inscattered_35 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 35)
 		accumulate_35 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_35, 35, accumulate_34)
 
-		inscattered_36 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 36)
+		inscattered_36 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 36)
 		accumulate_36 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_36, 36, accumulate_35)
 
-		inscattered_37 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, depth_clamp, rayleigh_phase, 37)
+		inscattered_37 = self.accumulate_spectral_atmosphere_slice_inscattered(ntree, RAYLEIGH_WEIGHTS, MIE_WEIGHTS, D65_ILLUMINANT, atmospheric_scale, mie_scale, depth_clamp, rayleigh_phase, mie_phase, 37)
 		accumulate_37 = self.accumulate_spectral_atmosphere_38_p1(ntree, CIE_X, CIE_Y, CIE_Z, inscattered_37, 37, accumulate_36)
 
-		accumulate_37.label = 'reflectanceEnd'
+		accumulate_37.label = 'inscatter XYZ accumulated'
 		accumulate_37.use_custom_color = True
 		accumulate_37.color = (0, 0, 1)
 
@@ -4994,6 +5208,20 @@ class ABJ_Shader_Debugger():
 		nodetree.links.new(node_dotProd_B.outputs[0], dotProdCombo_custom.inputs[2]) 
 
 		return self.spectral_compositor_linear_to_srgb(nodetree, dotProdCombo_custom)
+
+	def spectral_compositor_clamp_01_idx(self, nodetree, inputNode, idx):
+		node_min = nodetree.nodes.new("ShaderNodeMath")
+		node_min.operation = 'MINIMUM'
+		node_min.inputs[1].default_value = 1
+		nodetree.links.new(inputNode.outputs[idx], node_min.inputs[0])
+		# nodetree.links.new(inputNode.outputs['Result'], node_min.inputs[0])
+
+		node_max = nodetree.nodes.new("ShaderNodeMath")
+		node_max.operation = 'MAXIMUM'
+		node_max.inputs[0].default_value = 0
+		nodetree.links.new(node_min.outputs[0], node_max.inputs[1])
+
+		return node_max
 
 	def spectral_compositor_clamp_01(self, nodetree, inputNode):
 		node_min = nodetree.nodes.new("ShaderNodeMath")
