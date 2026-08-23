@@ -3076,6 +3076,17 @@ class ABJ_Shader_Debugger():
 		bpy.context.view_layer.objects.active = obj
 		obj.show_wire = True
 
+	def FEM_01(self):
+		self.FEM_02()
+
+
+		return
+
+
+		# self.FEM_mesh_generation(0.015, 0.05)
+		self.FEM_mesh_generation(0.05, 0.05)
+
+		# self.FEM_geometryNodeNameChecker()
 
 	def FEM_02(self):
 		# --- EXECUTION LOOP FOR ITERATION ---
@@ -3098,48 +3109,8 @@ class ABJ_Shader_Debugger():
 	def kubelka_munk_subtractive_mixing_spectral_compositor(self):
 		myEquation_spectral_Kubelka_Munk_class.kubelka_munk_subtractive_mixing_spectral_compositor(myABJ_SD_B)
 
-
-	def FEM_01(self):
-		self.FEM_02()
-
-
-		return
-
-
-		# self.FEM_mesh_generation(0.015, 0.05)
-		self.FEM_mesh_generation(0.05, 0.05)
-
-		# self.FEM_geometryNodeNameChecker()
-
-
-	def spectral_compositor_stock(self):
-		self.deselectAll()
-		self.deleteAllObjects()
-		self.mega_purge()
-
-		bpy.context.scene.view_layers["ViewLayer"].use_pass_z = True
-
-		compGroupName = 'spectralCompositor'
-
-		nodetree = bpy.data.node_groups.new(compGroupName, "CompositorNodeTree")
-		bpy.context.scene.compositing_node_group = nodetree
-
-		for node in nodetree.nodes:
-			nodetree.nodes.remove(node)
-
-		node0 = nodetree.nodes.new("CompositorNodeRLayers")
-
-		nodetree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
-		self.nodeOut = nodetree.nodes.new("NodeGroupOutput")
-
-		self.nodeViewer = nodetree.nodes.new("CompositorNodeViewer")
-
-		self.spectral_compositor_debugging_exit_visualizer(nodetree, node0, 932, 633)
-		return
-
-
-
-
+	def sub_spectral_compositor_stock(self):
+		myEquation_spectral_Kubelka_Munk_class.sub_spectral_compositor_stock(myABJ_SD_B)
 
 	def autoArrangeNodes(self, nodetree, x_spacing=250, y_spacing=250):
 		# x_spacing=250
@@ -8143,25 +8114,6 @@ class SCENE_PT_ABJ_FEM_Debugger_Panel(bpy.types.Panel):
 		row.scale_y = 2.0 ###
 		row.operator('shader.abj_shader_debugger_fem_01_operator')
 
-class SCENE_PT_ABJ_Atmospheric_Debugger_Panel(bpy.types.Panel):
-	bl_label = "ABJ Atmospheric Debugger"
-	bl_idname = "SCENE_PT_ABJ_Atmospheric_Debugger_Panel"
-	bl_space_type = 'PROPERTIES'
-	bl_region_type = 'WINDOW'
-	bl_context = "scene"
-
-	def draw(self, context):
-		layout = self.layout
-		obj = context.active_object
-
-		######################################
-		###### FEM
-		######################################
-		# layout.label(text='Rayleigh')
-		row = layout.row()
-		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_atmospheric_01_operator')
-
 class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	"""Creates a Panel in the scene context of the properties editor"""
 	bl_label = "ABJ Shader Debugger"
@@ -8178,14 +8130,19 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		######################################
 		###### SPECTRAL COMPOSITOR
 		######################################
-		layout.label(text='Kubelka-Munk Subtractive SPECTRAL COMPOSITOR')
+
+		layout.label(text='Spectral Compositor')
 		row = layout.row()
 		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_spectral_compositor_operator')
+		row.operator('shader.abj_shader_debugger_atmospheric_01_operator')
+
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_sub_spectral_compositor_operator')
 
 		row = layout.row()
 		row.scale_y = 1.0 ###
-		row.operator('shader.abj_shader_debugger_compositor_stock_operator')
+		row.operator('shader.abj_shader_debugger_sub_spectral_comp_stock_operator')
 
 		######################################
 		###### STAGE 1
@@ -8619,11 +8576,11 @@ class SHADER_OT_FEM_01(bpy.types.Operator):
 		myABJ_SD_B.FEM_01()
 		return {'FINISHED'}
 	
-class SHADER_OT_SPECTRAL_COMPOSITOR(bpy.types.Operator):
+class SHADER_OT_SUB_SPECTRAL_COMPOSITOR(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
 	bl_label = 'Kubelka-Munk Subtractive Mixing spectral compositor'
-	bl_idname = 'shader.abj_shader_debugger_spectral_compositor_operator'
+	bl_idname = 'shader.abj_shader_debugger_sub_spectral_compositor_operator'
 
 	def execute(self, context):
 		myABJ_SD_B.kubelka_munk_subtractive_mixing_spectral_compositor()
@@ -8639,14 +8596,14 @@ class SHADER_OT_ATMOSPHERIC_01(bpy.types.Operator):
 		myABJ_SD_B.atmospheric_rayleigh_mie_nishita_spectral_compositor()
 		return {'FINISHED'}
 
-class SHADER_OT_COMPOSITOR_STOCK(bpy.types.Operator):
+class SHADER_OT_SUB_SPECTRAL_COMP_STOCK(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'compositor stock'
-	bl_idname = 'shader.abj_shader_debugger_compositor_stock_operator'
+	bl_label = 'subtractive compositor stock'
+	bl_idname = 'shader.abj_shader_debugger_sub_spectral_comp_stock_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.spectral_compositor_stock()
+		myABJ_SD_B.sub_spectral_compositor_stock()
 		return {'FINISHED'}
 
 class SHADER_OT_REFRESHSTAGE2(bpy.types.Operator):

@@ -279,6 +279,43 @@ class myEquation_spectral_Kubelka_Munk:
 		self.spectral_compositor_debugging_exit_visualizer(nodetree, spectral_xyz_to_srgb_end, 932, 633, myABJ_SD_B)
 		return
 
+	def sub_spectral_compositor_stock(self, myABJ_SD_B):
+		print('to do')
+		return
+
+		myABJ_SD_B.deselectAll()
+		myABJ_SD_B.deleteAllObjects()
+		myABJ_SD_B.mega_purge()
+
+		bpy.context.scene.view_layers["ViewLayer"].use_pass_z = True
+
+		compGroupName = 'spectralCompositor'
+
+		nodetree = bpy.data.node_groups.new(compGroupName, "CompositorNodeTree")
+		bpy.context.scene.compositing_node_group = nodetree
+
+		for node in nodetree.nodes:
+			nodetree.nodes.remove(node)
+
+		node0 = nodetree.nodes.new("CompositorNodeRLayers")
+
+		nodetree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
+		self.nodeOut = nodetree.nodes.new("NodeGroupOutput")
+
+		self.nodeViewer = nodetree.nodes.new("CompositorNodeViewer")
+
+		self.spectral_compositor_debugging_exit_visualizer(nodetree, node0, 932, 633)
+
+		nodetree.links.new(nodeToView.outputs[0], myABJ_SD_B.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		nodetree.links.new(nodeToView.outputs[0], myABJ_SD_B.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		myABJ_SD_B.autoArrangeNodes(nodetree)
+		# myABJ_SD_B.autoArrangeNodes(worldtree)
+
+		myABJ_SD_B.compositor_setup = True
+
+		return
+
 	def spectral_compositor_debugging_exit_visualizer(self, nodetree, nodeToView, readPixelX, readPixelY, myABJ_SD_B):
 		
 		nodetree.links.new(nodeToView.outputs[0], myABJ_SD_B.nodeOut.inputs[0]) ###### !!!!!!!!!!!
