@@ -2986,52 +2986,10 @@ class ABJ_Shader_Debugger():
 		print(f"--- Initialization Complete: {len(final_tets)} Elements Passed to Node Pipeline ---")
 		return cleaned_pool_local, final_tets
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 	def generate_brep_and_mesh(self, mesh_size=0.3):
 
 		return
 	
-		"""
-		programmatically generate a B-rep shape, mesh it with tetrahedrons, and extract arrays.
-		"""
-
-		# 3. EXTRACT ARRAYS FOR FEM SOLVER
-		# Extract all node coordinates
-		# node_tags, node_coords, _ = tet.getNodes()
-		# node_coords is flat: [x1, y1, z1, x2, y2, z2, ...] -> Reshape to Nx3
-		nodes_array = np.array(node_coords).reshape(-1, 3)
-
-		# Extract Tetrahedral Elements (ElementType 4 = 4-node tetrahedron)
-		# element_types, element_tags, element_node_tags = tet.getElements(dim=3)
-		
-		tet_nodes = []
-		for i, elem_type in enumerate(element_types):
-			if elem_type == 4:  # 4-node tetrahedron
-				# Flat array of connected node tags -> Reshape to Mx4
-				tet_nodes = np.array(element_node_tags[i]).reshape(-1, 4)
-				break
-
-		# Gmsh node tags are 1-indexed. Map them to 0-indexed for NumPy array slicing
-		node_tag_to_index = {tag: idx for idx, tag in enumerate(node_tags)}
-		
-		# Vectorized conversion of element connectivity matrix to 0-indexed pointers
-		tet_indices = np.vectorize(node_tag_to_index.get)(tet_nodes)
-
-		
-		return nodes_array, tet_indices
 
 	def create_blender_mesh_visualization(self, nodes, tets):
 		"""
@@ -3090,7 +3048,6 @@ class ABJ_Shader_Debugger():
 
 	def FEM_02(self):
 		# --- EXECUTION LOOP FOR ITERATION ---
-		# 1. Generate arrays from Open CASCADE / Gmsh
 		nodes, tets = self.generate_brep_and_mesh(mesh_size=0.4)
 
 		# Print debug info to toggle your internal mathematical logic checks
