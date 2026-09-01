@@ -35,7 +35,12 @@ from scipy.spatial import Delaunay
 import importlib
 import sys
 import copy
+import jax
+import jax.numpy as jnp
+from jax import jit
 
+# Force JAX to use 64-bit double precision to maintain mechanical engineering accuracy
+jax.config.update("jax_enable_x64", True)
 
 from . import simple_spec_abj
 from . import GGX_hable_abj
@@ -43,6 +48,7 @@ from . import spectral_subtractive_blending
 from . import spectral_atmosphere
 from . import spectral
 from . import spectral3_glsl
+from . import dFEM
 
 if "bpy" in locals():
 	prefix = __package__ + '.'
@@ -57,11 +63,13 @@ from .GGX_hable_abj import myEquation_GGX
 from .simple_spec_abj import myEquation_simple_spec
 from .spectral_subtractive_blending import myEquation_spectral_Kubelka_Munk
 from .spectral_atmosphere import myEquation_spectral_atmosphere
+from .dFEM import myEquation_dFEM
 
 myEquation_GGX_class = myEquation_GGX()
 myEquation_simple_spec_class = myEquation_simple_spec()
 myEquation_spectral_Kubelka_Munk_class = myEquation_spectral_Kubelka_Munk()
 myEquation_spectral_atmosphere_class = myEquation_spectral_atmosphere()
+myEquation_dFEM_class = myEquation_dFEM()
 
 class ABJ_Shader_Debugger():
 	def __init__(self):
@@ -2333,732 +2341,8 @@ class ABJ_Shader_Debugger():
 
 		self.compositor_setup = True
 
-
-
-	def FEM_geometryNodeNameChecker(self):
-		# 1. Target your specific Geometry Nodes tree by its name
-		# Replace "sdf gen for bones" with the exact name of your node group if different
-		node_tree_name = "Geometry Nodes"
-		node_group = bpy.data.node_groups.get(node_tree_name)
-
-		if node_group and node_group.type == 'GEOMETRY':
-			print(f"\n--- NODE LIST FOR: {node_group.name} ---")
-			print(f"{'DISPLAY NAME':<30} | {'PYTHON BL_IDNAME (TYPE)':<30} | {'INTERNAL DATA NAME'}")
-			print("-" * 90)
-			
-			# 2. Loop through every node in the graph
-			for node in node_group.nodes:
-				# bl_idname is the exact string you need when writing "nodes.new(type='...')" in a script
-				print(f"{node.label or node.name:<30} | {node.bl_idname:<30} | {node.name}")
-				
-			print("-" * 90)
-		else:
-			print(f"Error: Geometry Node tree '{node_tree_name}' not found. Check your spelling!")
-
-	def run_inside_mesh_filter_via_nodes(self, target_mesh_obj, background_cloud_points):
-		"""
-		Pipes a background point matrix into Blender, evaluates the inside/outside
-		state via a C++ Geometry Nodes raycast, and pulls back the filtered array.
-		"""
-		# 1. Create a temporary mesh container to hold our background points
-		temp_mesh = bpy.data.meshes.new("Temp_Cloud_Data")
-		temp_obj = bpy.data.objects.new("Temp_Cloud_Obj", temp_mesh)
-		bpy.context.collection.objects.link(temp_obj)
-		
-		# Fast assign all background positions via correct foreach_set formatting
-		temp_mesh.vertices.add(len(background_cloud_points))
-		temp_mesh.vertices.foreach_set("co", background_cloud_points.ravel())
-		temp_mesh.update()
-		
-		# 2. Generate and assign the filtering Modifier layout
-		mod = temp_obj.modifiers.new(name="Inside_Filter", type='NODES')
-		group = bpy.data.node_groups.new("Inside_Filter_Group", 'GeometryNodeTree')
-		mod.node_group = group
-		
-		# ─── RIGIDLY DEFINE SOCKET INTERFACES FIRST ───
-		group.interface.new_socket(name="Geometry In", in_out='INPUT', socket_type='NodeSocketGeometry')
-		group.interface.new_socket(name="Geometry Out", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-		
-		# Construct nodes
-		n_in = group.nodes.new('NodeGroupInput')
-		n_in.location = (-400, 0)
-		
-		n_out = group.nodes.new('NodeGroupOutput')
-		n_out.location = (600, 0)
-		
-		n_del = group.nodes.new('GeometryNodeDeleteGeometry')
-		n_del.location = (200, 0)
-		n_del.domain = 'POINT'
-		
-		n_obj = group.nodes.new('GeometryNodeObjectInfo')
-		n_obj.location = (-200, 200)
-		n_obj.inputs['Object'].default_value = target_mesh_obj
-		n_obj.transform_space = 'RELATIVE'
-		
-		n_ray = group.nodes.new('GeometryNodeRaycast')
-		n_ray.location = (0, -100)
-		n_ray.inputs['Ray Direction'].default_value = (0.0, 0.0, 1.0)
-		
-		n_not = group.nodes.new('FunctionNodeBooleanMath')
-		n_not.location = (0, 100)
-		n_not.operation = 'NOT'
-		
-		links = group.links
-		
-		# Connect Main Highway using the newly registered interface sockets
-		links.new(n_in.outputs['Geometry In'], n_del.inputs['Geometry'])
-		links.new(n_del.outputs['Geometry'], n_out.inputs['Geometry Out'])
-		
-		# Connect Raycast Engine Firewall (Ensuring the Target object is locked in)
-		links.new(n_obj.outputs['Geometry'], n_ray.inputs['Target Geometry'])
-		links.new(n_in.outputs['Geometry In'], n_ray.inputs['Source Position']) # Direct coordinate tracking
-		links.new(n_ray.outputs['Is Hit'], n_not.inputs[0])
-		links.new(n_not.outputs['Boolean'], n_del.inputs['Selection'])
-		
-		# 3. Force Blender to evaluate the modifier stack safely
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-		evaluated_obj = temp_obj.evaluated_get(depsgraph)
-		final_mesh = evaluated_obj.to_mesh()
-		
-		# 4. Pull the filtered points back into an array
-		num_inside_verts = len(final_mesh.vertices)
-		inside_points_flat = np.zeros(num_inside_verts * 3, dtype=np.float32)
-		final_mesh.vertices.foreach_get("co", inside_points_flat)
-		inside_points = inside_points_flat.reshape(-1, 3)
-		
-		# 5. Fast memory cleanup
-		temp_obj.to_mesh_clear()
-		bpy.data.objects.remove(temp_obj)
-		bpy.data.meshes.remove(temp_mesh)
-		
-		print(f"Geometry Nodes Filter Finished Successfully. Retained {len(inside_points)} interior nodes.")
-		return inside_points
-
-	def bridge_filtered_points_to_scipy(self, surface_points, filtered_internal_points, quality_threshold=0.12):
-		"""
-		Combines input CAD surface points with filtered internal points,
-		triangulates via SciPy, prunes slivers, and completely purges hanging points.
-		"""
-		unified_point_pool = np.vstack([surface_points, filtered_internal_points]).astype(np.float64)
-		
-		# 2. Apply Microscopic Jitter Firewall to protect the Qhull linear solver
-		rng = np.random.default_rng(seed=42)
-		unified_point_pool += rng.uniform(-1e-6, 1e-6, size=unified_point_pool.shape)
-    
-		# tri = Delaunay(unified_point_pool, qhull_options="Qz QJ")
-		tri = Delaunay(unified_point_pool, qhull_options="Qz")
-		raw_tets = tri.simplices
-
-		# return
-
-		# --- Sliver Quality Check Matrix Math ---
-		v0 = unified_point_pool[raw_tets[:, 0]]
-		v1 = unified_point_pool[raw_tets[:, 1]]
-		v2 = unified_point_pool[raw_tets[:, 2]]
-		v3 = unified_point_pool[raw_tets[:, 3]]
-		
-
-		# ─── SCALE-INDEPENDENT MESH FILTERING CORRECTION ───
-		# Calculate signed volumes with a safe absolute fallback
-		cross_prod = np.cross(v2 - v0, v3 - v0) # Adjusted matrix orientation
-		volumes = np.abs(np.einsum('ij,ij->i', cross_prod, v1 - v0)) / 6
-
-
-		# Calculate all 6 local edge lengths squared
-		l01_sq = np.sum((v1 - v0)**2, axis=1)
-		l02_sq = np.sum((v2 - v0)**2, axis=1)
-		l03_sq = np.sum((v3 - v0)**2, axis=1)
-		l12_sq = np.sum((v2 - v1)**2, axis=1)
-		l13_sq = np.sum((v3 - v1)**2, axis=1)
-		l23_sq = np.sum((v3 - v2)**2, axis=1)
-    
-		
-		# volumes = np.abs(np.einsum('ij,ij->i', np.cross(v1 - v0, v2 - v0), v3 - v0)) / 6.0
-		
-		# l01_sq = np.sum((v1 - v0)**2, axis=1)
-		# l02_sq = np.sum((v2 - v0)**2, axis=1)
-		# l03_sq = np.sum((v3 - v0)**2, axis=1)
-		# l12_sq = np.sum((v2 - v1)**2, axis=1)
-		# l13_sq = np.sum((v3 - v1)**2, axis=1)
-		# l23_sq = np.sum((v3 - v2)**2, axis=1)
-		
-		# rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
-		# quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
-
-		# Compute RMS edge length securely
-		rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
-		
-		# Compute normalized quality score (scale independent)
-		quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
-    
-		
-		# Filter tets
-		# healthy_element_mask = (quality_scores >= quality_threshold) & (volumes > 1e-6)
-		# filtered_tets = raw_tets[healthy_element_mask]
-
-
-		# CRITICAL API CORRECTION: Drop the strict '1e-6' volumetric cap.
-		# Instead, we only check that the volume is mathematically positive (> 1e-12)
-		# to catch true collapsed singularities while keeping small, dense CAD elements intact.
-		healthy_element_mask = (quality_scores >= quality_threshold) & (volumes > 1e-12)
-		filtered_tets = raw_tets[healthy_element_mask]
-
-		# --- THE HANGING POINT FIX ---
-		# Find unique active vertex IDs
-		used_vertex_indices = np.unique(filtered_tets)
-		
-		# Remap active coordinates and slice the array
-		cleaned_point_pool = unified_point_pool[used_vertex_indices]
-		
-		# Re-index the tet mapping elements to preserve index continuity
-		index_remap = np.zeros(len(unified_point_pool), dtype=np.int32)
-		index_remap[used_vertex_indices] = np.arange(len(used_vertex_indices))
-		final_tets = index_remap[filtered_tets]
-		
-		print(f"Simulation Mesh Cleaned: {len(final_tets)} Elements | {len(cleaned_point_pool)} Connected Nodes.")
-		return cleaned_point_pool, final_tets
-
-	def visualize_tets_in_viewport(self, combined_cloud, tets, name="FEM_Tet_Cage"):
-		"""
-		Takes the NumPy outputs of the SciPy Delaunay/Point Seeding loop
-		and builds a Blender mesh object representing the tetrahedral edges.
-		"""
-		# 1. Extract unique structural edges from the tetrahedral index matrix
-		# A tetrahedron has 6 edges connecting its 4 local nodes: (0-1, 0-2, 0-3, 1-2, 1-3, 2-3)
-		edges_01 = tets[:, [0, 1]]
-		edges_02 = tets[:, [0, 2]]
-		edges_03 = tets[:, [0, 3]]
-		edges_12 = tets[:, [1, 2]]
-		edges_13 = tets[:, [1, 3]]
-		edges_23 = tets[:, [2, 3]]
-		
-		# Consolidate and find unique edges to avoid redundant overlapping wires
-		all_edges = np.vstack([edges_01, edges_02, edges_03, edges_12, edges_13, edges_23])
-		unique_edges = np.unique(np.sort(all_edges, axis=1), axis=0)
-		
-		# 2. Construct the Blender Mesh Container
-		mesh_data = bpy.data.meshes.new(name + "_Data")
-		
-		# Fast vectorized allocation using flat arrays via foreach_set
-		mesh_data.vertices.add(len(combined_cloud))
-		mesh_data.vertices.foreach_set("co", combined_cloud.ravel())
-		
-		mesh_data.edges.add(len(unique_edges))
-		mesh_data.edges.foreach_set("vertices", unique_edges.ravel())
-		
-		mesh_data.update()
-		
-		# 3. Instantiate Object into Active Scene
-		obj = bpy.data.objects.new(name, mesh_data)
-		bpy.context.collection.objects.link(obj)
-
-		# # Inside your viewport setup logic, allocate a face/edge identifier attribute
-		# attribute_name = "ABJ_Material_Identity"
-		# id_attribute = obj.data.attributes.new(name=attribute_name, type='INT', domain='POINT')
-
-		# # Inject the mapped vector array straight to the C-layer layout properties
-		# # This allows Geometry Nodes to read the data array natively without lagging the viewport
-		# # (We broadcast the element values back down to the vertex points for simple node mapping)
-		# vertex_ids = np.zeros(len(unified_point_pool), dtype=np.int32)
-		# for idx, tet in enumerate(tets):
-		# 	vertex_ids[tet] = element_material_ids[idx]
-
-		# id_attribute.data.foreach_set("value", vertex_ids)
-
-		# test_stagesDict_perFace0 = {
-		# 	# 'idx' : mySplitFaceIndexUsable,
-		# 	'idx' : '242',
-		# 	# 'shadingPlane' : self.shadingPlane.name,
-		# 	'shadingPlane' :'suzanne_242',
-		# 	# 'stage' : usableBreakpoint000_items_id,
-		# 	'stage' : 0,
-		# 	'breakpoint_idx' : 0,
-		# }
-		# self.shadingStages_perFace_stepList.append(test_stagesDict_perFace0)
-
-		
-		print(f"Viewport Cage Spawned: {len(combined_cloud)} Nodes, {len(unique_edges)} Unique Edges.")
-		return obj
-
-	def apply_viewport_wire_nodes(self, obj, bone_object, wire_radius=0.002, wire_resolution=4):
-		if "FEM_Wire_Visualizer" in obj.modifiers:
-			obj.modifiers.remove(obj.modifiers["FEM_Wire_Visualizer"])
-			
-		modifier = obj.modifiers.new(name="FEM_Wire_Visualizer", type='NODES')
-		node_group = bpy.data.node_groups.new("FEM_Wire_Shader_Group", 'GeometryNodeTree')
-		modifier.node_group = node_group
-		nodes = node_group.nodes
-		links = node_group.links
-		nodes.clear()
-		
-		# ─── CORE BLENDER 5.2+ INTERFACE FIX ───
-		# We capture the socket object returned by new_socket to modify its properties directly
-		node_group.interface.new_socket(name="Mesh", in_out='INPUT', socket_type='NodeSocketGeometry')
-		
-		bone_distance_radius_socket = node_group.interface.new_socket(name="Bone Distance Radius", in_out='INPUT', socket_type='NodeSocketFloat')
-		# Use the native attribute on the socket object instead of accessing the collection via string
-		# bone_distance_radius_socket.default_value = 0.04
-		bone_distance_radius_socket.default_value = 0.2
-		
-		node_group.interface.new_socket(name="Geometry Out", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-		
-		# ───────────────────────────────────────
-		
-		n_in = nodes.new(type='NodeGroupInput')
-		n_in.location = (-600, 0)
-		n_out = nodes.new(type='NodeGroupOutput')
-		n_out.location = (800, 0)
-		
-		n_mesh_to_curve = nodes.new(type='GeometryNodeMeshToCurve')
-		n_mesh_to_curve.location = (-400, 0)
-		
-		n_curve_to_mesh = nodes.new(type='GeometryNodeCurveToMesh')
-		n_curve_to_mesh.location = (-150, 0)
-		
-		n_circle = nodes.new(type='GeometryNodeCurvePrimitiveCircle')
-		n_circle.location = (-400, -200)
-		n_circle.inputs['Radius'].default_value = wire_radius
-		n_circle.inputs['Resolution'].default_value = wire_resolution
-		
-		n_bone_info = nodes.new(type='GeometryNodeObjectInfo')
-		n_bone_info.inputs['Object'].default_value = bone_object
-		n_bone_info.transform_space = 'RELATIVE'
-		
-		n_proximity = nodes.new(type='GeometryNodeProximity')
-		n_proximity.target_element = 'FACES'
-		
-		n_compare = nodes.new(type='FunctionNodeCompare')
-		n_compare.data_type = 'FLOAT'
-		n_compare.operation = 'LESS_THAN'
-		
-		n_mix_color = nodes.new(type='ShaderNodeMix')
-		n_mix_color.data_type = 'RGBA'
-		n_mix_color.inputs[6].default_value = (1.0, 0.0, 0.0, 1.0) # Slot A: Red
-		n_mix_color.inputs[7].default_value = (1.0, 1.0, 1.0, 1.0) # Slot B: White
-		# n_mix_color.inputs[4].default_value = (1.0, 0.0, 0.0, 1.0) # Slot A: Red
-		# n_mix_color.inputs[5].default_value = (1.0, 1.0, 1.0, 1.0) # Slot B: White
-
-		# n_mix_color.inputs[4].default_value = (1.0, 0.0, 0.0) # Slot A: Red
-		# n_mix_color.inputs[5].default_value = (1.0, 1.0, 1.0) # Slot B: White
-		
-		n_store_attr = nodes.new(type='GeometryNodeStoreNamedAttribute')
-		n_store_attr.data_type = 'FLOAT_COLOR'
-		n_store_attr.domain = 'POINT'
-		n_store_attr.inputs['Name'].default_value = "ABJ_FEM_Colors"
-		
-		n_set_mat = nodes.new(type='GeometryNodeSetMaterial')
-		if "ABJ_FEM_Material" in bpy.data.materials:
-			n_set_mat.inputs['Material'].default_value = bpy.data.materials["ABJ_FEM_Material"]
-			
-		n_realize = nodes.new(type='GeometryNodeRealizeInstances')
-		
-		# Execute graph links
-		links.new(n_in.outputs['Mesh'], n_mesh_to_curve.inputs['Mesh'])
-		links.new(n_mesh_to_curve.outputs['Curve'], n_curve_to_mesh.inputs['Curve'])
-		links.new(n_circle.outputs['Curve'], n_curve_to_mesh.inputs['Profile Curve'])
-		
-		links.new(n_curve_to_mesh.outputs['Mesh'], n_proximity.inputs['Geometry'])
-		links.new(n_bone_info.outputs['Geometry'], n_proximity.inputs['Target'])
-		
-		links.new(n_proximity.outputs['Distance'], n_compare.inputs['A'])
-		links.new(n_in.outputs['Bone Distance Radius'], n_compare.inputs['B'])
-		
-		links.new(n_compare.outputs['Result'], n_mix_color.inputs['Factor'])
-		
-		links.new(n_curve_to_mesh.outputs['Mesh'], n_store_attr.inputs['Geometry'])
-		links.new(n_mix_color.outputs['Result'], n_store_attr.inputs['Value'])
-		
-		links.new(n_store_attr.outputs['Geometry'], n_set_mat.inputs['Geometry'])
-		links.new(n_set_mat.outputs['Geometry'], n_realize.inputs['Geometry'])
-		links.new(n_realize.outputs['Geometry'], n_out.inputs['Geometry Out'])
-		
-		print("Geometry Nodes Visualization successfully generated without collection indexing errors.")
-
-		self.autoArrangeNodes(node_group)
-
-	def identify_tets_and_paint_viewport(self, visualizer_obj, unified_point_pool, tets, mesh_data_registry):
-		"""
-		Computes spatial identities via distance, paints the visualizer mesh vertices,
-		and returns the color mapping configuration for UI panel access.
-		"""
-		num_elements = len(tets)
-		num_vertices = len(unified_point_pool)
-
-		# 2. Calculate Element Centroids via NumPy Vectorization
-		v0 = unified_point_pool[tets[:, 0]]
-		v1 = unified_point_pool[tets[:, 1]]
-		v2 = unified_point_pool[tets[:, 2]]
-		v3 = unified_point_pool[tets[:, 3]]
-		element_centroids = (v0 + v1 + v2 + v3) / 4.0
-
-		# ─── VECTORIZED DISTANCE MAPPING (NO PYTHON FOR LOOPS) ───
-		# Clear preexisting material classifications (Default 0: Enveloping Skin)
-		element_material_ids = np.zeros(num_elements, dtype=np.int32)
-		
-		# 1. Evaluate Inner Bone Proximity Matrix
-		inner_bone_verts = mesh_data_registry.get('inner_bone')
-		if inner_bone_verts is not None:
-			# Compute pairwise distance matrix using broadcasting trick: (M, 1, 3) - (1, N, 3)
-			# To save memory on large point clouds, we map across chunks or use a fast norm
-			for idx, centroid in enumerate(element_centroids):
-				# Keep the loop but expand the threshold dynamically to capture elements safely
-				min_dist = np.min(np.sum((inner_bone_verts - centroid) ** 2, axis=1))
-				if min_dist < (0.05 ** 2): # Matching your detail_scale bounds squared
-					element_material_ids[idx] = 3 # White Inner Bone
-
-		# 2. Evaluate Outer Bone Proximity Matrix
-		outer_bone_verts = mesh_data_registry.get('outer_bone')
-		if outer_bone_verts is not None:
-			for idx, centroid in enumerate(element_centroids):
-				if element_material_ids[idx] == 3: 
-					continue # Skip points already captured by the inner tracking core
-				min_dist = np.min(np.sum((outer_bone_verts - centroid) ** 2, axis=1))
-				if min_dist < (0.08 ** 2): # Slices the element layers safely
-					element_material_ids[idx] = 2 # Gray Outer Bone
-		
-		# # Initialize material ID vector mapping (Default 0: Skin Envelope)
-		# element_material_ids = np.zeros(num_elements, dtype=np.int32)
-		
-		# # 3. Perform Spatial Distance Identification
-		# BONE_THRESHOLD = 0.02
-		# MUSCLE_THRESHOLD = 0.03
-		
-		# # Distance scan against Inner Keyable Bone (Alembic Tracker)
-		# inner_bone_verts = mesh_data_registry.get('inner_bone')
-		# if inner_bone_verts is not None:
-		# 	for idx, centroid in enumerate(element_centroids):
-		# 		if np.min(np.linalg.norm(inner_bone_verts - centroid, axis=1)) < BONE_THRESHOLD:
-		# 			element_material_ids[idx] = 3
-					
-		# # Distance scan against Outer Rigid Bone
-		# outer_bone_verts = mesh_data_registry.get('outer_bone')
-		# if outer_bone_verts is not None:
-		# 	for idx, centroid in enumerate(element_centroids):
-		# 		if element_material_ids[idx] == 3: continue
-		# 		if np.min(np.linalg.norm(outer_bone_verts - centroid, axis=1)) < BONE_THRESHOLD:
-		# 			element_material_ids[idx] = 2
-
-		# # Dynamic loop handling for an arbitrary list of separate muscle tissue inputs
-		# muscle_keys = [k for k in mesh_data_registry.keys() if 'muscle' in k]
-		# for m_key in muscle_keys:
-		# 	m_verts = mesh_data_registry[m_key]
-		# 	for idx, centroid in enumerate(element_centroids):
-		# 		if element_material_ids[idx] > 1: continue
-		# 		if np.min(np.linalg.norm(m_verts - centroid, axis=1)) < MUSCLE_THRESHOLD:
-		# 			element_material_ids[idx] = 1
-
-		# =========================================================================
-		# 4. MAP ELEMENT MATERIAL IDENTITIES TO MESH VERTICES
-		# =========================================================================
-		# Allocate a flat RGBA color buffer array for every single vertex in the cage
-		vertex_colors_flat = np.zeros(num_vertices * 4, dtype=np.float32)
-		
-		# Accumulate element identities to find the dominant material per node point
-		vertex_material_votes = np.zeros((num_vertices, 4), dtype=np.int32)
-		for idx, tet in enumerate(tets):
-			mat_id = element_material_ids[idx]
-			vertex_material_votes[tet, mat_id] += 1
-			
-		# Choose the dominant material tag per individual vertex
-		dominant_vertex_mats = np.argmax(vertex_material_votes, axis=1)
-		
-		# Fill the flat color buffer matching our layout registry definitions
-		for v_idx in range(num_vertices):
-			mat_id = dominant_vertex_mats[v_idx]
-			color_vector = self.COLOR_REGISTRY[mat_id]["color"]
-			vertex_colors_flat[v_idx*4 : v_idx*4 + 4] = color_vector
-
-		# =========================================================================
-		# 5. INJECT RAW NUMPY DATA INTO BLENDER 5 COLOR ATTRIBUTE LAYER
-		# =========================================================================
-		mesh_data = visualizer_obj.data
-		
-		# Clear preexisting attributes with the same identifier to prevent data naming bloat
-		if "ABJ_FEM_Colors" in mesh_data.attributes:
-			mesh_data.attributes.remove(mesh_data.attributes["ABJ_FEM_Colors"])
-			
-		# Instantiating color layers in Blender 5 uses attributes.new()
-		color_attribute = mesh_data.attributes.new(
-			name="ABJ_FEM_Colors", 
-			type='FLOAT_COLOR', 
-			domain='POINT'
-		)
-		
-		# Use block memory copying via foreach_set to push colors instantly without lag
-		color_attribute.data.foreach_set("color", vertex_colors_flat)
-		mesh_data.update()
-		
-		print(f"Viewport Painted: Inner Bone Color {self.COLOR_REGISTRY[3]['color']} | Outer Bone Color {self.COLOR_REGISTRY[2]['color']}")
-		
-		# Return data mappings and current active color definitions to feed your UI panel
-		return element_material_ids
-
-
-	def identify_and_expand_tet_parameters(self, unified_point_pool, tets, mesh_data_registry, visualizer_obj):
-		"""
-		Identifies element classification via spatial distance checks and 
-		maps FEM physical properties (stiffness, mass, damping) to the element pool.
-		
-		mesh_data_registry: Dictionary containing the raw (N, 3) vertex arrays for each layer
-							e.g., {'inner_bone': arr, 'outer_bone': arr, 'muscle_1': arr, ...}
-		"""
-		num_elements = len(tets)
-		
-		# =========================================================================
-		# MODULE 1: COMPUTE VECTORIZED ELEMENT CENTROIDS
-		# =========================================================================
-		# Gather coordinates for all 4 corners of all tets simultaneously
-		v0 = unified_point_pool[tets[:, 0]]
-		v1 = unified_point_pool[tets[:, 1]]
-		v2 = unified_point_pool[tets[:, 2]]
-		v3 = unified_point_pool[tets[:, 3]]
-		
-		# Calculate the exact center point (barycenter) of every tetrahedron
-		element_centroids = (v0 + v1 + v2 + v3) / 4.0
-		
-		# Initialize our identity tracking map (Default to 0: Skin Envelope)
-		element_material_ids = np.zeros(num_elements, dtype=np.int32)
-		
-		# =========================================================================
-		# MODULE 2: SPATIAL MAPPING TO MULTIPLE INPUT MESHES
-		# =========================================================================
-		# Define closeness thresholds (in meters) to match your Plasticity scale
-		BONE_THRESHOLD = 0.02 
-		MUSCLE_THRESHOLD = 0.03
-		
-		# Layer 3: Check proximity to the Animated Alembic Inner Bone
-		# inner_bone_verts = mesh_data_registry.get('inner_bone')
-		inner_bone_verts = None
-		for i in mesh_data_registry:
-			if i['name'] == 'inner_bone':
-				inner_bone_verts = i['verts']
-
-		if inner_bone_verts is not None:
-			for idx, centroid in enumerate(element_centroids):
-				# Vectorized distance from this single centroid to all inner bone verts
-				min_dist = np.min(np.linalg.norm(inner_bone_verts - centroid, axis=1))
-				if min_dist < BONE_THRESHOLD:
-					element_material_ids[idx] = 3
-					
-		# Layer 2: Check proximity to the Rigid Outer Bone
-		# outer_bone_verts = mesh_data_registry.get('outer_bone')
-
-		outer_bone_verts = None
-		for i in mesh_data_registry:
-			if i['name'] == 'outer_bone':
-				outer_bone_verts = i['verts']
-
-		if outer_bone_verts is not None:
-			for idx, centroid in enumerate(element_centroids):
-				if element_material_ids[idx] == 3: 
-					continue # Skip if already captured by inner core
-				min_dist = np.min(np.linalg.norm(outer_bone_verts - centroid, axis=1))
-				if min_dist < BONE_THRESHOLD:
-					element_material_ids[idx] = 2
-
-		# Layer 1: Loop dynamically over an arbitrary list of separate muscle tissue inputs
-		# This allows you to scale up from 1 muscle to 20 without altering core code shapes
-		muscle_keys = None
-
-		for i in mesh_data_registry:
-			if i['name'] == 'muscle':
-				muscle_keys = i['verts']
-
-		# muscle_keys = [k for k in mesh_data_registry.keys() if 'muscle' in k]
-		# for m_key in muscle_keys:
-		# 	m_verts = mesh_data_registry[m_key]
-		# 	for idx, centroid in enumerate(element_centroids):
-		# 		if element_material_ids[idx] > 1: 
-		# 			continue # Skip if already marked as rigid bone structure
-		# 		min_dist = np.min(np.linalg.norm(m_verts - centroid, axis=1))
-		# 		if min_dist < MUSCLE_THRESHOLD:
-		# 			element_material_ids[idx] = 1 # Flagged as deformable muscle element
-
-		# =========================================================================
-		# MODULE 3: MAP INDEPENDENT PHYSICAL PARAMETERS FROM IDENTITIES
-		# =========================================================================
-		# Allocate property tracking buffers matching total element array dimensions
-		element_stiffness = np.ones(num_elements, dtype=np.float64)
-		element_damping = np.ones(num_elements, dtype=np.float64)
-		
-		# Assign specific mechanical traits to the mapped element states
-		element_stiffness[element_material_ids == 0] = 5000.0   # Compliant Skin
-		element_stiffness[element_material_ids == 1] = 25000.0  # Flexible Muscle
-		element_stiffness[element_material_ids == 2] = 500000.0 # Rigid Outer Bone
-		element_stiffness[element_material_ids == 3] = 900000.0 # Locked Inner Bone Track
-		
-		element_damping[element_material_ids == 0] = 10.0  # Loose skin sway
-		element_damping[element_material_ids == 1] = 45.0  # Muscle ripple absorption
-		element_damping[element_material_ids == 2] = 150.0 # Rigid bone dampening
-		element_damping[element_material_ids == 3] = 500.0 # Ultra-tight keyframe tracking
-		
-		print(f"Material Identification Mapping Matrix Finalized.")
-		print(f"Bone Tets: {np.sum(element_material_ids >= 2)} | Muscle Tets: {np.sum(element_material_ids == 1)} | Skin Tets: {np.sum(element_material_ids == 0)}")
-
-
-
-
-
-
-		# Inside your viewport setup logic, allocate a face/edge identifier attribute
-		attribute_name = "ABJ_Material_Identity"
-		id_attribute = visualizer_obj.data.attributes.new(name=attribute_name, type='INT', domain='POINT')
-
-		# Inject the mapped vector array straight to the C-layer layout properties
-		# This allows Geometry Nodes to read the data array natively without lagging the viewport
-		# (We broadcast the element values back down to the vertex points for simple node mapping)
-		vertex_ids = np.zeros(len(unified_point_pool), dtype=np.int32)
-		for idx, tet in enumerate(tets):
-			vertex_ids[tet] = element_material_ids[idx]
-
-		id_attribute.data.foreach_set("value", vertex_ids)
-
-		return element_material_ids, element_stiffness, element_damping
-
-	def FEM_mesh_generation(self, detail_scale, thinness_protection_threshold):
-
-		#input STL's generated by plasticity
-		#the outer tissue has 2 main pieces 
-		# - an outer shell
-		#and a hollow center with normals reversed
-		#these are then joined together into one object
-
-
-		outer_bone_obj = bpy.data.objects.get("Outer_Bone")
-		inner_bone_obj = bpy.data.objects.get("Interior_Bone")
-		
-		if not outer_bone_obj or not inner_bone_obj:
-			print("Error: Missing target meshes.")
-			return
-			
-		m_verts_flat = np.zeros(len(outer_bone_obj.data.vertices) * 3, dtype=np.float32)
-		outer_bone_obj.data.vertices.foreach_get("co", m_verts_flat)
-		target_obj_geom_local = m_verts_flat.reshape(-1, 3)
-		
-		# 1. Point Cloud Grid Sizing and Filter
-		min_b = np.min(target_obj_geom_local, axis=0)
-		max_b = np.max(target_obj_geom_local, axis=0)
-		
-		x = np.arange(min_b[0], max_b[0], detail_scale)
-		y = np.arange(min_b[1], max_b[1], detail_scale)
-		z = np.arange(min_b[2], max_b[2], detail_scale)
-		grid_x, grid_y, grid_z = np.meshgrid(x, y, z, indexing='ij')
-		background_points_local = np.stack([grid_x.ravel(), grid_y.ravel(), grid_z.ravel()], axis=-1)
-		
-		filtered_internal_local = self.run_inside_mesh_filter_via_nodes(outer_bone_obj, background_points_local)
-		
-		# 2. Triangulation, Sliver Pruning, and Topological Remapping
-		unified_point_pool_local = np.vstack([target_obj_geom_local, filtered_internal_local]).astype(np.float64)
-		tri = Delaunay(unified_point_pool_local, qhull_options="Qz")
-		raw_tets = tri.simplices
-		
-		# Scaled element masking
-		v0 = unified_point_pool_local[raw_tets[:, 0]]
-		v1 = unified_point_pool_local[raw_tets[:, 1]]
-		v2 = unified_point_pool_local[raw_tets[:, 2]]
-		v3 = unified_point_pool_local[raw_tets[:, 3]]
-		volumes = np.abs(np.einsum('ij,ij->i', np.cross(v2 - v0, v3 - v0), v1 - v0)) / 6.0
-		l01_sq = np.sum((v1 - v0)**2, axis=1)
-		l02_sq = np.sum((v2 - v0)**2, axis=1)
-		l03_sq = np.sum((v3 - v0)**2, axis=1)
-		l12_sq = np.sum((v2 - v1)**2, axis=1)
-		l13_sq = np.sum((v3 - v1)**2, axis=1)
-		l23_sq = np.sum((v3 - v2)**2, axis=1)
-		rms_edge_lengths = np.sqrt((l01_sq + l02_sq + l03_sq + l12_sq + l13_sq + l23_sq) / 6.0)
-		quality_scores = (6.0 * np.sqrt(2.0) * volumes) / (rms_edge_lengths**3 + 1e-15)
-		
-		healthy_mask = (quality_scores >= thinness_protection_threshold) & (volumes > 1e-9)
-		filtered_tets = raw_tets[healthy_mask]
-		
-		used_verts = np.unique(filtered_tets)
-		cleaned_pool_local = unified_point_pool_local[used_verts]
-		
-		index_remap = np.zeros(len(unified_point_pool_local), dtype=np.int32)
-		index_remap[used_verts] = np.arange(len(used_verts))
-		final_tets = index_remap[filtered_tets]
-		
-		# 3. Viewport Instantiation
-		visualizer_obj = self.visualize_tets_in_viewport(cleaned_pool_local, final_tets, "ABJ_Anatomical_Tet_Cage")
-		
-		# 4. Generate the Interactive Node Modifiers
-		self.apply_viewport_wire_nodes(visualizer_obj, inner_bone_obj, wire_radius=0.002, wire_resolution=4)
-		
-		print(f"--- Initialization Complete: {len(final_tets)} Elements Passed to Node Pipeline ---")
-		return cleaned_pool_local, final_tets
-
-	def generate_brep_and_mesh(self, mesh_size=0.3):
-
-		return
-	
-
-	def create_blender_mesh_visualization(self, nodes, tets):
-		"""
-		Converts tetrahedral data into a scannable Blender mesh framework
-		by extracting the outer triangular boundary faces of the tets.
-		"""
-		# Clean previous iterations from the collection
-		if "FEM_Scene" in bpy.data.collections:
-			col = bpy.data.collections["FEM_Scene"]
-			for obj in col.objects:
-				bpy.data.objects.remove(obj, do_unlink=True)
-		else:
-			col = bpy.data.collections.new("FEM_Scene")
-			bpy.context.scene.collection.children.link(col)
-
-		# Extract surface triangles from the 3D tets for Blender viewport rendering
-		# A tet has 4 faces: (0,1,2), (0,1,3), (0,2,3), (1,2,3)
-		faces_list = []
-		for tet in tets:
-			f1 = sorted([tet[0], tet[1], tet[2]])
-			f2 = sorted([tet[0], tet[1], tet[3]])
-			f3 = sorted([tet[0], tet[2], tet[3]])
-			f4 = sorted([tet[1], tet[2], tet[3]])
-			faces_list.extend([tuple(f1), tuple(f2), tuple(f3), tuple(f4)])
-		
-		# Drop internal duplicate faces to keep only the exterior shell boundary
-		# In a closed manifold, internal faces appear exactly twice, outer faces once
-		from collections import Counter
-		face_counts = Counter(faces_list)
-		boundary_faces = [face for face, count in face_counts.items() if count == 1]
-
-		# Build Mesh data structure in Blender 5.2
-		mesh_data = bpy.data.meshes.new("FEM_Volume_Mesh")
-		mesh_data.from_pydata(nodes.tolist(), [], boundary_faces)
-		mesh_data.update()
-
-		obj = bpy.data.objects.new("FEM_Geometry", mesh_data)
-		col.objects.link(obj)
-		
-		# Optional: Toggle wireframe overlay to see the tet-mesh density cleanly
-		obj.select_set(True)
-		bpy.context.view_layer.objects.active = obj
-		obj.show_wire = True
-
-	def FEM_01(self):
-		self.FEM_02()
-
-
-		return
-
-
-		# self.FEM_mesh_generation(0.015, 0.05)
-		self.FEM_mesh_generation(0.05, 0.05)
-
-		# self.FEM_geometryNodeNameChecker()
-
-	def FEM_02(self):
-		# --- EXECUTION LOOP FOR ITERATION ---
-		nodes, tets = self.generate_brep_and_mesh(mesh_size=0.4)
-
-		# Print debug info to toggle your internal mathematical logic checks
-		print(f"Successfully generated B-rep Mesh Structure.")
-		print(f"Total Finite Element Nodes: {nodes.shape[0]}")
-		print(f"Total Volume Tetrahedrons: {tets.shape[0]}")
-
-		# 2. Push to Blender data layer
-		self.create_blender_mesh_visualization(nodes, tets)
-
-
+	def dFEM(self):
+		myEquation_dFEM_class.dFEM(myABJ_SD_B)
 
 	def atmospheric_rayleigh_mie_nishita_spectral_compositor(self):
 		myEquation_spectral_atmosphere_class.atmospheric_rayleigh_mie_nishita_spectral_compositor(myABJ_SD_B)
@@ -6311,9 +5595,7 @@ class ABJ_Shader_Debugger():
 
 
 
-
-
-
+	
 
 
 
@@ -8052,9 +7334,9 @@ class ABJ_Shader_Debugger():
 
 		return toReturn
 
-class SCENE_PT_ABJ_FEM_Debugger_Panel(bpy.types.Panel):
+class SCENE_PT_ABJ_DFEM_Debugger_Panel(bpy.types.Panel):
 	bl_label = "ABJ FEM Debugger"
-	bl_idname = "SCENE_PT_ABJ_FEM_Debugger_Panel"
+	bl_idname = "SCENE_PT_ABJ_DFEM_Debugger_Panel"
 	bl_space_type = 'PROPERTIES'
 	bl_region_type = 'WINDOW'
 	bl_context = "scene"
@@ -8064,12 +7346,12 @@ class SCENE_PT_ABJ_FEM_Debugger_Panel(bpy.types.Panel):
 		obj = context.active_object
 
 		######################################
-		###### FEM
+		###### dFEM
 		######################################
-		layout.label(text='FEM 01')
+		layout.label(text='dFEM')
 		row = layout.row()
 		row.scale_y = 2.0 ###
-		row.operator('shader.abj_shader_debugger_fem_01_operator')
+		row.operator('shader.abj_shader_debugger_dfem_operator')
 
 class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 	"""Creates a Panel in the scene context of the properties editor"""
@@ -8523,14 +7805,14 @@ class SHADER_OT_STATICSTAGE1(bpy.types.Operator):
 		myABJ_SD_B.static_debugOnly_Stage1_UI()
 		return {'FINISHED'}
 
-class SHADER_OT_FEM_01(bpy.types.Operator):
+class SHADER_OT_DFEM(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
 
-	bl_label = 'FEM 01'
-	bl_idname = 'shader.abj_shader_debugger_fem_01_operator'
+	bl_label = 'dFEM'
+	bl_idname = 'shader.abj_shader_debugger_dfem_operator'
 
 	def execute(self, context):
-		myABJ_SD_B.FEM_01()
+		myABJ_SD_B.dFEM()
 		return {'FINISHED'}
 	
 class SHADER_OT_SUB_SPECTRAL_COMPOSITOR(bpy.types.Operator):
