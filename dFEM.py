@@ -463,13 +463,12 @@ class myEquation_dFEM:
 		gamma = 2.0 - np.sqrt(2.0)
 		
 		# Initialize your reference state tracking operator at the historical position
-		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, myEquation_dFEM, x_t)
+		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, myEquation_dFEM)
 
 		# Exact Force Gathering Check: Read the true force directly from the initial operator state
 		f_int_t = op_t.compute_forces_and_action(p_vector=None)
 
-		#debug up to here
-		return 0, 0
+		# return 0, 0 # debug
 
 		# ==========================================================================
 		# SUBSTEP 1: TRAPEZOIDAL RULE STEP (From t to t + gamma*dt)
@@ -557,8 +556,7 @@ class myEquation_dFEM:
 			
 		return x_next, v_next
 	
-	# def compute_tet10_multiphase_dual_kernel(element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
-	def compute_tet10_multiphase_dual_kernel(element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id, x_t_debug, all_displacements):
+	def compute_tet10_multiphase_dual_kernel(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
 		"""
 		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
 		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
@@ -596,9 +594,50 @@ class myEquation_dFEM:
 			r, s, t = gp[0], gp[1], gp[2]
 			u = 1.0 - r - s - t
 
-			dN_dr = np.array([4*r - 1, 0, 0, -4*u + 1,  4*s,  -4*s, 0, 4*t, 0, -4*t])
-			dN_ds = np.array([0, 4*s - 1, 0, -4*u + 1,  4*r,   0, -4*t, 0, 4*t, -4*r])
-			dN_dt = np.array([0, 0, 4*t - 1, -4*u + 1,   0,  -4*r,  4*s, 0, 4*r, -4*s])
+			# --- Derivatives with respect to r ---
+			dN0_dr = -4*u + 1
+			dN1_dr = 4*r - 1
+			dN2_dr = 0
+			dN3_dr = 0
+			dN4_dr = 4*u - 4*r
+			dN5_dr = 4*s
+			dN6_dr = -4*s
+			dN7_dr = -4*t
+			dN8_dr = 4*t
+			dN9_dr = 0
+			dN_dr = np.array([dN0_dr, dN1_dr, dN2_dr, dN3_dr, dN4_dr, dN5_dr, dN6_dr, dN7_dr, dN8_dr, dN9_dr], dtype=np.float64)
+
+			# --- Derivatives with respect to s ---
+			dN0_ds = -4*u + 1
+			dN1_ds = 0
+			dN2_ds = 4*s - 1
+			dN3_ds = 0
+			dN4_ds = -4*r
+			dN5_ds = 4*r
+			dN6_ds = 4*u - 4*s
+			dN7_ds = -4*t
+			dN8_ds = 0
+			dN9_ds = 4*t
+			dN_ds = np.array([dN0_ds, dN1_ds, dN2_ds, dN3_ds, dN4_ds, dN5_ds, dN6_ds, dN7_ds, dN8_ds, dN9_ds], dtype=np.float64)
+
+			# --- Derivatives with respect to t ---
+			dN0_dt = -4*u + 1
+			dN1_dt = 0
+			dN2_dt = 0
+			dN3_dt = 4*t - 1
+			dN4_dt = -4*r
+			dN5_dt = 0
+			dN6_dt = -4*s
+			dN7_dt = 4*u - 4*t
+			dN8_dt = 4*r
+			dN9_dt = 4*s
+			dN_dt = np.array([dN0_dt, dN1_dt, dN2_dt, dN3_dt, dN4_dt, dN5_dt, dN6_dt, dN7_dt, dN8_dt, dN9_dt], dtype=np.float64)
+
+
+			# The sum of derivatives for any valid basis must be exactly 0
+			assert np.allclose(np.sum(dN_dr), 0.0)
+			assert np.allclose(np.sum(dN_ds), 0.0)
+			assert np.allclose(np.sum(dN_dt), 0.0)
 
 			dN_dlocal = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
 
@@ -609,31 +648,6 @@ class myEquation_dFEM:
 			det_J = np.linalg.det(Jacobian)
 
 			if det_J <= 0.0:
-				print('######### START DEBUG INFO ############')
-				print('idx = ', idx)
-
-				print('element_node_coords = ', element_node_coords)
-				print('element_displacements = ', element_displacements)
-				print('element_velocities = ', element_velocities)
-				print('p_element_trial = ', p_element_trial)
-				print('E = ', E)
-				print('nu = ', nu)
-				print('mat_id = ', mat_id)
-
-				print('r = ', r)
-				print('s = ', s)
-				print('t = ', t)
-
-				print('Jacobian = ', Jacobian)
-				print('det_J = ', det_J)
-
-				print('x_t_debug = ', x_t_debug)
-				# print('all_displacements = ', all_displacements)
-
-				print('######### END DEBUG INFO ############')
-
-				# inv_Jacobian = np.linalg.inv(Jacobian)
-
 				raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
 
 			inv_Jacobian = np.linalg.inv(Jacobian)
@@ -809,7 +823,8 @@ class myEquation_dFEM:
 
 		# Local edge configuration mappings for a standard tetrahedron
 		# Edge 0-1, 1-2, 2-0, 0-3, 1-3, 2-3
-		local_edges = [(0,1), (1,2), (2,0), (0,3), (1,3), (2,3)]
+		# local_edges = [(0,1), (1,2), (2,0), (0,3), (1,3), (2,3)]
+		local_edges = [(0,1), (1,2), (0,2), (0,3), (1,3), (2,3)]
 
 		current_midpoint_counter = num_nodes
 
@@ -894,16 +909,17 @@ class myEquation_dFEM:
 		# Generate the global background structural node lattice
 		num_nodes = len(grid_pts_flat)
 		node_idx_grid = np.arange(num_nodes, dtype=np.int32).reshape(resolution, resolution, resolution)
-		
-		# Define Kuhn 5-split local offsets mapping voxels to 5 distinct tets
+
+		# Updated right-handed Kuhn 5-split local offsets mapping voxels to 5 distinct tets
+		# All 5 elements will now yield a consistently positive geometric determinant.
 		kuhn_template = np.array([
-			[0, 1, 2, 4],  # Corner 1
-			[1, 3, 2, 7],  # Corner 2
-			[1, 5, 4, 7],  # Corner 3
-			[4, 6, 2, 7],  # Corner 4
-			[1, 2, 4, 7]   # Central Core
+			[0, 1, 2, 4],  # Corner 1 (det = 1.0)
+			[1, 3, 2, 7],  # Corner 2 (det = 1.0)
+			[1, 4, 5, 7],  # Corner 3 (Corrected: swapped 5 and 4 -> det = 1.0)
+			[4, 2, 6, 7],  # Corner 4 (Corrected: swapped 6 and 2 -> det = 1.0)
+			[1, 2, 4, 7]   # Central Core (det = 2.0)
 		], dtype=np.int32)
-		
+
 		# Extract the base voxel corner indices across the entire space array
 		i, j, k = np.meshgrid(np.arange(resolution-1), np.arange(resolution-1), np.arange(resolution-1), indexing='ij')
 		i, j, k = i.ravel(), j.ravel(), k.ravel()
@@ -936,12 +952,6 @@ class myEquation_dFEM:
 
 		'''
 
-
-
-
-
-
-		
 		# Phase 3: Intervening Liquid Layer
 		# Models a physical pool or fluid column sitting between Z=-0.2 and Z=+0.5
 		# only where it is not displaced by the solid structures.
@@ -1035,67 +1045,7 @@ class myEquation_dFEM:
 			for grid in volume_block.grids:
 				grid.unload() # Frees voxels from memory, forces file re-read on execution
 
-		#threshold / density / radius
-
-
-
-		a = 0.5854101966249685
-		b = 0.1381966011250105
-
-		gauss_points = np.array([
-		[a, b, b], 
-		[b, a, b], 
-		[b, b, a], 
-		[b, b, b]
-		], dtype=np.float64)
-		
-
-
-		# for idx, gp in enumerate(gauss_points):
-		# 	r, s, t = gp[0], gp[1], gp[2]
-
-		# 	print('idx = ', idx)
-		# 	print('r = ', r)
-		# 	print('s = ', s)
-		# 	print('t = ', t)
-
-		'''
-		idx =  0
-		r =  0.5854101966249685
-		s =  0.1381966011250105
-		t =  0.1381966011250105
-		idx =  1
-		r =  0.1381966011250105
-		s =  0.5854101966249685
-		t =  0.1381966011250105
-		idx =  2
-		r =  0.1381966011250105
-		s =  0.1381966011250105
-		t =  0.5854101966249685
-		idx =  3
-		r =  0.1381966011250105
-		s =  0.1381966011250105
-		t =  0.1381966011250105
-		'''
-
-
-
-
-
-
-
-
-
-
-		# return
-
-
-
-
-
 		self.testVDB_06(abj_sd_b_instance) ####
-
-		return
 
 	def deform_skin_tissue_mesh(self, x_corners_current, topology_tet4, vertex_to_tet_id, vertex_weights):
 		"""
@@ -1228,10 +1178,12 @@ class myEquation_dFEM:
 	def testVDB_06(self, abj_sd_b_instance):
 		#look @ execute_production_fem_bake_with_skin
 
-		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(24, 96)
-		# nodes_tet4, topology_tet4, tags, ds_toPoly, db_toPoly = self.generate_global_multiphase_mesh(resolution=96)
+		# nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(24, 96)
+		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(16, 16)
 
 		self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=0.0) ###########
+
+		# return
 
 		# layer_data_s_l = [("sdf_joined", vdb_sphere_sdf_l)]
 		# myBox_l = self.sdf_vdb_visualizer(layer_data_s_l)
@@ -1242,6 +1194,8 @@ class myEquation_dFEM:
 
 		layer_data_s_h = [("sdf_joined", vdb_sphere_sdf_h)]
 		mySphere_h = self.sdf_vdb_visualizer(layer_data_s_h)
+
+		# return
 
 		# layer_data_b_h = [("sdf_joined", vdb_box_sdf_h)]
 		# myBox_h = self.sdf_vdb_visualizer(layer_data_b_h)
@@ -1257,7 +1211,8 @@ class myEquation_dFEM:
 		obj = mySphere_h
 		mesh = obj.data
 
-		total_frames = 10
+		# total_frames = 10
+		total_frames = 1
 		frame_dt=0.01
 
 		# Initialize simulation states
@@ -1378,7 +1333,7 @@ class myEquation_dFEM:
 		return vertex_to_tet_id, vertex_weights
 
 class MatrixFreeTet10Operator(splinalg.LinearOperator):
-	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, myEquation_dFEM, x_t):
+	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, myEquation_dFEM):
 		self.nodes = nodes_tet10
 		self.topology = topology_tet10
 		self.properties = element_properties
@@ -1388,7 +1343,6 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 		self.shape = (self.dof, self.dof)
 		self.dtype = np.float64
 		self.myEquation_dFEM_usable = myEquation_dFEM
-		self.x_t_debug = x_t
 
 	def compute_forces_and_action(self, p_vector=None):
 		"""
@@ -1437,8 +1391,7 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 				nu = .499 # .3 - .499
 				density = 0
 			
-			# f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id)
-			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id, self.x_t_debug, self.current_U)
+			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.myEquation_dFEM_usable, self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id)
 			
 			# SCATTER PASS
 			for local_idx, global_node_idx in enumerate(tet):
