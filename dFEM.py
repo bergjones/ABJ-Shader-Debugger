@@ -582,48 +582,111 @@ class myEquation_dFEM:
 		p_flat = p_element_trial.ravel()
 
 		# 4-Point Gauss Quadrature Constants
-		a, b = 0.5854101966249685, 0.1381966011250105
-		gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
+		a = 0.5854101966249685
+		b = 0.1381966011250105
+		# gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
+		# # gauss_points = np.array([[a,b,b,b], [b,a,b,b], [b,b,a,b], [b,b,b,b]], dtype=np.float64)
+		
+		gauss_points = np.array([
+		[a, b, b], 
+		[b, a, b], 
+		[b, b, a], 
+		[b, b, b]
+		], dtype=np.float64)
+		
 		gauss_weight = 1.0 / 24.0  
 
+		# r = gauss_points[:, 0]  # Array: [a, b, b, b]
+		# s = gauss_points[:, 1]  # Array: [b, a, b, b]
+		# t = gauss_points[:, 2]  # Array: [b, b, a, b]
 
 		for gp in gauss_points:
-			r, s, t = gp, gp, gp
+			r, s, t = gp[0], gp[1], gp[2]
+			# r, s, t = gp[:, 0], gp[:, 1], gp[:, 2]
 			u = 1.0 - r - s - t
 
-			# # Quadratic shape derivatives
-			# dN_dlocal = np.array([
-			# 	[4*r - 1,   0,         0,         4*u - 1,   4*s,       -4*s,      0,         4*t,       0,         -4*t],
-			# 	[0,         4*s - 1,   0,         4*u - 1,   4*r,       4*u - 4*s, -4*t,      0,         4*t,       -4*t],
-			# 	[0,         0,         4*t - 1,   4*u - 1,   0,         -4*s,      4*u - 4*t, 4*r,       4*s,       4*u - 4*t]
-			# ], dtype=np.float64)
+			dN_dr = np.array([4*r - 1, 0, 0, -4*u + 1,  4*s,  -4*s, 0, 4*t, 0, -4*t])
+			dN_ds = np.array([0, 4*s - 1, 0, -4*u + 1,  4*r,   0, -4*t, 0, 4*t, -4*r])
+			dN_dt = np.array([0, 0, 4*t - 1, -4*u + 1,   0,  -4*r,  4*s, 0, 4*r, -4*s])
 
-			# Create an array of zeroes matching the exact size of your Gauss points
-			z = np.zeros_like(r)
-			
-			# Construct the 3D tensor using np.stack
-			dN_dlocal = np.stack([
-				[4*r - 1, z,       z,       4*u - 1, 4*s,     -4*s,     z,        4*t,     z,       -4*t],
-				[z,       4*s - 1, z,       4*u - 1, 4*r,     4*u - 4*s, -4*t,     z,       4*t,     -4*t],
-				[z,       z,       4*t - 1, 4*u - 1, z,       -4*s,     4*u - 4*t, 4*r,     4*s,     4*u - 4*t]
-			])
+			dN_dlocal = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
 
 			# Map to global world space coordinates
 			# Jacobian = dN_dlocal @ element_node_coords
 
-			Jacobian = np.einsum('ijg,jk->igk', dN_dlocal, element_node_coords) ##
+			print('r = ', r)
+			print('s = ', s)
+			print('t = ', t)
+
+			# r =  0.5854101966249685
+			# s =  0.1381966011250105
+			# t =  0.1381966011250105
+
+			# Fix the Einstein Summation string for 2D inputs:
+			# i = 3 local axes, n = 10 nodes, j = 3 global axes (X, Y, Z)
+			# This outputs a single square 3x3 Jacobian matrix for this specific loop iteration
+			Jacobian = np.einsum('in,nj->ij', dN_dlocal, element_node_coords) # Shape: (3, 3)
+    
+			# Jacobian = np.einsum('ing,nj->gij', dN_dlocal, element_node_coords) # Outputs: (4, 3, 3)
+			# Jacobian = np.einsum('ing,nj->ijg', dN_dlocal, element_node_coords) # $$$$$$$$$$$$$$
+			# Jacobian = np.einsum('ijg,jk->igk', dN_dlocal, element_node_coords) ########
+			# Jacobian = np.einsum('ink,nj->ijk', dN_dlocal, element_node_coords)
+			# Jacobian = np.einsum('bqin,bnj->bqij', dN_dlocal, element_node_coords)
 			# Jacobian = np.einsum('ijg,jk->gik', dN_dlocal, element_node_coords)
 
+			# Jacobian = np.moveaxis(Jacobian_raw, 2, 0)
 
 			# then when i try to multiply the dn_dlocal stack by np.vstack "element_node_coords" with this command (Jacobian = dN_dlocal @ element_node_coords) I get valueerror: matmul: input operand 1 has a mismatch in its core dimension 0, with gufunc signature (n?,k),(k,m?)->(n?,m?)(size 10 is different from 3)
 
+			# print('$$$$$$$$$$$$$$$$$$')
+			# print('dN_dlocal shape = ', dN_dlocal.shape)
+			# print('dN_dlocal shape = ', Jacobian.shape)
+			# print('$$$$$$$$$$$$$$$$$$')
+
+
+			#input operand 1 has a mismatch in its core dimension 0, with gufunc signature (n?, k), (k, m?)->(n?,m?)(size 3 is different from 10)
 
 			det_J = np.linalg.det(Jacobian)
+
+			# if det_J <= 0.0:
+			# 	raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
+
+			# inv_Jacobian = None
+
+			# Add a tiny epsilon guard if the matrix is singular or collapsed
+			# if np.abs(det_J.any()) < 1e-9:
+			# 	# Option A: Use pseudo-inverse to handle degenerate elements gracefully
+			# 	inv_Jacobian = np.linalg.pinv(Jacobian)
+			# else:
+			# 	inv_Jacobian = np.linalg.inv(Jacobian)
+
 			inv_Jacobian = np.linalg.inv(Jacobian)
-			dN_dglobal = inv_Jacobian @ dN_dlocal
+			# dN_dglobal = inv_Jacobian @ dN_dlocal
+			# dN_dglobal = np.einsum('gij,jng->gin', inv_Jacobian, dN_dlocal)
+
+			# Calculate dN_dglobal for this iteration
+			# i = 3 global spatial axes, j = 3 local derivative axes, n = 10 nodes
+			# (3, 3) @ (3, 10) -> Outputs a (3, 10) matrix natively using the @ operator
+			dN_dglobal = inv_Jacobian @ dN_dlocal # Shape: (3, 10)
+
+
+			# disp_gradient = np.einsum('ni,gjn->gij', element_displacements, dN_dglobal)
+			disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
+			# disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
+
+			# F = np.eye(3, dtype=np.float64)[np.newaxis, :, :] + disp_gradient
+
+			# F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T)
+			F = np.eye(3, dtype=np.float64) + disp_gradient
+
+			print('!!!!!! disp_gradient = ', disp_gradient)
+
+
+			print('!!!!!! dN_dglobal.shape = ', dN_dglobal.shape)
 
 			# Compute Kinematics
-			F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T)
+			# F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T) ###
+			# F = np.eye(3, dtype=np.float64) + (np.einsum('gij,jng->gin', element_displacements, dN_dglobal.T))
 			J_vol = np.linalg.det(F)
 
 			# ======================================================================
@@ -695,6 +758,13 @@ class myEquation_dFEM:
 					q_node_block += mat_term + geom_term
 					
 				q_flat[row_idx : row_idx + 3] += q_node_block * det_J * gauss_weight
+
+			print('DONE ~~~~~~~~~~~~~~')
+			print('DONE ~~~~~~~~~~~~~~')
+			print('DONE ~~~~~~~~~~~~~~')
+			print('DONE ~~~~~~~~~~~~~~')
+			print('DONE ~~~~~~~~~~~~~~')
+			print('DONE ~~~~~~~~~~~~~~')
 
 		return f_int_element, q_flat.reshape(10, 3)
 
@@ -1001,6 +1071,62 @@ class myEquation_dFEM:
 				grid.unload() # Frees voxels from memory, forces file re-read on execution
 
 		#threshold / density / radius
+
+
+
+		a = 0.5854101966249685
+		b = 0.1381966011250105
+
+		gauss_points = np.array([
+		[a, b, b], 
+		[b, a, b], 
+		[b, b, a], 
+		[b, b, b]
+		], dtype=np.float64)
+		
+
+
+		for idx, gp in enumerate(gauss_points):
+			r, s, t = gp[0], gp[1], gp[2]
+
+			print('idx = ', idx)
+			print('r = ', r)
+			print('s = ', s)
+			print('t = ', t)
+
+		'''
+		idx =  0
+		r =  0.5854101966249685
+		s =  0.1381966011250105
+		t =  0.1381966011250105
+		idx =  1
+		r =  0.1381966011250105
+		s =  0.5854101966249685
+		t =  0.1381966011250105
+		idx =  2
+		r =  0.1381966011250105
+		s =  0.1381966011250105
+		t =  0.5854101966249685
+		idx =  3
+		r =  0.1381966011250105
+		s =  0.1381966011250105
+		t =  0.1381966011250105
+		'''
+
+
+
+
+
+
+
+
+
+
+		return
+
+
+
+
 
 		self.testVDB_06(abj_sd_b_instance) ####
 
