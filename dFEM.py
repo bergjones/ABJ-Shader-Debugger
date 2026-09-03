@@ -463,10 +463,13 @@ class myEquation_dFEM:
 		gamma = 2.0 - np.sqrt(2.0)
 		
 		# Initialize your reference state tracking operator at the historical position
-		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, myEquation_dFEM)
-		
+		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, myEquation_dFEM, x_t)
+
 		# Exact Force Gathering Check: Read the true force directly from the initial operator state
 		f_int_t = op_t.compute_forces_and_action(p_vector=None)
+
+		#debug up to here
+		return 0, 0
 
 		# ==========================================================================
 		# SUBSTEP 1: TRAPEZOIDAL RULE STEP (From t to t + gamma*dt)
@@ -481,7 +484,7 @@ class myEquation_dFEM:
 			
 			# Calculate internal forces for this Newton iteration pass pass
 			f_int_gamma = op_gamma.compute_forces_and_action(p_vector=None)
-			
+
 			# Calculate your step 1 residual vector mapping mapping
 			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma + 2.0 * F_ext)
 			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
@@ -554,7 +557,8 @@ class myEquation_dFEM:
 			
 		return x_next, v_next
 	
-	def compute_tet10_multiphase_dual_kernel(element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
+	# def compute_tet10_multiphase_dual_kernel(element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
+	def compute_tet10_multiphase_dual_kernel(element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id, x_t_debug, all_displacements):
 		"""
 		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
 		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
@@ -584,25 +588,12 @@ class myEquation_dFEM:
 		# 4-Point Gauss Quadrature Constants
 		a = 0.5854101966249685
 		b = 0.1381966011250105
-		# gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
-		# # gauss_points = np.array([[a,b,b,b], [b,a,b,b], [b,b,a,b], [b,b,b,b]], dtype=np.float64)
-		
-		gauss_points = np.array([
-		[a, b, b], 
-		[b, a, b], 
-		[b, b, a], 
-		[b, b, b]
-		], dtype=np.float64)
-		
+		gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
 		gauss_weight = 1.0 / 24.0  
 
-		# r = gauss_points[:, 0]  # Array: [a, b, b, b]
-		# s = gauss_points[:, 1]  # Array: [b, a, b, b]
-		# t = gauss_points[:, 2]  # Array: [b, b, a, b]
-
-		for gp in gauss_points:
+		# for gp in gauss_points:
+		for idx, gp in enumerate(gauss_points):
 			r, s, t = gp[0], gp[1], gp[2]
-			# r, s, t = gp[:, 0], gp[:, 1], gp[:, 2]
 			u = 1.0 - r - s - t
 
 			dN_dr = np.array([4*r - 1, 0, 0, -4*u + 1,  4*s,  -4*s, 0, 4*t, 0, -4*t])
@@ -611,82 +602,46 @@ class myEquation_dFEM:
 
 			dN_dlocal = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
 
-			# Map to global world space coordinates
-			# Jacobian = dN_dlocal @ element_node_coords
-
-			print('r = ', r)
-			print('s = ', s)
-			print('t = ', t)
-
-			# r =  0.5854101966249685
-			# s =  0.1381966011250105
-			# t =  0.1381966011250105
-
 			# Fix the Einstein Summation string for 2D inputs:
 			# i = 3 local axes, n = 10 nodes, j = 3 global axes (X, Y, Z)
 			# This outputs a single square 3x3 Jacobian matrix for this specific loop iteration
 			Jacobian = np.einsum('in,nj->ij', dN_dlocal, element_node_coords) # Shape: (3, 3)
-    
-			# Jacobian = np.einsum('ing,nj->gij', dN_dlocal, element_node_coords) # Outputs: (4, 3, 3)
-			# Jacobian = np.einsum('ing,nj->ijg', dN_dlocal, element_node_coords) # $$$$$$$$$$$$$$
-			# Jacobian = np.einsum('ijg,jk->igk', dN_dlocal, element_node_coords) ########
-			# Jacobian = np.einsum('ink,nj->ijk', dN_dlocal, element_node_coords)
-			# Jacobian = np.einsum('bqin,bnj->bqij', dN_dlocal, element_node_coords)
-			# Jacobian = np.einsum('ijg,jk->gik', dN_dlocal, element_node_coords)
-
-			# Jacobian = np.moveaxis(Jacobian_raw, 2, 0)
-
-			# then when i try to multiply the dn_dlocal stack by np.vstack "element_node_coords" with this command (Jacobian = dN_dlocal @ element_node_coords) I get valueerror: matmul: input operand 1 has a mismatch in its core dimension 0, with gufunc signature (n?,k),(k,m?)->(n?,m?)(size 10 is different from 3)
-
-			# print('$$$$$$$$$$$$$$$$$$')
-			# print('dN_dlocal shape = ', dN_dlocal.shape)
-			# print('dN_dlocal shape = ', Jacobian.shape)
-			# print('$$$$$$$$$$$$$$$$$$')
-
-
-			#input operand 1 has a mismatch in its core dimension 0, with gufunc signature (n?, k), (k, m?)->(n?,m?)(size 3 is different from 10)
-
 			det_J = np.linalg.det(Jacobian)
 
-			# if det_J <= 0.0:
-			# 	raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
+			if det_J <= 0.0:
+				print('######### START DEBUG INFO ############')
+				print('idx = ', idx)
 
-			# inv_Jacobian = None
+				print('element_node_coords = ', element_node_coords)
+				print('element_displacements = ', element_displacements)
+				print('element_velocities = ', element_velocities)
+				print('p_element_trial = ', p_element_trial)
+				print('E = ', E)
+				print('nu = ', nu)
+				print('mat_id = ', mat_id)
 
-			# Add a tiny epsilon guard if the matrix is singular or collapsed
-			# if np.abs(det_J.any()) < 1e-9:
-			# 	# Option A: Use pseudo-inverse to handle degenerate elements gracefully
-			# 	inv_Jacobian = np.linalg.pinv(Jacobian)
-			# else:
-			# 	inv_Jacobian = np.linalg.inv(Jacobian)
+				print('r = ', r)
+				print('s = ', s)
+				print('t = ', t)
+
+				print('Jacobian = ', Jacobian)
+				print('det_J = ', det_J)
+
+				print('x_t_debug = ', x_t_debug)
+				# print('all_displacements = ', all_displacements)
+
+				print('######### END DEBUG INFO ############')
+
+				# inv_Jacobian = np.linalg.inv(Jacobian)
+
+				raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
 
 			inv_Jacobian = np.linalg.inv(Jacobian)
-			# dN_dglobal = inv_Jacobian @ dN_dlocal
-			# dN_dglobal = np.einsum('gij,jng->gin', inv_Jacobian, dN_dlocal)
-
-			# Calculate dN_dglobal for this iteration
-			# i = 3 global spatial axes, j = 3 local derivative axes, n = 10 nodes
-			# (3, 3) @ (3, 10) -> Outputs a (3, 10) matrix natively using the @ operator
 			dN_dglobal = inv_Jacobian @ dN_dlocal # Shape: (3, 10)
 
-
-			# disp_gradient = np.einsum('ni,gjn->gij', element_displacements, dN_dglobal)
-			disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
-			# disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
-
-			# F = np.eye(3, dtype=np.float64)[np.newaxis, :, :] + disp_gradient
-
-			# F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T)
-			F = np.eye(3, dtype=np.float64) + disp_gradient
-
-			print('!!!!!! disp_gradient = ', disp_gradient)
-
-
-			print('!!!!!! dN_dglobal.shape = ', dN_dglobal.shape)
-
 			# Compute Kinematics
-			# F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T) ###
-			# F = np.eye(3, dtype=np.float64) + (np.einsum('gij,jng->gin', element_displacements, dN_dglobal.T))
+			# disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
+			F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dglobal.T)
 			J_vol = np.linalg.det(F)
 
 			# ======================================================================
@@ -759,12 +714,12 @@ class myEquation_dFEM:
 					
 				q_flat[row_idx : row_idx + 3] += q_node_block * det_J * gauss_weight
 
-			print('DONE ~~~~~~~~~~~~~~')
-			print('DONE ~~~~~~~~~~~~~~')
-			print('DONE ~~~~~~~~~~~~~~')
-			print('DONE ~~~~~~~~~~~~~~')
-			print('DONE ~~~~~~~~~~~~~~')
-			print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
+			# print('DONE ~~~~~~~~~~~~~~')
 
 		return f_int_element, q_flat.reshape(10, 3)
 
@@ -970,12 +925,22 @@ class myEquation_dFEM:
 		
 		# Initialize phase allocation map (Default Phase 0 = Air / Smoke / Gas)
 		phase_tags = np.zeros(len(tets), dtype=np.int32)
+
+		''' ALL PHASE TO 0 for debug
 		
 		# Phase 1: Soft Tissue (Sphere)
 		phase_tags[ds_centers <= 0] = 1
 		
 		# Phase 2: Rigid Structure (Cube)
 		phase_tags[db_centers <= 0] = 2
+
+		'''
+
+
+
+
+
+
 		
 		# Phase 3: Intervening Liquid Layer
 		# Models a physical pool or fluid column sitting between Z=-0.2 and Z=+0.5
@@ -1086,13 +1051,13 @@ class myEquation_dFEM:
 		
 
 
-		for idx, gp in enumerate(gauss_points):
-			r, s, t = gp[0], gp[1], gp[2]
+		# for idx, gp in enumerate(gauss_points):
+		# 	r, s, t = gp[0], gp[1], gp[2]
 
-			print('idx = ', idx)
-			print('r = ', r)
-			print('s = ', s)
-			print('t = ', t)
+		# 	print('idx = ', idx)
+		# 	print('r = ', r)
+		# 	print('s = ', s)
+		# 	print('t = ', t)
 
 		'''
 		idx =  0
@@ -1122,7 +1087,7 @@ class myEquation_dFEM:
 
 
 
-		return
+		# return
 
 
 
@@ -1311,6 +1276,8 @@ class myEquation_dFEM:
 			x_next, v_next = self.run_tr_bdf2_time_step(myEquation_dFEM,
 				nodes_tet10, topology_tet10, tags, 
 				x_current, v_current, F_ext, frame_dt)
+
+			continue
 			
 			x_current, v_current = x_next, v_next
 
@@ -1411,7 +1378,7 @@ class myEquation_dFEM:
 		return vertex_to_tet_id, vertex_weights
 
 class MatrixFreeTet10Operator(splinalg.LinearOperator):
-	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, myEquation_dFEM):
+	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, myEquation_dFEM, x_t):
 		self.nodes = nodes_tet10
 		self.topology = topology_tet10
 		self.properties = element_properties
@@ -1421,6 +1388,7 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 		self.shape = (self.dof, self.dof)
 		self.dtype = np.float64
 		self.myEquation_dFEM_usable = myEquation_dFEM
+		self.x_t_debug = x_t
 
 	def compute_forces_and_action(self, p_vector=None):
 		"""
@@ -1469,7 +1437,8 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 				nu = .499 # .3 - .499
 				density = 0
 			
-			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id)
+			# f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id)
+			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.nodes[tet], self.current_U[tet], p_velocity[tet], p_nodes[tet], E, nu, mat_id, self.x_t_debug, self.current_U)
 			
 			# SCATTER PASS
 			for local_idx, global_node_idx in enumerate(tet):
@@ -1478,6 +1447,8 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 
 				if p_vector is not None:
 					y_action_global[start : start + 3] += q_local[local_idx]
+
+		# return 0
 
 		if p_vector is not None:
 			y_action_global[self.fixed_dofs] = p_vector[self.fixed_dofs] * 1.0
