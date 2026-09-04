@@ -486,17 +486,19 @@ class myEquation_dFEM:
 
 			# Calculate your step 1 residual vector mapping mapping
 			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma + 2.0 * F_ext)
+
 			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
 			R_combined = R + M_diag * (R_pos / dt1)
 			R_combined[fixed_dofs] = 0.0
-			
+
 			if np.linalg.norm(R_combined) < tol:
 				break
 
 			# Define the Jacobian operator mapping for the Conjugate Gradient solver
 			class Substep1JacobianOperator(splinalg.LinearOperator):
 				def __init__(self, shape, dtype):
-					self.shape, self.dtype = shape, dtype
+					# self.shape, self.dtype = shape, dtype
+					super().__init__(dtype=dtype, shape=shape)
 				def _matvec(self, p):
 					# We leverage op_gamma's fast tracking channel to compute Ke * p
 					_, y_action = op_gamma.compute_forces_and_action(p)
@@ -504,7 +506,7 @@ class myEquation_dFEM:
 
 			J_op = Substep1JacobianOperator((len(R_combined), len(R_combined)), np.float64)
 			
-			delta_v_flat, _ = splinalg.cg(J_op, -R_combined, tol=1e-6)
+			delta_v_flat, _ = splinalg.cg(J_op, -R_combined, rtol=1e-6)
 			v_gamma += delta_v_flat.reshape(-1, 3)
 			x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
 
@@ -543,13 +545,14 @@ class myEquation_dFEM:
 				
 			class Substep2JacobianOperator(splinalg.LinearOperator):
 				def __init__(self, shape, dtype):
-					self.shape, self.dtype = shape, dtype
+					# self.shape, self.dtype = shape, dtype
+					super().__init__(dtype=dtype, shape=shape)
 				def _matvec(self, p):
 					return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
 					
 			J_op2 = Substep2JacobianOperator((dof, dof), np.float64)
 
-			delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, tol=1e-6)
+			delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6)
 
 			v_next += delta_v_flat.reshape(-1, 3)
 			x_next += (delta_v_flat * (dt * (2.0 - gamma) / 2.0)).reshape(-1, 3)
@@ -1176,10 +1179,13 @@ class myEquation_dFEM:
 		return element_properties
 
 	def testVDB_06(self, abj_sd_b_instance):
+		startTime = datetime.now()
+
 		#look @ execute_production_fem_bake_with_skin
 
 		# nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(24, 96)
-		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(16, 16)
+		# nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(16, 16)
+		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(8, 16)
 
 		self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=0.0) ###########
 
@@ -1213,14 +1219,22 @@ class myEquation_dFEM:
 
 		# total_frames = 10
 		total_frames = 1
-		frame_dt=0.01
+		# frame_dt=0.01 ########
+		frame_dt=.5
 
 		# Initialize simulation states
 		x_current = nodes_tet10.copy()
 		v_current = np.zeros((len(nodes_tet10), 3), dtype=np.float64)
 
 		# F_ext = np.zeros(len(nodes_tet10)*3, dtype=np.float64)
-		F_ext = np.array([0, -9.81, 0])
+		# F_ext = np.array([0, -9.81, 0])
+		gravity = np.array([0, -9.81, 0])
+
+		num_nodes = len(nodes_tet10) # Assuming v_t is shape (num_nodes, 3)
+
+		# Tile the [0, -9.81, 0] gravity force across all nodes and flatten it
+		# If F_ext is already a per-node force density (like force per unit mass), multiply by mass:
+		F_ext = np.tile(gravity, num_nodes) 
 
 		if not mesh.shape_keys:
 			obj.shape_key_add(name="Basis")
@@ -1264,6 +1278,9 @@ class myEquation_dFEM:
 			sk.keyframe_insert(data_path="value", frame=frame)
 			sk.value = 0.0
 			sk.keyframe_insert(data_path="value", frame=frame + 1)
+
+		totalTime = datetime.now() - startTime
+		print('totalTime = ', totalTime)
 
 	def precompute_skin_barycentric_weights(self, render_mesh_obj, nodes_tet4, topology_tet4):
 		"""
