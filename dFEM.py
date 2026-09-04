@@ -622,22 +622,22 @@ class myEquation_dFEM:
 			# 	print("Check if your MatrixFreeOperator is missing midpoints inside its loop topology mapping.")
 
 
-			continue
+			# continue
 
 
-			delta_v_flat, info = splinalg.bicgstab(
-				J_op, 
-				-R_combined, 
-				x0=np.zeros_like(R_combined),
-				rtol=1e-5, 
-				maxiter=80,
-				M=M_precond, # Activates the diagonal preconditioning channel
-				callback=progress_callback,
+			# delta_v_flat, info = splinalg.bicgstab(
+			# 	J_op, 
+			# 	-R_combined, 
+			# 	x0=np.zeros_like(R_combined),
+			# 	rtol=1e-5, 
+			# 	maxiter=80,
+			# 	M=M_precond, # Activates the diagonal preconditioning channel
+			# 	callback=progress_callback,
 
-			)
+			# )
 
 
-			print(f"BiCGStab finished with exit code: {info}")
+			# print(f"BiCGStab finished with exit code: {info}")
 
 
 
@@ -646,12 +646,27 @@ class myEquation_dFEM:
 
 
 			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=10, callback=progress_callback) ###
+			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), maxiter=150, rtol=myRtol, callback=progress_callback) ###
 			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
+
+
+
+			delta_v_flat, info = splinalg.bicgstab(
+				J_op, 
+				-R_combined, 
+				x0=np.zeros_like(R_combined), 
+				rtol=myRtol, 
+				maxiter=100, 
+				M=M_precond, # Activates the diagonal preconditioning channel
+				callback=progress_callback
+			)
+
 
 			print(f"\nCG finished with exit code: {info}")
 
 			if info > 0:
 				print("Warning: CG convergence stalled. Matrix may not be perfectly SPD.")
+
 			continue
 
 			v_gamma += delta_v_flat.reshape(-1, 3)
@@ -697,11 +712,13 @@ class myEquation_dFEM:
 					# self.shape, self.dtype = shape, dtype
 					super().__init__(dtype=dtype, shape=shape)
 				def _matvec(self, p):
-					return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
-					
+					# return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
+					# return M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
+					return (M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)).ravel()
+
 			J_op2 = Substep2JacobianOperator((dof, dof), np.float64)
 
-			delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6)
+			delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
 
 			v_next += delta_v_flat.reshape(-1, 3)
 			x_next += (delta_v_flat * (dt * (2.0 - gamma) / 2.0)).reshape(-1, 3)
@@ -802,55 +819,66 @@ class myEquation_dFEM:
 			F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dx.T)
 			J_vol = np.linalg.det(F)
 
-			# ======================================================================
-			# PHASE-SPECIFIC MATERAl CONSTITUTIVE SWAPPING
-			# ======================================================================
-			if mat_id == 101.0:
-				# --- PHASE A: SOLID TISSUE (Stable Neo-Hookean) ---
-				mu = E / (2.0 * (1.0 + nu))
-				lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
-				alpha = 1.0 + (mu / lambda_param)
+			# ====================================================================== 
+			# PHASE-SPECIFIC MATERIAL CONSTITUTIVE SWAPPING 
+			# ====================================================================== 
+			if mat_id == 101.0: 
+				# --- PHASE A: SOLID TISSUE (Stable Neo-Hookean) --- 
+				mu = E / (2.0 * (1.0 + nu)) 
+				lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu)) 
+				alpha = 1.0 + (mu / lambda_param) 
+				stress_scale = mu * (1.0 - (1.0 / (np.trace(F.T @ F) + 1.0))) 
 				
-				stress_scale = mu * (1.0 - (1.0 / (np.trace(F.T @ F) + 1.0)))
-				F_cofactor = np.zeros((3,3), dtype=np.float64)
-				for i in range(3): F_cofactor[:, i] = np.cross(F[:, (i+1)%3], F[:, (i+2)%3])
-				P_stress = stress_scale * F + (lambda_param * (J_vol - alpha)) * F_cofactor
+				F_cofactor = np.zeros((3,3), dtype=np.float64) 
+				for i in range(3): 
+					F_cofactor[:, i] = np.cross(F[:, (i+1)%3], F[:, (i+2)%3]) 
+					
+				P_stress = stress_scale * F + (lambda_param * (J_vol - alpha)) * F_cofactor 
 				
-				# Stiffness multipliers for Solid
-				mu_stiff = mu
+				# Tangent operators map directly to solid material constants
+				mu_stiff = mu 
 				lambda_stiff = lambda_param
 
-			elif mat_id == 400.0:
-				# --- PHASE B: LIQUID PHASE (Navier-Stokes Continuum) ---
-				# E behaves as Bulk Modulus (Kf), nu behaves as Dynamic Viscosity (Visco)
-				Kf = E   # e.g., 50000.0 for snappy water
-				viscosity = nu # e.g., 50.0 for water, 5000.0 for thick syrup/honey
+			elif mat_id == 400.0: 
+				# --- PHASE B: LIQUID PHASE (Navier-Stokes Continuum) --- 
+				# E behaves as Bulk Modulus (Kf), nu behaves as Dynamic Viscosity
+				Kf = E 
+				viscosity = nu 
 				
 				# 1. Compute Fluid Pressure via Equation of State (EOS)
-				pressure = Kf * (J_vol - 1.0)
+				pressure = Kf * (J_vol - 1.0) 
 				
-				# 2. Compute Spatial Velocity Gradient L = grad(v)
-				L = element_velocities.T @ dN_dx.T
+				# 2. Compute Spatial Velocity Gradient L = grad(v) 
+				# element_velocities must be shape (10, 3)
+				L = element_velocities.T @ dN_dx.T 
 				
-				# 3. Rate-of-Strain Tensor D = 0.5 * (L + L^T)
-				D_tensor = 0.5 * (L + L.T)
+				# 3. Rate-of-Strain Tensor D 
+				D_tensor = 0.5 * (L + L.T) 
 				
-				# 4. Total Stress Tensor P = -p*I + 2*viscosity*D
-				P_stress = -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor
+				# 4. Total First Piola-Kirchhoff Fluid Stress Tensor
+				P_stress = -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor 
 				
-				# Tangent dampening coefficients mapping to the stiffness action loops
-				mu_stiff = viscosity
-				lambda_stiff = Kf
+				# CRITICAL LIQUID TANGENT MAP:
+				# Liquids provide viscous damping parameters (scaled by dt1) to the stiffness matrix
+				# Because Ke acts on a velocity/displacement update delta_v:
+				mu_stiff = viscosity * dt1
+				lambda_stiff = Kf * dt1
 
-			# else:
-			elif mat_id == 202.0:
-				# --- PHASE C: AMBIENT AIR BUFFER MATRIX ---
-				pressure = -100.0 * (J_vol - 1.0)
-				P_stress = pressure * np.eye(3, dtype=np.float64)
-				# fluid_pressure = -100.0 * (J_vol - 1.0)
-				# P_stress = fluid_pressure * np.eye(3, dtype=np.float64)
-				mu_stiff = 10.0
-				lambda_stiff = 100.0
+			elif mat_id == 202.0: 
+				# --- PHASE C: AMBIENT AIR BUFFER MATRIX (Compliant Elastic Solid) --- 
+				# Air is modeled as a highly compliant solid to guarantee matrix stability and symmetry.
+				# Do NOT use the pure pressure variable loop here.
+				
+				mu_stiff = 1e-4      # Extremely soft structural shear resistance
+				lambda_stiff = 1e-3  # Compliant background compression threshold
+				
+				# Calculate the linear elastic stress tensor for Air directly
+				# strain = 0.5 * (F + F^T - 2*I) approximation or linearized strain:
+				disp_grad = element_displacements.T @ dN_dx.T
+				strain_air = 0.5 * (disp_grad + disp_grad.T)
+				
+				P_stress = 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
+
 
 			# ======================================================================
 			# CORE ACCUMULATION PASS
