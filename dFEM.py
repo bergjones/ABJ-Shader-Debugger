@@ -310,7 +310,7 @@ class myEquation_dFEM:
 		return packed_pixels
 
 	def voxelChecker0(self):
-		#blender 5.2 i have a sdf sphere equation of (np.linalg.norm(p - center, axis=-1) - radius) now i want to check if a 3d point which is part of a voxel is inside the SDF. How is this possible?
+		#i want to check if a 3d point which is part of a voxel is inside the SDF. How is this possible?
 
 		# To check if a 3D point is inside your Signed Distance Field (SDF) sphere, evaluate the equation at that point and check if the resulting value is less than or equal to zero.In an SDF, a negative value means the point is inside the surface, zero means it is exactly on the surface, and a positive value means it is outside.
 
@@ -454,7 +454,7 @@ class myEquation_dFEM:
 				
 			self.iteration += 1
 			
-			# Prevent division by zero if already converged
+			# Prevent division by zero if already convergedf
 			if self.initial_resid <= self.tol:
 				percent = 100.0
 			else:
@@ -516,9 +516,10 @@ class myEquation_dFEM:
 		M_diag[fixed_dofs] = 1.0 # Protect fixed boundary math diagonals
 
 		gamma = 2.0 - np.sqrt(2.0)
+		dt1 = gamma * dt
 		
 		# Initialize your reference state tracking operator at the historical position
-		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, myEquation_dFEM)
+		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
 
 		# Exact Force Gathering Check: Read the true force directly from the initial operator state
 		f_int_t = op_t.compute_forces_and_action(p_vector=None)
@@ -528,7 +529,7 @@ class myEquation_dFEM:
 		# ==========================================================================
 		# SUBSTEP 1: TRAPEZOIDAL RULE STEP (From t to t + gamma*dt)
 		# ==========================================================================
-		dt1 = gamma * dt
+		# dt1 = gamma * dt
 		x_gamma = x_t.copy()
 		v_gamma = v_t.copy()
 
@@ -540,17 +541,43 @@ class myEquation_dFEM:
 		for n_iter in range(max_newton_iter):
 			# Re-instantiate the operator at the current trial position coordinates
 
-			op_gamma = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_gamma - nodes_tet10, fixed_dofs, myEquation_dFEM)
+			op_gamma = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_gamma - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
 			
 			# Calculate internal forces for this Newton iteration pass pass
 			f_int_gamma = op_gamma.compute_forces_and_action(p_vector=None)
 
-			# Calculate your step 1 residual vector mapping mapping
+			# Calculate your step 1 residual vector mapping mapping ### OLD
 			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma + 2.0 * F_ext)
-
 			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
 			R_combined = R + M_diag * (R_pos / dt1)
 			R_combined[fixed_dofs] = 0.0
+
+
+
+
+			# CORRECTED SUBSTEP 1 RESIDUAL MECHANICS
+			# 1. Internal forces should add to the inertia to balance external loads correctly
+			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext + 2.0 * F_ext) + (dt1 / 2.0) * (f_int_t + f_int_gamma)
+
+			# 2. Position continuity constraint mapping
+			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
+
+			# 3. Combine them ensuring the positional error penalty drives convergence back to origin
+			R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
+
+			R_combined[fixed_dofs] = 0.0
+
+
+
+
+
+
+			# print('~~~~~~~~~~~~~~ DEBUG START 0 ~~~~~~~~~~~~')
+			# print('R_combined = ', R_combined)
+			# print('len(R_combined) = ', len(R_combined))
+			# print('fixed_dofs = ', fixed_dofs)
+			# print('len(fixed_dofs) = ', len(fixed_dofs))
+			# print('~~~~~~~~~~~~~~ DEBUG END 0 ~~~~~~~~~~~~')
 
 			if np.linalg.norm(R_combined) < tol:
 				break
@@ -570,19 +597,10 @@ class myEquation_dFEM:
 
 			J_op = Substep1JacobianOperator((len(R_combined), len(R_combined)), np.float64)
 
-
 			print("Starting CG Krylov Subspace Loop...", flush=True)
 
 			myRtol = 1e-6
 			progress_callback = self.PercentageCallback(tol=tol)
-
-
-
-
-
-
-
-
 		
 			#####
 			## DEBUG
@@ -601,78 +619,65 @@ class myEquation_dFEM:
 
 			print("Executing BiCGStab with Jacobi Preconditioning...", flush=True)
 
-
-
-
-
 			#### PART 2
 			# Test the Operator matrix action with a uniform vector of ones
-			# test_vector = np.ones(len(R_combined))
-			test_vector = np.random.randn(len(R_combined))
-			_, test_stiffness_action = op_gamma.compute_forces_and_action(test_vector)
+			# test_vector = np.random.randn(len(R_combined))
+			# _, test_stiffness_action = op_gamma.compute_forces_and_action(test_vector)
 
-			# Find any degree of freedom index where the stiffness operator returns absolute zero
-			dead_dofs = np.where(np.abs(test_stiffness_action) < 1e-12)[0]
-
-			print(f"TRUE disconnected Degrees of Freedom count: {len(dead_dofs)}")
+			# # Find any degree of freedom index where the stiffness operator returns absolute zero
+			# dead_dofs = np.where(np.abs(test_stiffness_action) < 1e-12)[0]
+			# print(f"TRUE disconnected Degrees of Freedom count: {len(dead_dofs)}")
 
 			# if len(dead_dofs) > 0:
 			# 	print(f"CRITICAL WARNING: Found {len(dead_dofs)} disconnected Degrees of Freedom!")
 			# 	print(f"Sample dead indices: {dead_dofs[:10]}")
 			# 	print("Check if your MatrixFreeOperator is missing midpoints inside its loop topology mapping.")
 
+			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
 
-			# continue
-
-
+			#CHECK
 			# delta_v_flat, info = splinalg.bicgstab(
 			# 	J_op, 
 			# 	-R_combined, 
-			# 	x0=np.zeros_like(R_combined),
-			# 	rtol=1e-5, 
-			# 	maxiter=80,
+			# 	x0=np.zeros_like(R_combined), 
+			# 	rtol=myRtol, 
+			# 	maxiter=100, 
 			# 	M=M_precond, # Activates the diagonal preconditioning channel
-			# 	callback=progress_callback,
-
+			# 	callback=progress_callback
 			# )
 
-
-			# print(f"BiCGStab finished with exit code: {info}")
-
+			delta_v_flat, info = splinalg.gmres(J_op, -R_combined, restart=30, maxiter=100, callback=progress_callback)
 
 
+			#time to solve splinalg.bicgstab = 20 sec
+			#time to solve splinalg.cg =  21 sec
 
 
+			# # 1. Materialize your matrix-free operator into a dense 2D array
+			# J_dense = np.zeros((len(R_combined), len(R_combined)))
+			# for i in range(len(R_combined)):
+			# 	e_i = np.zeros(len(R_combined))
+			# 	e_i[i] = 1.0
+			# 	J_dense[:, i] = J_op._matvec(e_i)  # Extract column i
+
+			# # 2. Use a direct dense solver (bypasses all sparse casting issues)
+			# delta_v_flat = np.linalg.solve(J_dense, -R_combined)
 
 
-			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=10, callback=progress_callback) ###
-			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), maxiter=150, rtol=myRtol, callback=progress_callback) ###
-			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
-
-
-
-			delta_v_flat, info = splinalg.bicgstab(
-				J_op, 
-				-R_combined, 
-				x0=np.zeros_like(R_combined), 
-				rtol=myRtol, 
-				maxiter=100, 
-				M=M_precond, # Activates the diagonal preconditioning channel
-				callback=progress_callback
-			)
-
+			# delta_v_flat = splinalg.spsolve(J_op, -R_combined)
 
 			print(f"\nCG finished with exit code: {info}")
 
 			if info > 0:
 				print("Warning: CG convergence stalled. Matrix may not be perfectly SPD.")
 
-			continue
+			# continue
 
 			v_gamma += delta_v_flat.reshape(-1, 3)
 			x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
 
-		return 0, 0 # hang debug
+		# return 0, 0
+
 
 		# ==========================================================================
 		# SUBSTEP 2: BDF2 STEP (From t + gamma*dt to t + dt)
@@ -689,7 +694,7 @@ class myEquation_dFEM:
 
 		# Newton-Raphson Loop for Substep 2
 		for n_iter in range(max_newton_iter):
-			op_next = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_next - nodes_tet10, fixed_dofs, myEquation_dFEM)
+			op_next = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_next - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
 			
 			f_int_next = op_next.compute_forces_and_action(p_vector=x_next)
 			
@@ -701,9 +706,24 @@ class myEquation_dFEM:
 			
 			R_pos = x_next.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * x_t.ravel() # Historical positions bounds
 			
-			R_combined = R + M_diag * (R_pos / dt)
+			# R_combined = R + M_diag * (R_pos / dt) ######
+			R_combined = R + M_diag * (R_pos / dt2)
+
+			# R_combined = R_combined.ravel()
+			R_combined = R_combined[0].ravel() 
+
+			# print('~~~~~~~~~~~~~~ DEBUG START 1 ~~~~~~~~~~~~')
+			# print('R_combined = ', R_combined)
+			# print('len(R_combined) = ', len(R_combined))
+			# print('fixed_dofs = ', fixed_dofs)
+			# print('len(fixed_dofs) = ', len(fixed_dofs))
+			# print('~~~~~~~~~~~~~~ DEBUG END 1 ~~~~~~~~~~~~')
+
 			R_combined[fixed_dofs] = 0.0
+
+			# continue
 			
+
 			if np.linalg.norm(R_combined) < tol:
 				break
 				
@@ -711,21 +731,243 @@ class myEquation_dFEM:
 				def __init__(self, shape, dtype):
 					# self.shape, self.dtype = shape, dtype
 					super().__init__(dtype=dtype, shape=shape)
+				# def _matvec(self, p):
+				# 	# return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
+				# 	# return M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
+					# return (M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)).ravel()
+
 				def _matvec(self, p):
-					# return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
-					# return M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
-					return (M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)).ravel()
+					# p is guaranteed to be a 1D vector of length 11742 passed by splinalg.cg
+					term1 = M_diag.ravel() * p
+					term2 = (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p).ravel()
+					
+					# Explicitly enforce 1D array of system length
+					return (term1 - term2).ravel()
+
 
 			J_op2 = Substep2JacobianOperator((dof, dof), np.float64)
 
-			delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
+			# delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
+			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
+
+			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
+
+			# M_precond2 = splinalg.LinearOperator(shape=J_op2.shape, matvec=jacobi_preconditioner)
+
+
+			# delta_v_flat, info = splinalg.bicgstab(
+			# 	J_op2, 
+			# 	-R_combined, 
+			# 	x0=np.zeros_like(R_combined), 
+			# 	rtol=myRtol, 
+			# 	maxiter=100, 
+			# 	M=M_precond2, # Activates the diagonal preconditioning channel
+			# 	callback=progress_callback
+			# )
+
+			delta_v_flat, info = splinalg.gmres(J_op2, -R_combined, restart=30, maxiter=100, callback=progress_callback)
+
+
+
+
+			print(f"\nCG 2 finished with exit code: {info}")
 
 			v_next += delta_v_flat.reshape(-1, 3)
 			x_next += (delta_v_flat * (dt * (2.0 - gamma) / 2.0)).reshape(-1, 3)
+
+
+
+
+		# return 0, 0 # hang debug
 			
 		return x_next, v_next
-	
-	def compute_tet10_multiphase_dual_kernel(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
+
+
+	# # ======================================================================
+	# # HELPER FUNCTION FOR CENTRAL FINITE DIFFERENCES
+	# # ======================================================================
+	# def evaluate_p_stress(self, F_eval, disp_grad_eval, vel_grad_eval):
+	# 	"""Computes P_stress universally for any material phase."""
+	# 	J_vol = np.linalg.det(F_eval)
+		
+	# 	if mat_id == 101.0: # SOLID
+	# 		mu = E / (2.0 * (1.0 + nu))
+	# 		lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+	# 		alpha = 1.0 + (mu / lambda_param)
+	# 		stress_scale = mu * (1.0 - (1.0 / (np.trace(F_eval.T @ F_eval) + 1.0)))
+			
+	# 		F_cofactor = np.zeros((3,3), dtype=np.float64)
+	# 		for i in range(3):
+	# 			F_cofactor[:, i] = np.cross(F_eval[:, (i+1)%3], F_eval[:, (i+2)%3])
+	# 		return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
+			
+	# 	elif mat_id == 400.0: # LIQUID
+	# 		Kf = E
+	# 		viscosity = nu
+	# 		pressure = Kf * (J_vol - 1.0)
+	# 		D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+	# 		return -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor
+			
+	# 	elif mat_id == 202.0: # AIR
+	# 		mu_stiff = 1e-4 
+	# 		lambda_stiff = 1e-3 
+	# 		strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
+	# 		return 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
+			
+	# 	return np.zeros((3, 3))
+
+
+	def compute_tet10_multiphase_dual_kernel(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id, dt1):
+		"""
+		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
+		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
+
+		# ==============================================================================
+		# CONTINUUM MECHANICS MATRIX-FREE KERNEL
+		# ==============================================================================
+		# This kernel evaluates the action of the Tangent Stiffness Operator (Ke * p)
+		# for a High-Order Quadratic Tetrahedron (Tet10) under a Stable Neo-Hookean
+		# energy potential model. 
+		#
+		# MATHEMATICAL & ENGINEERING REFERENCES:
+		# 1. Finite Element Framework: https://en.wikipedia.org/wiki/Finite_element_method
+		# 2. Quadrature Volume Integration: https://en.wikipedia.org/wiki/Gaussian_quadrature
+		# 3. Kinematic Kinematics (Tensor F): https://en.wikipedia.org/wiki/Finite_strain_theory
+		# 4. Material Constitutive Law: https://en.wikipedia.org/wiki/Neo-Hookean_solid
+		#5. Stable Neo-Hookean Flesh Simulation : Smith, De Goes, Kim : https://research.pixar.com/docs/2018.SiggraphPapers.SGK.b.pdf
+		
+		Args:
+			element_velocities: (10, 3) float64 array of current frame node velocities.
+		"""
+		# Initialize output vectors
+		f_local = np.zeros((10, 3), dtype=np.float64)
+		q_local = np.zeros((10, 3), dtype=np.float64)
+		f_int_element = np.zeros((10, 3), dtype=np.float64)
+		q_flat = np.zeros(30, dtype=np.float64)
+		p_flat = p_element_trial.ravel()
+
+		mu = E / (2.0 * (1.0 + nu))
+		lam = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+
+		# 4-Point Gauss Quadrature Constants
+		a = 0.5854101966249685
+		b = 0.1381966011250105
+		gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
+		gauss_weight = 1.0 / 24.0  
+
+		for idx, gp in enumerate(gauss_points):
+			r, s, t = gp[0], gp[1], gp[2]
+			u = 1.0 - r - s - t
+
+			# Shape function raw calculations...
+			dN_dr = np.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
+			dN_ds = np.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
+			dN_dt = np.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
+
+			dN_dxi = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
+			Jacobian = np.dot(dN_dxi, element_node_coords)
+			det_J = np.linalg.det(Jacobian)
+			
+			if det_J <= 0.0:
+				raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
+				
+			inv_Jacobian = np.linalg.inv(Jacobian)
+			dN_dx = np.dot(inv_Jacobian.T, dN_dxi)  # Shape: (3, 10)
+			dV = det_J * gauss_weight
+
+			# ======================================================================
+			# HELPER FUNCTION FOR CENTRAL FINITE DIFFERENCES
+			# ======================================================================
+			def evaluate_p_stress(F_eval, disp_grad_eval, vel_grad_eval):
+				"""Computes P_stress universally for any material phase."""
+				J_vol = np.linalg.det(F_eval)
+				
+				if mat_id == 101.0: # SOLID
+					mu = E / (2.0 * (1.0 + nu))
+					lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+					alpha = 1.0 + (mu / lambda_param)
+					stress_scale = mu * (1.0 - (1.0 / (np.trace(F_eval.T @ F_eval) + 1.0)))
+					
+					# F_cofactor = np.zeros((3,3), dtype=np.float64)
+					#(automatically handles real or complex inputs):
+					F_cofactor = np.zeros((3,3), dtype=F_eval.dtype)
+					for i in range(3):
+						F_cofactor[:, i] = np.cross(F_eval[:, (i+1)%3], F_eval[:, (i+2)%3])
+					return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
+					
+				elif mat_id == 400.0: # LIQUID
+					Kf = E
+					viscosity = nu
+					pressure = Kf * (J_vol - 1.0)
+					D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+					return -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor
+					
+				# elif mat_id == 202.0: # AIR
+				# 	mu_stiff = 1e-4 
+				# 	lambda_stiff = 1e-3 
+				# 	strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
+				# 	return 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
+					
+				return np.zeros((3, 3))
+
+
+			# ======================================================================
+			# BASE STATE DEFINITIONS
+			# ======================================================================
+			disp_grad = element_displacements.T @ dN_dx.T
+			vel_grad = element_velocities.T @ dN_dx.T
+			F = np.eye(3, dtype=np.float64) + disp_grad
+
+			# print('disp_grad = ', disp_grad)
+			# print('vel_grad = ', vel_grad)
+			# print('F = ', F)
+
+			# 1. Base Evaluation (For Internal Forces)
+			P_stress_base = evaluate_p_stress(F, disp_grad, vel_grad)
+			f_int_element += (P_stress_base @ dN_dx * dV).T
+
+			# 2. Finite Difference Perturbation (For Consistent Stiffness Action)
+			p_nodes = p_flat.reshape(10, 3)
+			grad_p = p_nodes.T @ dN_dx.T # Directional perturbation gradient matrix
+			time_scale = dt1 / 2.0  
+			scaled_grad_p = grad_p * time_scale
+
+			# Make eps extremely small (no cancellation error occurs with complex step!)
+			eps = 1e-20
+
+			# Single forward pass with an imaginary perturbation
+			# F_complex = F.astype(np.complex128) + (eps * 1j) * grad_p
+			# disp_complex = disp_grad.astype(np.complex128) + (eps * 1j) * grad_p
+			# vel_complex = vel_grad.astype(np.complex128) + (eps * 1j) * grad_p
+
+			# Inject the temporally scaled perturbation gradient matrix
+			F_complex = F.astype(np.complex128) + (eps * 1j) * scaled_grad_p
+			disp_complex = disp_grad.astype(np.complex128) + (eps * 1j) * scaled_grad_p
+			vel_complex = vel_grad.astype(np.complex128) + (eps * 1j) * scaled_grad_p
+
+			# Run your exact same evaluate_p_stress but allow complex inputs
+			P_complex = evaluate_p_stress(F_complex, disp_complex, vel_complex)
+			f_complex = (P_complex @ dN_dx * dV).T
+
+			# The exact derivative is simply the imaginary part divided by eps!
+			q_local += np.imag(f_complex) / eps
+
+			# # --- Positive Step ---
+			# P_pos = evaluate_p_stress(F + eps * grad_p, disp_grad + eps * grad_p, vel_grad + eps * grad_p)
+			# f_pos = (P_pos @ dN_dx * dV).T
+			
+			# # --- Negative Step ---
+			# P_neg = evaluate_p_stress(F - eps * grad_p, disp_grad - eps * grad_p, vel_grad - eps * grad_p)
+			# f_neg = (P_neg @ dN_dx * dV).T
+			
+			# # Consistent numerical directional derivative
+			# q_local += (f_pos - f_neg) / (2.0 * eps)
+
+		# Outside the Gauss quadrature loop, return the variables matching your outer operator expectations
+		return f_int_element, q_local	
+
+
+	def compute_tet10_multiphase_dual_kernel0(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
 		"""
 		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
 		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
@@ -878,7 +1120,6 @@ class myEquation_dFEM:
 				strain_air = 0.5 * (disp_grad + disp_grad.T)
 				
 				P_stress = 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
-
 
 			# ======================================================================
 			# CORE ACCUMULATION PASS
@@ -1113,7 +1354,13 @@ class myEquation_dFEM:
 		db_centers = self.sdf_box(tet_centers, cube_center, cube_size)
 		
 		# Initialize phase allocation map (Default Phase 0 = Air / Smoke / Gas)
+
+		#start debug here 9/5 !!!!!!!!!
+
 		phase_tags = np.zeros(len(tets), dtype=np.int32)
+
+		phase_tags[ds_centers <= 0] = 1
+
 
 		''' ALL PHASE TO 0 for debug
 		
@@ -1358,6 +1605,7 @@ class myEquation_dFEM:
 		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(8, 16)
 
 		self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=0.0) ###########
+		# self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=1.0) ###########
 
 		# return
 
@@ -1376,6 +1624,8 @@ class myEquation_dFEM:
 		# layer_data_b_h = [("sdf_joined", vdb_box_sdf_h)]
 		# myBox_h = self.sdf_vdb_visualizer(layer_data_b_h)
 
+		
+
 		vertex_tet_ids, vertex_bary_weights = self.precompute_skin_barycentric_weights(mySphere_h, nodes_tet4, topology_tet4)
 
 		nodes_tet10, topology_tet10 = self.convert_tet4_lattice_to_tet10(nodes_tet4, topology_tet4)
@@ -1387,8 +1637,8 @@ class myEquation_dFEM:
 		obj = mySphere_h
 		mesh = obj.data
 
-		# total_frames = 10
-		total_frames = 1
+		total_frames = 2
+		# total_frames = 1
 		frame_dt=0.01 ########
 		# frame_dt=.5
 		# frame_dt=1
@@ -1399,7 +1649,8 @@ class myEquation_dFEM:
 
 		# F_ext = np.zeros(len(nodes_tet10)*3, dtype=np.float64)
 		# F_ext = np.array([0, -9.81, 0])
-		gravity = np.array([0, -9.81, 0])
+		# gravity = np.array([0, -9.81, 0]) ##########
+		gravity = np.array([0, 0, 0])
 
 		num_nodes = len(nodes_tet10) # Assuming v_t is shape (num_nodes, 3)
 
@@ -1412,12 +1663,13 @@ class myEquation_dFEM:
 
 		# --- PHASE 2: THE TR-BDF2 TIME STRIDE LOOP ---
 		for frame in range(1, total_frames + 1):
+			print('~~~~~~~~~~~~~~~~~~~~~~~ FRAME = ', frame)
 			bpy.context.scene.frame_set(frame)
 			x_next, v_next = self.run_tr_bdf2_time_step(myEquation_dFEM,
 				nodes_tet10, topology_tet10, tags, 
 				x_current, v_current, F_ext, frame_dt)
 
-			continue
+			# continue
 			
 			x_current, v_current = x_next, v_next
 
@@ -1521,7 +1773,7 @@ class myEquation_dFEM:
 		return vertex_to_tet_id, vertex_weights
 
 class MatrixFreeTet10Operator(splinalg.LinearOperator):
-	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, myEquation_dFEM):
+	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, dt1, myEquation_dFEM):
 		self.nodes = nodes_tet10
 		self.topology = topology_tet10
 		self.properties = element_properties
@@ -1530,6 +1782,7 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 		self.dof = len(nodes_tet10) * 3
 		self.shape = (self.dof, self.dof)
 		self.dtype = np.float64
+		self.dt1 = dt1
 		self.myEquation_dFEM_usable = myEquation_dFEM
 
 	def compute_forces_and_action(self, p_vector=None):
@@ -1552,9 +1805,14 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 		p_velocity_nodes = p_velocity.reshape(-1, 3)
 		p_nodes = p_nodes_flat.reshape(-1, 3)
 
-		# ONE UNIFIED LOOP FOR ALL CONTINUUM PHYSICS
 		#self.compile_painted_mesh_to_fem_attributes()
+
+		# ONE UNIFIED LOOP FOR ALL CONTINUUM PHYSICS
 		for t_idx, tet in enumerate(self.topology):
+
+			#E = young's modulus (stiffness)
+			#nu = poissons ratio (compressability)
+			
 			# mat_id, E, nu, density = self.properties[t_idx]
 			mat_id = None
 			E = None
@@ -1563,25 +1821,36 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 
 			if self.properties[t_idx] == 0: #air
 				mat_id = 202.0
-				# E = 0
-				E = 1e-6
+				# E = 1e-6 #####
+				E = 1
 				nu = .001
 				density = .001
 
-			elif self.properties[t_idx] == 1: #solid SPHERE
+			# elif self.properties[t_idx] == 1: #solid SPHERE
+			# 	mat_id = 101.0
+			# 	# E = 5000 #####
+			# 	E = 100
+			# 	# nu = .499
+			# 	nu = .45
+			# 	density = 5
+
+			elif self.properties[t_idx] == 1: #solid SPHERE DEBUG AS AIR WITH ALT PROP
 				mat_id = 101.0
-				E = 5000
-				nu = .499 # .3 - .499
+
+				# mat_id = 202.0
+				# E = 1e-6 #####
+				E = 10
+				# nu = .001
+				nu = .45
 				density = 5
 
 			elif self.properties[t_idx] == 2: #solid CUBE
-				mat_id = 101.0
 				E = 5000
-				nu = .499 # .3 - .499
+				nu = .499
 				density = 5
 
 			
-			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.myEquation_dFEM_usable, self.nodes[tet], self.current_U[tet], p_velocity_nodes[tet], p_nodes[tet], E, nu, mat_id)
+			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.myEquation_dFEM_usable, self.nodes[tet], self.current_U[tet], p_velocity_nodes[tet], p_nodes[tet], E, nu, mat_id, self.dt1)
 			
 			# --- HIGH-ORDER SCATTER PASS ---
 			# Explicitly loop over the 10 structural nodes expected by the Tet10 topology
@@ -1633,12 +1902,6 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 					material_texture[idx] = [202.0, 0.0, 0.001, 0.0]    # ID=202, Gravity=0, Ultra light mass
 					constants_texture[idx] = [0.0, 0.0, 100.0, 0.0]     # Fluid Bulk Modulus = 100
 			'''
-
-
-
-
-
-
 
 	def _matvec(self, p):
 		# Mandatory SciPy callback. Evaluates strictly the action product channels
