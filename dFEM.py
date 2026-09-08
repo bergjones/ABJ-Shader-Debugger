@@ -34,6 +34,7 @@ import random
 import numpy as np
 import scipy
 import scipy.sparse.linalg as splinalg
+from scipy.sparse.linalg import LinearOperator
 import importlib
 import sys
 import copy
@@ -47,6 +48,402 @@ jax.config.update("jax_enable_x64", True)
 
 bpy.utils.expose_bundled_modules()
 import openvdb as vdb
+
+# 1. Define a custom callback class to track progress
+class PercentageCallback:
+	def __init__(self, tol):
+		self.tol = tol
+		self.initial_resid = None
+		self.iteration = 0
+
+	def __call__(self, x_or_resid):
+		# SciPy handles callbacks differently depending on the version.
+		# Modern SciPy passes the residual norm directly to the callback.
+		# If it's a vector, we calculate its norm.
+		if np.isscalar(x_or_resid):
+			current_resid = x_or_resid
+		else:
+			# Fallback if your SciPy version passes the current solution vector 'x'
+			# (Note: calculating residual from 'x' requires A and b, 
+			# so tracking by residual norm is highly preferred)
+			current_resid = np.linalg.norm(x_or_resid) 
+		
+		# Set the initial residual on the very first iteration
+		if self.initial_resid is None or self.initial_resid == 0:
+			self.initial_resid = current_resid
+			
+		self.iteration += 1
+		
+		# Prevent division by zero if already convergedf
+		if self.initial_resid <= self.tol:
+			percent = 100.0
+		else:
+			# Calculate progress on a logarithmic scale since CG converges exponentially
+			# Distance remaining in log space divided by total log distance needed
+			total_log_dist = np.log10(self.initial_resid) - np.log10(self.tol)
+			if total_log_dist > 0:
+				current_log_dist = np.log10(self.initial_resid) - np.log10(max(current_resid, self.tol))
+				percent = (current_log_dist / total_log_dist) * 100
+			else:
+				percent = 100.0
+
+		# Clip between 0 and 100 just in case of residual bounces
+		percent = clip_percent = max(0.0, min(100.0, percent))
+		
+		# Print progress overlaying the same line (\r)
+		print(f"\rIteration {self.iteration}: Progress ~{percent:.1f}% (Resid: {current_resid:.2e})", end="", flush=True)
+
+
+
+
+
+def compute_element_forces_jax(element_displacements, element_velocities, element_node_coords, mat_id, E, nu, dt1):
+	"""Evaluates and integrates total internal forces over the Tet10 element geometry."""
+	f_int_element = jnp.zeros((10, 3))
+	
+	# 4-Point Gauss Quadrature Constants
+	a, b = 0.5854101966249685, 0.1381966011250105
+	gauss_points = jnp.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]])
+	gauss_weight = 1.0 / 24.0
+	
+	for gp in gauss_points:
+		r, s, t = gp[0], gp[1], gp[2]
+		u = 1.0 - r - s - t
+		
+		# Tet10 Basis derivatives
+		dN_dr = jnp.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
+		dN_ds = jnp.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
+		dN_dt = jnp.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
+		
+		dN_dxi = jnp.stack([dN_dr, dN_ds, dN_dt], axis=0)
+		Jacobian = jnp.dot(dN_dxi, element_node_coords)
+		det_J = jnp.linalg.det(Jacobian)
+		inv_Jacobian = jnp.linalg.inv(Jacobian)
+		
+		dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
+		dV = det_J * gauss_weight
+		
+		# Extract deformation gradients relative to reference layout
+		disp_grad = element_displacements.T @ dN_dx.T
+		vel_grad = element_velocities.T @ dN_dx.T
+		F = jnp.eye(3) + disp_grad
+		
+		P_stress = evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
+		f_int_element += (P_stress @ dN_dx * dV).T
+		
+	return f_int_element	
+
+
+import jax.numpy as jnp
+
+def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, dt_scale):
+	"""Computes First Piola-Kirchhoff stress tensor universally for any phase using pure JAX mathematical branches."""
+	J_vol = jnp.linalg.det(F_eval)
+
+	# ----------------------------------------------------------------------
+	# PHASE A: SOLID TISSUE (Stable Neo-Hookean)
+	# ----------------------------------------------------------------------
+	mu_solid = E / (2.0 * (1.0 + nu))
+	lambda_solid = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+	alpha = 1.0 + (mu_solid / lambda_solid)
+	stress_scale = mu_solid * (1.0 - (1.0 / (jnp.trace(F_eval.T @ F_eval) + 1.0)))
+
+	# Differentiable cofactor formulation using matrix inverses
+	F_cofactor = J_vol * jnp.linalg.inv(F_eval).T
+	P_solid = stress_scale * F_eval + (lambda_solid * (J_vol - alpha)) * F_cofactor
+		
+	# ----------------------------------------------------------------------
+	# PHASE B: LIQUID PHASE (Navier-Stokes Continuum)
+	# ----------------------------------------------------------------------
+	Kf, viscosity_mu = E, nu
+	pressure = Kf * (J_vol - 1.0)
+	D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+	div_v = jnp.trace(D_tensor)
+	lambda_fluid = -(2.0 / 3.0) * viscosity_mu
+	viscous_stress = 2.0 * viscosity_mu * D_tensor + lambda_fluid * div_v * jnp.eye(3)
+	total_cauchy = -pressure * jnp.eye(3) + viscous_stress
+	P_liquid = J_vol * total_cauchy @ jnp.linalg.inv(F_eval).T
+		
+	# ----------------------------------------------------------------------
+	# PHASE C: AMBIENT AIR BUFFER MATRIX (Compliant Elastic Solid)
+	# ----------------------------------------------------------------------
+	mu_air, lambda_air = 1e-4, 1e-3
+	strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
+	P_air = 2.0 * mu_air * strain_air + lambda_air * jnp.trace(strain_air) * jnp.eye(3)
+		
+	# ----------------------------------------------------------------------
+	# MATHEMATICAL ROUTING BLOCK (Replaces Python if/elif)
+	# ----------------------------------------------------------------------
+	# We use nested jnp.where statements to choose the right tensor per element.
+	# jnp.where takes a boolean array condition and merges the arrays.
+
+	is_solid = (mat_id == 101.0)
+	is_liquid = (mat_id == 400.0)
+
+	# If solid, take P_solid. If not, check if liquid. If not liquid, default to air.
+	P_stress_final = jnp.where(
+		is_solid, 
+		P_solid, 
+		jnp.where(is_liquid, P_liquid, P_air)
+	)
+
+	return P_stress_final
+
+class Substep1JacobianOperatorJAX_debug(splinalg.LinearOperator):
+# class Substep1JacobianOperatorJAX_debug(LinearOperator):
+	# def __init__(self, num_dofs_int, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt1, M_diag):
+	def __init__(self, dtype, num_dofs_int):
+		clean_dof = int(num_dofs_int)
+		# super().__init__(dtype=np.dtype(dtype), shape=(clean_dof, clean_dof))
+		# super().__init__(dtype=np.dtype(dtype), shape=(clean_dof, clean_dof))
+
+		super().__init__(np.dtype(dtype), (clean_dof, clean_dof))
+
+
+		
+		# self.shape = (int(dof_size), int(dof_size))
+		# self.dtype = np.dtype(dtype)
+
+		# super().__init__(dtype=dtype, shape=(dof_size, dof_size))
+	
+		def _matvec(self, p):
+			"""Computes J_op @ p globally in a SINGLE hardware pass via jax.vmap and jax.jvp."""
+			
+			# return p.ravel()
+			return np.asarray(p, dtype=self.dtype).ravel()
+
+# class Substep1JacobianOperatorJAX0(splinalg.LinearOperator):
+class Substep1JacobianOperatorJAX(LinearOperator):
+	def __init__(self, dtype, num_dofs_int, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt1, M_diag):
+		# dof_size = int(shape[0])
+		clean_dof = int(num_dofs_int)
+		# super().__init__(dtype=dtype, shape=shape)
+		super().__init__(dtype=dtype, shape=(clean_dof, clean_dof))
+
+		# # Keep references to the entire global mesh data structure
+		# self.u_global = np.array(u_global).reshape(-1, 3)
+		# self.v_global = np.array(v_global).reshape(-1, 3)
+		# self.nodes_global = np.array(nodes_global)
+		# self.topology = topology
+		# self.properties = properties
+		# self.fixed_dofs = fixed_dofs
+		# self.dt1 = dt1
+		# self.M_diag = np.array(M_diag).ravel()
+		# # self.num_dofs = shape[0]
+		# self.num_dofs = clean_dof
+
+		# 1. Cast the ENTIRE global structure into JAX arrays once during initialization
+		self.u_global = jnp.array(u_global).reshape(-1, 3)
+		self.v_global = jnp.array(v_global).reshape(-1, 3)
+		self.nodes_global = jnp.array(nodes_global)
+		self.topology = jnp.array(topology)         # Shape: (Num_Elements, 10)
+		self.properties = jnp.array(properties)     # Shape: (Num_Elements,)
+		self.fixed_dofs = fixed_dofs
+		self.M_diag = jnp.array(M_diag).ravel()
+		# self.num_dofs = shape[0]
+		self.num_dofs = clean_dof
+		self.dt1 = dt1
+
+
+		# 2. Pre-compile the multi-element batch wrapper using vmap
+		# This transforms compute_element_forces_jax from operating on 1 element to N elements
+
+		self.vmapped_forces = jax.vmap(
+			compute_element_forces_jax, 
+			in_axes=(0, 0, 0, 0, 0, 0, None) # Batch along axis 0 for local arrays, dt1 is shared
+		)				
+
+	# '''
+
+	def _matvec(self, p):
+		"""Computes J_op @ p globally in a SINGLE hardware pass via jax.vmap and jax.jvp."""
+		p_constrained = p.copy().ravel()
+		p_constrained[self.fixed_dofs] = 0.0
+		p_nodes = jnp.array(p_constrained).reshape(-1, 3)
+
+		time_scale = self.dt1 / 2.0
+
+		# Gather all element local data slices across the mesh into batched 3D tensors instantly
+		u_batched = self.u_global[self.topology]      # Shape: (Num_Elements, 10, 3)
+		v_batched = self.v_global[self.topology]      # Shape: (Num_Elements, 10, 3)
+		coords_batched = self.nodes_global[self.topology] # Shape: (Num_Elements, 10, 3)
+		p_batched = p_nodes[self.topology]            # Shape: (Num_Elements, 10, 3)
+
+		# Map property tags directly to continuous material tracking arrays for the batch
+		# Air (0) -> mat_id=202, E=1, nu=0.001 | Solid (1) -> mat_id=101, E=10, nu=0.45
+		mat_ids = jnp.where(self.properties == 1, 101.0, 202.0)
+		Es = jnp.where(self.properties == 1, 10.0, 1.0)
+		nus = jnp.where(self.properties == 1, 0.45, 0.001)
+
+		# return 0
+
+		# Define batch closures for JAX automatic differentiation
+		# def batch_force_vs_disp(u_b):
+		# 	return self.vmapped_forces(u_b, v_batched, coords_batched, mat_ids, list(Es), list(nus), self.dt1)
+			
+		# def batch_force_vs_vel(v_b):
+		# 	return self.vmapped_forces(u_batched, v_b, coords_batched, mat_ids, list(Es), list(nus), self.dt1)
+
+		# Remove list() wraps. Es and nus are already batched arrays!
+		def batch_force_vs_disp(u_b):
+			return self.vmapped_forces(u_b, v_batched, coords_batched, mat_ids, Es, nus, self.dt1)
+			
+		def batch_force_vs_vel(v_b):
+			return self.vmapped_forces(u_batched, v_b, coords_batched, mat_ids, Es, nus, self.dt1)
+
+		# Call JAX JVP ON THE ENTIRE MESH AT ONCE! No Python loops.
+		_, dF_du_batched = jax.jvp(batch_force_vs_disp, (u_batched,), (p_batched * time_scale,))
+		_, dF_dv_batched = jax.jvp(batch_force_vs_vel, (v_batched,), (p_batched,))
+		
+		q_batched_tet = dF_du_batched + dF_dv_batched # Shape: (Num_Elements, 10, 3)
+
+		# Scatter-Add the local 10x3 calculations back into a global vector of size 11742
+		# JAX's .at[index].add() optimizes this scatter pass seamlessly on hardware
+		q_stiffness_global = jnp.zeros((len(self.u_global), 3))
+		
+		# Expand indices to match the batched flattened structures
+		flat_topology = self.topology.ravel() # Shape: (Num_Elements * 10,)
+		flat_q = q_batched_tet.reshape(-1, 3)  # Shape: (Num_Elements * 10, 3)
+		
+		q_stiffness_global = q_stiffness_global.at[flat_topology].add(flat_q)
+		q_stiffness_flat = np.array(q_stiffness_global.ravel())
+
+		# Enforce boundary conditions and pair with diagonal system inertia
+		q_stiffness_flat[self.fixed_dofs] = 0.0
+		return np.array(self.M_diag * p.ravel() + q_stiffness_flat)
+
+		# ######################
+		# #RECURSIVE debug 0
+		# ######################
+
+		# q_stiffness_global = jnp.zeros((len(self.u_global), 3))
+		# q_stiffness_global = q_stiffness_global.at[self.topology.ravel()].add(q_batched_tet.reshape(-1, 3))
+
+		# # --- THE RECURSION PROOF CONVERSION ---
+		# # 1. Compute the final matrix multiplication mapping completely in pure JAX
+		# result_jax = self.M_diag * jnp.array(p.ravel()) + q_stiffness_global.ravel()
+
+		# # 2. Convert JAX array directly to a standard Python list, then build a raw float64 NumPy array
+		# # This completely strips out any hidden JAX tracer attributes, preventing SciPy type loop recursion
+		# result_np = np.array(result_jax.tolist(), dtype=np.float64)
+
+		# # 3. Enforce boundary conditions cleanly onto the final real array vector
+		# result_np[self.fixed_dofs] = 0.0
+
+		# # Return a perfectly flat, clean standard NumPy vector of size 11742
+		# return result_np.ravel()
+
+		# '''
+
+	# OLD
+	# def _matvec(self, p):
+	# 	"""Computes J_op @ p globally by looping over elements and applying JAX locally."""
+	# 	# 1. Enforce boundary conditions and reshape the incoming search direction p
+	# 	p_constrained = p.copy().ravel()
+	# 	p_constrained[self.fixed_dofs] = 0.0
+	# 	p_nodes = p_constrained.reshape(-1, 3)
+		
+	# 	# Initialize the global stiffness action vector (same length as R_combined)
+	# 	q_stiffness_global = np.zeros(self.num_dofs, dtype=np.float64)
+		
+	# 	# Substep 1 Time Integration Multiplier
+	# 	time_scale = self.dt1 / 2.0
+
+	# 	# 2. THE GLOBAL TOPOLOGY LOOP
+	# 	for t_idx, tet in enumerate(self.topology):
+	# 		# Extract material properties for this specific element
+	# 		if self.properties[t_idx] == 0:    # Air
+	# 			mat_id, E, nu = 202.0, 1.0, 0.001
+	# 		elif self.properties[t_idx] == 1:  # Solid Sphere
+	# 			mat_id, E, nu = 101.0, 10.0, 0.45
+	# 		else:
+	# 			continue
+
+	# 		# Isolate the exact 10 nodes for this tet element from global tracking fields
+	# 		u_local = jnp.array(self.u_global[tet])
+	# 		v_local = jnp.array(self.v_global[tet])
+	# 		coords_local = jnp.array(self.nodes_global[tet])
+	# 		p_local = jnp.array(p_nodes[tet]) # Local slice of solver perturbation direction
+
+	# 		# Define localized inline functions for this specific tet's forces
+	# 		def local_force_vs_disp(u_state):
+	# 			return self.compute_element_forces_jax(u_state, v_local, coords_local, mat_id, E, nu, time_scale)
+				
+	# 		def local_force_vs_vel(v_state):
+	# 			return self.compute_element_forces_jax(u_local, v_state, coords_local, mat_id, E, nu, time_scale)
+
+	# 		# Compute exact local analytical actions via JAX
+	# 		_, dF_du_local = jax.jvp(local_force_vs_disp, (u_local,), (p_local * time_scale,))
+	# 		_, dF_dv_local = jax.jvp(local_force_vs_vel, (v_local,), (p_local,))
+			
+	# 		# Combine the localized displacement and velocity stiffness updates
+	# 		q_local_tet = np.array(dF_du_local + dF_dv_local).ravel() # Length 30 flat array
+
+	# 		# Gather (scatter-add) the local 30 DOFs back into the global tracking vector
+	# 		# We map local element node dimensions back to global degrees of freedom
+	# 		for local_node_idx, global_node_idx in enumerate(tet):
+	# 			g_dof = global_node_idx * 3
+	# 			q_stiffness_global[g_dof:g_dof+3] += q_local_tet[local_node_idx*3 : local_node_idx*3+3]
+
+	# 	# 3. Apply Boundary Conditions to the final action matrix output
+	# 	q_stiffness_global[self.fixed_dofs] = 0.0
+		
+	# 	# Return physical structural matrix action mapping: M_diag * p + K * p
+	# 	return self.M_diag * p.ravel() + q_stiffness_global
+
+
+######## VMAP 2
+
+class Substep2JacobianOperatorJAX(LinearOperator):
+	def __init__(self, shape, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt, gamma, M_diag):
+		super().__init__(dtype=dtype, shape=shape)
+		self.u_global = jnp.array(u_global).reshape(-1, 3)
+		self.v_global = jnp.array(v_global).reshape(-1, 3)
+		self.nodes_global = jnp.array(nodes_global)
+		self.topology = jnp.array(topology)
+		self.properties = jnp.array(properties)
+		self.fixed_dofs = fixed_dofs
+		self.M_diag = jnp.array(M_diag).ravel()
+		self.dt = dt
+		self.gamma = gamma
+
+		time_scale = (self.dt * (2.0 - self.gamma)) / 2.0
+		self.vmapped_forces = jax.vmap(compute_element_forces_jax, in_axes=(0, 0, 0, 0, 0, 0, None))
+
+	def _matvec(self, p):
+		p_constrained = p.copy().ravel()
+		p_constrained[self.fixed_dofs] = 0.0
+		p_nodes = jnp.array(p_constrained).reshape(-1, 3)
+		
+		time_scale = (self.dt * (2.0 - self.gamma)) / 2.0
+
+		u_batched = self.u_global[self.topology]
+		v_batched = self.v_global[self.topology]
+		coords_batched = self.nodes_global[self.topology]
+		p_batched = p_nodes[self.topology]
+
+		mat_ids = jnp.where(self.properties == 1, 101.0, 202.0)
+		Es = jnp.where(self.properties == 1, 10.0, 1.0)
+		nus = jnp.where(self.properties == 1, 0.45, 0.001)
+
+		def batch_force_vs_disp(u_b):
+			return self.vmapped_forces(u_b, v_batched, coords_batched, mat_ids, Es, nus, time_scale)
+
+		def batch_force_vs_vel(v_b):
+			return self.vmapped_forces(u_batched, v_b, coords_batched, mat_ids, Es, nus, time_scale)
+
+		_, dF_du_batched = jax.jvp(batch_force_vs_disp, (u_batched,), (p_batched * time_scale,))
+		_, dF_dv_batched = jax.jvp(batch_force_vs_vel, (v_batched,), (p_batched,))
+		
+		q_batched_tet = dF_du_batched + dF_dv_batched
+
+		q_stiffness_global = jnp.zeros((len(self.u_global), 3))
+		q_stiffness_global = q_stiffness_global.at[self.topology.ravel()].add(q_batched_tet.reshape(-1, 3))
+		q_stiffness_flat = np.array(q_stiffness_global.ravel())
+
+		q_stiffness_flat[self.fixed_dofs] = 0.0
+		return np.array(self.M_diag * p.ravel() + q_stiffness_flat)
+
 
 
 class myEquation_dFEM:
@@ -429,54 +826,9 @@ class myEquation_dFEM:
 		# Simply print a dot or iteration notice to watch progress in the console
 		print(".", end="", flush=True)
 
-	# 1. Define a custom callback class to track progress
-	class PercentageCallback:
-		def __init__(self, tol):
-			self.tol = tol
-			self.initial_resid = None
-			self.iteration = 0
-
-		def __call__(self, x_or_resid):
-			# SciPy handles callbacks differently depending on the version.
-			# Modern SciPy passes the residual norm directly to the callback.
-			# If it's a vector, we calculate its norm.
-			if np.isscalar(x_or_resid):
-				current_resid = x_or_resid
-			else:
-				# Fallback if your SciPy version passes the current solution vector 'x'
-				# (Note: calculating residual from 'x' requires A and b, 
-				# so tracking by residual norm is highly preferred)
-				current_resid = np.linalg.norm(x_or_resid) 
-			
-			# Set the initial residual on the very first iteration
-			if self.initial_resid is None or self.initial_resid == 0:
-				self.initial_resid = current_resid
-				
-			self.iteration += 1
-			
-			# Prevent division by zero if already convergedf
-			if self.initial_resid <= self.tol:
-				percent = 100.0
-			else:
-				# Calculate progress on a logarithmic scale since CG converges exponentially
-				# Distance remaining in log space divided by total log distance needed
-				total_log_dist = np.log10(self.initial_resid) - np.log10(self.tol)
-				if total_log_dist > 0:
-					current_log_dist = np.log10(self.initial_resid) - np.log10(max(current_resid, self.tol))
-					percent = (current_log_dist / total_log_dist) * 100
-				else:
-					percent = 100.0
-
-			# Clip between 0 and 100 just in case of residual bounces
-			percent = clip_percent = max(0.0, min(100.0, percent))
-			
-			# Print progress overlaying the same line (\r)
-			print(f"\rIteration {self.iteration}: Progress ~{percent:.1f}% (Resid: {current_resid:.2e})", end="", flush=True)
 
 
-
-	# def run_tr_bdf2_time_step(self, myEquation_dFEM, nodes_tet10, topology_tet10, element_properties, x_t, v_t, F_ext, dt, tol=1e-5, max_newton_iter=5):
-	def run_tr_bdf2_time_step(self, myEquation_dFEM, nodes_tet10, topology_tet10, element_properties, x_t, v_t, F_ext, dt, tol=1e-5, max_newton_iter=1):
+	def run_tr_bdf2_time_step(self, myEquation_dFEM, nodes_tet10, topology_tet10, element_properties, x_t, v_t, F_ext, dt, tol=1e-5, max_newton_iter=5):
 		'''
 		TR-BDF2 References
 		https://www.sciencedirect.com/science/article/pii/S0898122121001267
@@ -519,10 +871,10 @@ class myEquation_dFEM:
 		dt1 = gamma * dt
 		
 		# Initialize your reference state tracking operator at the historical position
-		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
+		op_t = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_t - nodes_tet10, v_t, fixed_dofs, dt1, myEquation_dFEM)
 
 		# Exact Force Gathering Check: Read the true force directly from the initial operator state
-		f_int_t = op_t.compute_forces_and_action(p_vector=None)
+		f_int_t = op_t.compute_forces_and_action()
 
 		# return 0, 0 # hang debug
 
@@ -530,21 +882,28 @@ class myEquation_dFEM:
 		# SUBSTEP 1: TRAPEZOIDAL RULE STEP (From t to t + gamma*dt)
 		# ==========================================================================
 		# dt1 = gamma * dt
+		###STOCK
 		x_gamma = x_t.copy()
 		v_gamma = v_t.copy()
 
+		# x_gamma = v_t.copy()
+		# v_gamma = x_t.copy()
+
+		# return v_gamma, x_gamma
+		# return x_gamma, v_gamma
+
+		# return 0, 0 # hang debug
 		# return 0, 0 # hang debug
 
-		
 		print('topology_tet10.shape[1] = ', topology_tet10.shape[1])
 
 		for n_iter in range(max_newton_iter):
 			# Re-instantiate the operator at the current trial position coordinates
 
-			op_gamma = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_gamma - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
+			op_gamma = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_gamma - nodes_tet10, v_gamma, fixed_dofs, dt1, myEquation_dFEM)
 			
-			# Calculate internal forces for this Newton iteration pass pass
-			f_int_gamma = op_gamma.compute_forces_and_action(p_vector=None)
+			# Calculate internal forces for this Newton iteration pass
+			f_int_gamma = op_gamma.compute_forces_and_action()
 
 			# Calculate your step 1 residual vector mapping mapping ### OLD
 			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma + 2.0 * F_ext)
@@ -552,13 +911,10 @@ class myEquation_dFEM:
 			R_combined = R + M_diag * (R_pos / dt1)
 			R_combined[fixed_dofs] = 0.0
 
-
-
-
 			# CORRECTED SUBSTEP 1 RESIDUAL MECHANICS
+			'''
 			# 1. Internal forces should add to the inertia to balance external loads correctly
 			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext + 2.0 * F_ext) + (dt1 / 2.0) * (f_int_t + f_int_gamma)
-
 			# 2. Position continuity constraint mapping
 			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
 
@@ -566,41 +922,229 @@ class myEquation_dFEM:
 			R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
 
 			R_combined[fixed_dofs] = 0.0
+			'''
 
+			print('~~~~~~~~~~~~~~ DEBUG START TR ~~~~~~~~~~~~')
+			print('R_combined = ', R_combined)
+			print('len(R_combined) = ', len(R_combined))
+			print('fixed_dofs = ', fixed_dofs)
+			print('len(fixed_dofs) = ', len(fixed_dofs))
+			print('dof = ', dof)
+			print('~~~~~~~~~~~~~~ DEBUG END TR ~~~~~~~~~~~~')
 
-
-
-
-
-			# print('~~~~~~~~~~~~~~ DEBUG START 0 ~~~~~~~~~~~~')
-			# print('R_combined = ', R_combined)
-			# print('len(R_combined) = ', len(R_combined))
-			# print('fixed_dofs = ', fixed_dofs)
-			# print('len(fixed_dofs) = ', len(fixed_dofs))
-			# print('~~~~~~~~~~~~~~ DEBUG END 0 ~~~~~~~~~~~~')
+			# return 0, 0
 
 			if np.linalg.norm(R_combined) < tol:
 				break
 
 			# Define the Jacobian operator mapping for the Conjugate Gradient solver
-			class Substep1JacobianOperator(splinalg.LinearOperator):
-				def __init__(self, shape, dtype):
-					super().__init__(dtype=dtype, shape=shape)
-				def _matvec(self, p):
-					# We leverage op_gamma's fast tracking channel to compute Ke * p
-					# _, y_action = op_gamma.compute_forces_and_action(p)
-					# return M_diag * p - (dt1 / 2.0) * y_action
-					_, y_action = op_gamma.compute_forces_and_action(p.ravel())
-					return (M_diag.ravel() * p.ravel() - (dt1 / 2.0) * y_action.ravel()).ravel()
+
+
+			def compute_element_forces_jax(element_displacements, element_velocities, element_node_coords, mat_id, E, nu, dt1):
+				"""Evaluates and integrates total internal forces over the Tet10 element geometry."""
+				f_int_element = jnp.zeros((10, 3))
+				
+				# 4-Point Gauss Quadrature Constants
+				a, b = 0.5854101966249685, 0.1381966011250105
+				gauss_points = jnp.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]])
+				gauss_weight = 1.0 / 24.0
+				
+				for gp in gauss_points:
+					r, s, t = gp[0], gp[1], gp[2]
+					u = 1.0 - r - s - t
+					
+					# Tet10 Basis derivatives
+					dN_dr = jnp.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
+					dN_ds = jnp.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
+					dN_dt = jnp.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
+					
+					dN_dxi = jnp.stack([dN_dr, dN_ds, dN_dt], axis=0)
+					Jacobian = jnp.dot(dN_dxi, element_node_coords)
+					det_J = jnp.linalg.det(Jacobian)
+					inv_Jacobian = jnp.linalg.inv(Jacobian)
+					
+					dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
+					dV = det_J * gauss_weight
+					
+					# Extract deformation gradients relative to reference layout
+					disp_grad = element_displacements.T @ dN_dx.T
+					vel_grad = element_velocities.T @ dN_dx.T
+					F = jnp.eye(3) + disp_grad
+					
+					# P_stress = self.evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
+					P_stress = evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
+					f_int_element += (P_stress @ dN_dx * dV).T
+					
+				return f_int_element	
+
+			def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, dt_scale):
+				"""Computes First Piola-Kirchhoff stress tensor universally for any phase using JAX."""
+				# JAX matrix determinants are natively differentiable
+				J_vol = jnp.linalg.det(F_eval)
+				
+				# --- PHASE A: SOLID TISSUE (Stable Neo-Hookean) ---
+				if mat_id == 101.0:
+					mu = E / (2.0 * (1.0 + nu))
+					lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+					alpha = 1.0 + (mu / lambda_param)
+					
+					# trace and matrix operations map directly to JAX primitives
+					stress_scale = mu * (1.0 - (1.0 / (jnp.trace(F_eval.T @ F_eval) + 1.0)))
+					
+					# Differentiable cofactor formulation using matrix inverses
+					# J_vol * F^-T is mathematically identical to your cross-product loop
+					F_cofactor = J_vol * jnp.linalg.inv(F_eval).T
+					
+					return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
+					
+				# --- PHASE B: LIQUID PHASE (Navier-Stokes Continuum) ---
+				elif mat_id == 400.0:
+					# Map incoming variables to physics parameters
+					# E behaves as Bulk Modulus (Kf), nu behaves as Dynamic Viscosity (mu)
+					Kf = E
+					viscosity_mu = nu
+					dt_scale = dt1  # Dynamically receives time_scale from the JAX operator
+					
+					# 1. Compute Fluid Pressure via Equation of State (EOS)
+					pressure = Kf * (J_vol - 1.0)
+					
+					# 2. Compute Rate-of-Strain Tensor (D) from velocity gradient
+					# vel_grad_eval represents L = grad(v)
+					D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+					
+					# 3. Compute Divergence of Velocity (Trace of Rate-of-Strain)
+					# div_v represents the local volumetric expansion rate of the fluid
+					div_v = jnp.trace(D_tensor)
+					
+					# 4. Apply True Compressible Navier-Stokes Viscous Stress Equation
+					# Total Viscous Stress = 2*mu*D + lambda_fluid*trace(D)*Identity
+					# According to the Stokes hypothesis, bulk viscosity defaults to: lambda_fluid = -2/3 * mu
+					lambda_fluid = -(2.0 / 3.0) * viscosity_mu
+					viscous_stress = 2.0 * viscosity_mu * D_tensor + lambda_fluid * div_v * jnp.eye(3)
+					
+					# 5. Integrate dynamic tangent scaling parameters for JAX AD tracking channels
+					# These variables tell JAX how the operator scales when differentiating forces 
+					# with respect to velocity/displacement updates across the active sub-interval width.
+					mu_stiff = viscosity_mu * dt_scale
+					lambda_stiff = Kf * dt_scale
+					
+					# 6. Return the true First Piola-Kirchhoff Fluid Stress Tensor
+					# In a spatial reference frame, P_fluid = J * \sigma * F^-T
+					# For a standard Eulerian/weakly-compressible fluid mapping:
+					total_cauchy_stress = -pressure * jnp.eye(3) + viscous_stress
+
+					return J_vol * total_cauchy_stress @ jnp.linalg.inv(F_eval).T
+
+				# --- PHASE C: AMBIENT AIR BUFFER MATRIX (Compliant Elastic Solid) ---
+				elif mat_id == 202.0:
+					mu_stiff = 1e-4
+					lambda_stiff = 1e-3
+					strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
+					return 2.0 * mu_stiff * strain_air + lambda_stiff * jnp.trace(strain_air) * jnp.eye(3)
+					
+				return jnp.zeros((3, 3))
+
+			# return 0, 0
+
+			########### DEBUG !!!!!!!!!!!!!!
+			########### DEBUG !!!!!!!!!!!!!!
+			########### DEBUG !!!!!!!!!!!!!!
+			# class Substep1JacobianOperatorJAX(splinalg.LinearOperator):
+			# 	def __init__(self, shape, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt1, M_diag):
+			# 		dof_size = int(shape[0])
+			# 		# super().__init__(dtype=dtype, shape=shape)
+			# 		super().__init__(dtype=dtype, shape=(dof_size, dof_size))
+				
+			# 		def _matvec(self, p):
+			# 			"""Computes J_op @ p globally in a SINGLE hardware pass via jax.vmap and jax.jvp."""
+						
+			# 			return p.ravel() 
+
+
+			# J_op = Substep1JacobianOperator((len(R_combined), len(R_combined)), np.float64)
+			# J_op = Substep1JacobianOperator((len(dof), len(dof)), np.float64, x_t.ravel(), v_t.ravel(), nodes_tet10)
+			# J_op = Substep1JacobianOperator((len(dof), len(dof)), np.float64, x_t.ravel(), v_t.ravel(), nodes_tet10)
+			# J_op = Substep1JacobianOperator((len(dof), len(dof)), np.float64, x_next - nodes_tet10, v_next - nodes_tet10, element_properties)
+
+			print('debug trbdf2 step -1')
+
+			num_dofs_int = len(R_combined)
+			dof_size = int(R_combined[0])
+
+			print('num_dofs_int = ', num_dofs_int)
+			print('dof_size = ', dof_size)
+
+			# if dof_size <= 0:
+			# 	raise ValueError(f"Object dof error : <= 0.")
+			
+
+			# J_op = Substep1JacobianOperatorJAX
+			# J_op = Substep1JacobianOperatorJAX_debug(
+			# np.float64, num_dofs_int,
+			# # (num_dofs_int, num_dofs_int),
+
+			# )
+
+
+			J_op = Substep1JacobianOperatorJAX(
+			np.float64, #dtype
+			num_dofs_int, #shape
+			u_global=x_gamma - nodes_tet10,  # Current trial displacement (U = X - X_reference) #uglobal
+			v_global=v_gamma,                 # Current trial velocity
+			nodes_global=nodes_tet10, 
+			topology=topology_tet10, 
+			properties=element_properties, 
+			fixed_dofs=fixed_dofs, 
+			dt1=dt1, 
+			M_diag=M_diag
+			)
 
 
 
-			J_op = Substep1JacobianOperator((len(R_combined), len(R_combined)), np.float64)
+			# J_op = Substep1JacobianOperatorJAX(
+			# # shape=len(R_combined),
+			# # shape=(len(R_combined), len(R_combined)),
+			# # shape=(num_dofs_int, num_dofs_int),
+			# dtype=np.float64,
+			# shape=num_dofs_int, 
+			# u_global=x_gamma - nodes_tet10,  # Current trial displacement (U = X - X_reference)
+			# v_global=v_gamma,                 # Current trial velocity
+			# nodes_global=nodes_tet10, 
+			# topology=topology_tet10, 
+			# properties=element_properties, 
+			# fixed_dofs=fixed_dofs, 
+			# dt1=dt1, 
+			# M_diag=M_diag
+			# )
 
-			print("Starting CG Krylov Subspace Loop...", flush=True)
+
+
+			# J_op = Substep1JacobianOperatorJAX
+			# # J_op = Substep1JacobianOperatorJAX_debug(
+			# # shape=len(R_combined),
+			# # shape=(len(R_combined), len(R_combined)),
+			# shape=(num_dofs_int, num_dofs_int),
+			# # shape = (dof, dof),
+			# dtype=np.float64,
+			# u_global=x_gamma - nodes_tet10,  # Current trial displacement (U = X - X_reference)
+			# v_global=v_gamma,                 # Current trial velocity
+			# nodes_global=nodes_tet10, 
+			# topology=topology_tet10, 
+			# properties=element_properties, 
+			# fixed_dofs=fixed_dofs, 
+			# dt1=dt1, 
+			# M_diag=M_diag
+			# )
+
+			# return 0, 0
+
+			print('debug trbdf2 step 0')
+
 
 			myRtol = 1e-6
-			progress_callback = self.PercentageCallback(tol=tol)
+			progress_callback = PercentageCallback(tol=tol)
+
+			print('debug trbdf2 step 1')
 		
 			#####
 			## DEBUG
@@ -611,31 +1155,23 @@ class myEquation_dFEM:
 			M_diag_safe = np.where(M_diag == 0, 1.0, M_diag)
 			inv_M = 1.0 / M_diag_safe
 
+			print('debug trbdf2 step 2')
+
+
+			#ValueError: cannot reshape array of size 1 into shape (11742,)
+
+			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
+			delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100) ###
+
+			print('debug trbdf2 step 3')
+
 			def jacobi_preconditioner(v):
 				return inv_M * v
 
 			# Wrap the preconditioner function for SciPy
-			M_precond = splinalg.LinearOperator(shape=J_op.shape, matvec=jacobi_preconditioner)
-
-			print("Executing BiCGStab with Jacobi Preconditioning...", flush=True)
-
-			#### PART 2
-			# Test the Operator matrix action with a uniform vector of ones
-			# test_vector = np.random.randn(len(R_combined))
-			# _, test_stiffness_action = op_gamma.compute_forces_and_action(test_vector)
-
-			# # Find any degree of freedom index where the stiffness operator returns absolute zero
-			# dead_dofs = np.where(np.abs(test_stiffness_action) < 1e-12)[0]
-			# print(f"TRUE disconnected Degrees of Freedom count: {len(dead_dofs)}")
-
-			# if len(dead_dofs) > 0:
-			# 	print(f"CRITICAL WARNING: Found {len(dead_dofs)} disconnected Degrees of Freedom!")
-			# 	print(f"Sample dead indices: {dead_dofs[:10]}")
-			# 	print("Check if your MatrixFreeOperator is missing midpoints inside its loop topology mapping.")
-
-			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
-
-			#CHECK
+			# M_precond = splinalg.LinearOperator(shape=J_op.shape, matvec=jacobi_preconditioner)
+			
+			# CHECK
 			# delta_v_flat, info = splinalg.bicgstab(
 			# 	J_op, 
 			# 	-R_combined, 
@@ -646,25 +1182,10 @@ class myEquation_dFEM:
 			# 	callback=progress_callback
 			# )
 
-			delta_v_flat, info = splinalg.gmres(J_op, -R_combined, restart=30, maxiter=100, callback=progress_callback)
-
+			# delta_v_flat, info = splinalg.gmres(J_op, -R_combined, restart=30, maxiter=100, callback=progress_callback)
 
 			#time to solve splinalg.bicgstab = 20 sec
 			#time to solve splinalg.cg =  21 sec
-
-
-			# # 1. Materialize your matrix-free operator into a dense 2D array
-			# J_dense = np.zeros((len(R_combined), len(R_combined)))
-			# for i in range(len(R_combined)):
-			# 	e_i = np.zeros(len(R_combined))
-			# 	e_i[i] = 1.0
-			# 	J_dense[:, i] = J_op._matvec(e_i)  # Extract column i
-
-			# # 2. Use a direct dense solver (bypasses all sparse casting issues)
-			# delta_v_flat = np.linalg.solve(J_dense, -R_combined)
-
-
-			# delta_v_flat = splinalg.spsolve(J_op, -R_combined)
 
 			print(f"\nCG finished with exit code: {info}")
 
@@ -676,8 +1197,11 @@ class myEquation_dFEM:
 			v_gamma += delta_v_flat.reshape(-1, 3)
 			x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
 
-		# return 0, 0
+		return 0, 0
 
+		# return v_gamma, x_gamma ######stock
+		# return x_gamma, v_gamma
+		# return 0, 0
 
 		# ==========================================================================
 		# SUBSTEP 2: BDF2 STEP (From t + gamma*dt to t + dt)
@@ -694,9 +1218,9 @@ class myEquation_dFEM:
 
 		# Newton-Raphson Loop for Substep 2
 		for n_iter in range(max_newton_iter):
-			op_next = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_next - nodes_tet10, fixed_dofs, dt1, myEquation_dFEM)
+			op_next = MatrixFreeTet10Operator(nodes_tet10, topology_tet10, element_properties, x_next - nodes_tet10, v_next, fixed_dofs, dt1, myEquation_dFEM)
 			
-			f_int_next = op_next.compute_forces_and_action(p_vector=x_next)
+			f_int_next = op_next.compute_forces_and_action()
 			
 			# Calculate step 2 residual mapping
 			# R = M * (alpha_bdf * v_next - combined_past_history) - dt2 * (F_int(next) + F_ext)
@@ -709,51 +1233,67 @@ class myEquation_dFEM:
 			# R_combined = R + M_diag * (R_pos / dt) ######
 			R_combined = R + M_diag * (R_pos / dt2)
 
-			# R_combined = R_combined.ravel()
-			R_combined = R_combined[0].ravel() 
+			R_combined = R_combined.ravel()
+			# R_combined = R_combined[0].ravel() 
 
-			# print('~~~~~~~~~~~~~~ DEBUG START 1 ~~~~~~~~~~~~')
-			# print('R_combined = ', R_combined)
-			# print('len(R_combined) = ', len(R_combined))
-			# print('fixed_dofs = ', fixed_dofs)
-			# print('len(fixed_dofs) = ', len(fixed_dofs))
-			# print('~~~~~~~~~~~~~~ DEBUG END 1 ~~~~~~~~~~~~')
+			print('~~~~~~~~~~~~~~ DEBUG START BDF ~~~~~~~~~~~~')
+			print('R_combined = ', R_combined)
+			print('len(R_combined) = ', len(R_combined))
+			print('fixed_dofs = ', fixed_dofs)
+			print('len(fixed_dofs) = ', len(fixed_dofs))
+			print('dof = ', dof)
+			print('~~~~~~~~~~~~~~ DEBUG END BDF ~~~~~~~~~~~~')
 
 			R_combined[fixed_dofs] = 0.0
-
-			# continue
 			
-
 			if np.linalg.norm(R_combined) < tol:
-				break
-				
-			class Substep2JacobianOperator(splinalg.LinearOperator):
-				def __init__(self, shape, dtype):
-					# self.shape, self.dtype = shape, dtype
-					super().__init__(dtype=dtype, shape=shape)
-				# def _matvec(self, p):
-				# 	# return M_diag * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
-				# 	# return M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)
-					# return (M_diag.ravel() * p - (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p)).ravel()
+				break	
 
-				def _matvec(self, p):
-					# p is guaranteed to be a 1D vector of length 11742 passed by splinalg.cg
-					term1 = M_diag.ravel() * p
-					term2 = (dt * (2.0 - gamma) / 2.0) * op_next._matvec(p).ravel()
+			# def _matvec(self, p):
+			# 	p_jax = jnp.array(p).reshape(-1, 3)
+			# 	time_scale = (self.dt * (2.0 - self.gamma)) / 2.0  # BDF2 time factor
+
+			# 	# Pass the BDF2 time_scale down so fluids scale to Substep 2 parameters
+			# 	def local_force_vs_disp(u_state):
+			# 		return compute_element_forces_jax(u_state, v_local, coords_local, mat_id, E, nu, time_scale)
 					
-					# Explicitly enforce 1D array of system length
-					return (term1 - term2).ravel()
+			# 	def local_force_vs_vel(v_state):
+			# 		return compute_element_forces_jax(u_local, v_state, coords_local, mat_id, E, nu, time_scale)
 
+			# 	# Evaluate exact Substep 2 derivatives using the BDF2 scaling factor
+			# 	_, dF_du_local = jax.jvp(local_force_vs_disp, (u_local,), (p_local * time_scale,))
+			# 	_, dF_dv_local = jax.jvp(local_force_vs_vel, (v_local,), (p_local,))
+				
+			# 	q_local_tet = np.array(dF_du_local + dF_dv_local).ravel()
 
-			J_op2 = Substep2JacobianOperator((dof, dof), np.float64)
+			# '''
+			
+			# '''
+        
+			# J_op2 = Substep2JacobianOperator((dof, dof), np.float64)
+
+			J_op2 = Substep2JacobianOperatorJAX(
+			# shape=len(R_combined),
+			shape=(len(R_combined), len(R_combined)),
+			# shape = (dof, dof),
+			dtype=np.float64, 
+			u_global=x_next - nodes_tet10,   # Trial displacement for end-of-frame
+			v_global=v_next,                  # Trial velocity for end-of-frame
+			nodes_global=nodes_tet10, 
+			topology=topology_tet10, 
+			properties=element_properties, 
+			fixed_dofs=fixed_dofs, 
+			dt=dt, 
+			gamma=gamma, 
+			M_diag=M_diag
+			)
 
 			# delta_v_flat, _ = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
-			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
+			delta_v_flat, info = splinalg.cg(J_op2, -R_combined, rtol=1e-6, callback=progress_callback)
 
 			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, x0=np.zeros_like(R_combined), rtol=myRtol, maxiter=100, callback=progress_callback) ###
 
 			# M_precond2 = splinalg.LinearOperator(shape=J_op2.shape, matvec=jacobi_preconditioner)
-
 
 			# delta_v_flat, info = splinalg.bicgstab(
 			# 	J_op2, 
@@ -765,391 +1305,16 @@ class myEquation_dFEM:
 			# 	callback=progress_callback
 			# )
 
-			delta_v_flat, info = splinalg.gmres(J_op2, -R_combined, restart=30, maxiter=100, callback=progress_callback)
-
-
-
+			# delta_v_flat, info = splinalg.gmres(J_op2, -R_combined, restart=30, maxiter=100, callback=progress_callback)
 
 			print(f"\nCG 2 finished with exit code: {info}")
 
 			v_next += delta_v_flat.reshape(-1, 3)
 			x_next += (delta_v_flat * (dt * (2.0 - gamma) / 2.0)).reshape(-1, 3)
 
-
-
-
 		# return 0, 0 # hang debug
-			
-		return x_next, v_next
-
-
-	# # ======================================================================
-	# # HELPER FUNCTION FOR CENTRAL FINITE DIFFERENCES
-	# # ======================================================================
-	# def evaluate_p_stress(self, F_eval, disp_grad_eval, vel_grad_eval):
-	# 	"""Computes P_stress universally for any material phase."""
-	# 	J_vol = np.linalg.det(F_eval)
-		
-	# 	if mat_id == 101.0: # SOLID
-	# 		mu = E / (2.0 * (1.0 + nu))
-	# 		lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
-	# 		alpha = 1.0 + (mu / lambda_param)
-	# 		stress_scale = mu * (1.0 - (1.0 / (np.trace(F_eval.T @ F_eval) + 1.0)))
-			
-	# 		F_cofactor = np.zeros((3,3), dtype=np.float64)
-	# 		for i in range(3):
-	# 			F_cofactor[:, i] = np.cross(F_eval[:, (i+1)%3], F_eval[:, (i+2)%3])
-	# 		return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
-			
-	# 	elif mat_id == 400.0: # LIQUID
-	# 		Kf = E
-	# 		viscosity = nu
-	# 		pressure = Kf * (J_vol - 1.0)
-	# 		D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
-	# 		return -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor
-			
-	# 	elif mat_id == 202.0: # AIR
-	# 		mu_stiff = 1e-4 
-	# 		lambda_stiff = 1e-3 
-	# 		strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
-	# 		return 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
-			
-	# 	return np.zeros((3, 3))
-
-
-	def compute_tet10_multiphase_dual_kernel(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id, dt1):
-		"""
-		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
-		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
-
-		# ==============================================================================
-		# CONTINUUM MECHANICS MATRIX-FREE KERNEL
-		# ==============================================================================
-		# This kernel evaluates the action of the Tangent Stiffness Operator (Ke * p)
-		# for a High-Order Quadratic Tetrahedron (Tet10) under a Stable Neo-Hookean
-		# energy potential model. 
-		#
-		# MATHEMATICAL & ENGINEERING REFERENCES:
-		# 1. Finite Element Framework: https://en.wikipedia.org/wiki/Finite_element_method
-		# 2. Quadrature Volume Integration: https://en.wikipedia.org/wiki/Gaussian_quadrature
-		# 3. Kinematic Kinematics (Tensor F): https://en.wikipedia.org/wiki/Finite_strain_theory
-		# 4. Material Constitutive Law: https://en.wikipedia.org/wiki/Neo-Hookean_solid
-		#5. Stable Neo-Hookean Flesh Simulation : Smith, De Goes, Kim : https://research.pixar.com/docs/2018.SiggraphPapers.SGK.b.pdf
-		
-		Args:
-			element_velocities: (10, 3) float64 array of current frame node velocities.
-		"""
-		# Initialize output vectors
-		f_local = np.zeros((10, 3), dtype=np.float64)
-		q_local = np.zeros((10, 3), dtype=np.float64)
-		f_int_element = np.zeros((10, 3), dtype=np.float64)
-		q_flat = np.zeros(30, dtype=np.float64)
-		p_flat = p_element_trial.ravel()
-
-		mu = E / (2.0 * (1.0 + nu))
-		lam = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
-
-		# 4-Point Gauss Quadrature Constants
-		a = 0.5854101966249685
-		b = 0.1381966011250105
-		gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
-		gauss_weight = 1.0 / 24.0  
-
-		for idx, gp in enumerate(gauss_points):
-			r, s, t = gp[0], gp[1], gp[2]
-			u = 1.0 - r - s - t
-
-			# Shape function raw calculations...
-			dN_dr = np.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
-			dN_ds = np.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
-			dN_dt = np.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
-
-			dN_dxi = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
-			Jacobian = np.dot(dN_dxi, element_node_coords)
-			det_J = np.linalg.det(Jacobian)
-			
-			if det_J <= 0.0:
-				raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
-				
-			inv_Jacobian = np.linalg.inv(Jacobian)
-			dN_dx = np.dot(inv_Jacobian.T, dN_dxi)  # Shape: (3, 10)
-			dV = det_J * gauss_weight
-
-			# ======================================================================
-			# HELPER FUNCTION FOR CENTRAL FINITE DIFFERENCES
-			# ======================================================================
-			def evaluate_p_stress(F_eval, disp_grad_eval, vel_grad_eval):
-				"""Computes P_stress universally for any material phase."""
-				J_vol = np.linalg.det(F_eval)
-				
-				if mat_id == 101.0: # SOLID
-					mu = E / (2.0 * (1.0 + nu))
-					lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
-					alpha = 1.0 + (mu / lambda_param)
-					stress_scale = mu * (1.0 - (1.0 / (np.trace(F_eval.T @ F_eval) + 1.0)))
-					
-					# F_cofactor = np.zeros((3,3), dtype=np.float64)
-					#(automatically handles real or complex inputs):
-					F_cofactor = np.zeros((3,3), dtype=F_eval.dtype)
-					for i in range(3):
-						F_cofactor[:, i] = np.cross(F_eval[:, (i+1)%3], F_eval[:, (i+2)%3])
-					return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
-					
-				elif mat_id == 400.0: # LIQUID
-					Kf = E
-					viscosity = nu
-					pressure = Kf * (J_vol - 1.0)
-					D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
-					return -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor
-					
-				# elif mat_id == 202.0: # AIR
-				# 	mu_stiff = 1e-4 
-				# 	lambda_stiff = 1e-3 
-				# 	strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
-				# 	return 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
-					
-				return np.zeros((3, 3))
-
-
-			# ======================================================================
-			# BASE STATE DEFINITIONS
-			# ======================================================================
-			disp_grad = element_displacements.T @ dN_dx.T
-			vel_grad = element_velocities.T @ dN_dx.T
-			F = np.eye(3, dtype=np.float64) + disp_grad
-
-			# print('disp_grad = ', disp_grad)
-			# print('vel_grad = ', vel_grad)
-			# print('F = ', F)
-
-			# 1. Base Evaluation (For Internal Forces)
-			P_stress_base = evaluate_p_stress(F, disp_grad, vel_grad)
-			f_int_element += (P_stress_base @ dN_dx * dV).T
-
-			# 2. Finite Difference Perturbation (For Consistent Stiffness Action)
-			p_nodes = p_flat.reshape(10, 3)
-			grad_p = p_nodes.T @ dN_dx.T # Directional perturbation gradient matrix
-			time_scale = dt1 / 2.0  
-			scaled_grad_p = grad_p * time_scale
-
-			# Make eps extremely small (no cancellation error occurs with complex step!)
-			eps = 1e-20
-
-			# Single forward pass with an imaginary perturbation
-			# F_complex = F.astype(np.complex128) + (eps * 1j) * grad_p
-			# disp_complex = disp_grad.astype(np.complex128) + (eps * 1j) * grad_p
-			# vel_complex = vel_grad.astype(np.complex128) + (eps * 1j) * grad_p
-
-			# Inject the temporally scaled perturbation gradient matrix
-			F_complex = F.astype(np.complex128) + (eps * 1j) * scaled_grad_p
-			disp_complex = disp_grad.astype(np.complex128) + (eps * 1j) * scaled_grad_p
-			vel_complex = vel_grad.astype(np.complex128) + (eps * 1j) * scaled_grad_p
-
-			# Run your exact same evaluate_p_stress but allow complex inputs
-			P_complex = evaluate_p_stress(F_complex, disp_complex, vel_complex)
-			f_complex = (P_complex @ dN_dx * dV).T
-
-			# The exact derivative is simply the imaginary part divided by eps!
-			q_local += np.imag(f_complex) / eps
-
-			# # --- Positive Step ---
-			# P_pos = evaluate_p_stress(F + eps * grad_p, disp_grad + eps * grad_p, vel_grad + eps * grad_p)
-			# f_pos = (P_pos @ dN_dx * dV).T
-			
-			# # --- Negative Step ---
-			# P_neg = evaluate_p_stress(F - eps * grad_p, disp_grad - eps * grad_p, vel_grad - eps * grad_p)
-			# f_neg = (P_neg @ dN_dx * dV).T
-			
-			# # Consistent numerical directional derivative
-			# q_local += (f_pos - f_neg) / (2.0 * eps)
-
-		# Outside the Gauss quadrature loop, return the variables matching your outer operator expectations
-		return f_int_element, q_local	
-
-
-	def compute_tet10_multiphase_dual_kernel0(self, element_node_coords, element_displacements, element_velocities, p_element_trial, E, nu, mat_id):
-		"""
-		Production Multi-Phase Engine: Evaluates Solid, Air, and Navier-Stokes Liquid 
-		phases simultaneously inside a single high-order 4-point Gauss Quadrature loop.
-
-		# ==============================================================================
-		# CONTINUUM MECHANICS MATRIX-FREE KERNEL
-		# ==============================================================================
-		# This kernel evaluates the action of the Tangent Stiffness Operator (Ke * p)
-		# for a High-Order Quadratic Tetrahedron (Tet10) under a Stable Neo-Hookean
-		# energy potential model. 
-		#
-		# MATHEMATICAL & ENGINEERING REFERENCES:
-		# 1. Finite Element Framework: https://en.wikipedia.org/wiki/Finite_element_method
-		# 2. Quadrature Volume Integration: https://en.wikipedia.org/wiki/Gaussian_quadrature
-		# 3. Kinematic Kinematics (Tensor F): https://en.wikipedia.org/wiki/Finite_strain_theory
-		# 4. Material Constitutive Law: https://en.wikipedia.org/wiki/Neo-Hookean_solid
-		#5. Stable Neo-Hookean Flesh Simulation : Smith, De Goes, Kim : https://research.pixar.com/docs/2018.SiggraphPapers.SGK.b.pdf
-		
-		Args:
-			element_velocities: (10, 3) float64 array of current frame node velocities.
-		"""
-		# Initialize output vectors
-		f_local = np.zeros((10, 3), dtype=np.float64)
-		q_local = np.zeros((10, 3), dtype=np.float64)
-		f_int_element = np.zeros((10, 3), dtype=np.float64)
-		q_flat = np.zeros(30, dtype=np.float64)
-		p_flat = p_element_trial.ravel()
-
-		mu = E / (2.0 * (1.0 + nu))
-		lam = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
-
-		# 4-Point Gauss Quadrature Constants
-		a = 0.5854101966249685
-		b = 0.1381966011250105
-		gauss_points = np.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]], dtype=np.float64)
-		gauss_weight = 1.0 / 24.0  
-
-		# for gp in gauss_points:
-		for idx, gp in enumerate(gauss_points):
-			r, s, t = gp[0], gp[1], gp[2]
-			u = 1.0 - r - s - t
-
-			# 1. Standard Tet10 Shape Function Derivatives
-			dN_dr = np.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
-			dN_ds = np.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
-			dN_dt = np.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
-
-			# The sum of derivatives for any valid basis must be exactly 0
-			assert np.allclose(np.sum(dN_dr), 0.0)
-			assert np.allclose(np.sum(dN_ds), 0.0)
-			assert np.allclose(np.sum(dN_dt), 0.0)
-
-			# dN_dlocal = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
-			dN_dxi = np.stack([dN_dr, dN_ds, dN_dt], axis=0)
-
-			# Fix the Einstein Summation string for 2D inputs:
-			# i = 3 local axes, n = 10 nodes, j = 3 global axes (X, Y, Z)
-			# This outputs a single square 3x3 Jacobian matrix for this specific loop iteration
-			
-			# Jacobian = np.einsum('in,nj->ij', dN_dlocal, element_node_coords) # Shape: (3, 3)
-			Jacobian = np.dot(dN_dxi, element_node_coords) # Shape: (3, 3)
-			det_J = np.linalg.det(Jacobian)
-
-			if det_J <= 0.0:
-				raise ValueError("Critical Element Inversion Safeguard Triggered: Mesh geometry crushed.")
-
-			inv_Jacobian = np.linalg.inv(Jacobian)
-			# dN_dglobal = inv_Jacobian @ dN_dlocal # Shape: (3, 10) #### *******
-			dN_dx = np.dot(inv_Jacobian.T, dN_dxi) # Shape: (3, 10)
-
-			dV = det_J * gauss_weight
-
-			# To compute your matrix action product 'q_local' for a given search displacement 'p_nodes':
-			# First compute the strain tensor generated by the search displacement vector field 'p_nodes'
-			# grad_p = sum_{a=0}^{9} p_a tensor dN_dx_a
-			grad_p = np.dot(p_element_trial.T, dN_dx.T) # Shape: (3, 3)
-			strain_p = 0.5 * (grad_p + grad_p.T)
-
-			# Compute corresponding stress tensor action using Hooke's Law
-			stress_p = 2.0 * mu * strain_p + lam * np.trace(strain_p) * np.eye(3)
-
-			# Accumulate force action back onto all 10 local nodes (Corners + Midpoints!)
-			# q_local_a = integral( stress_p * dN_dx_a ) dV
-			for a in range(10):
-				q_local[a] += np.dot(stress_p, dN_dx[:, a]) * dV
-				
-			# ... [Do the exact same stress integration pass for your standard f_local internal force vector] ...
-
-			# Compute Kinematics
-			# disp_gradient = dN_dglobal @ element_displacements # Shape: (3, 3)
-			F = np.eye(3, dtype=np.float64) + (element_displacements.T @ dN_dx.T)
-			J_vol = np.linalg.det(F)
-
-			# ====================================================================== 
-			# PHASE-SPECIFIC MATERIAL CONSTITUTIVE SWAPPING 
-			# ====================================================================== 
-			if mat_id == 101.0: 
-				# --- PHASE A: SOLID TISSUE (Stable Neo-Hookean) --- 
-				mu = E / (2.0 * (1.0 + nu)) 
-				lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu)) 
-				alpha = 1.0 + (mu / lambda_param) 
-				stress_scale = mu * (1.0 - (1.0 / (np.trace(F.T @ F) + 1.0))) 
-				
-				F_cofactor = np.zeros((3,3), dtype=np.float64) 
-				for i in range(3): 
-					F_cofactor[:, i] = np.cross(F[:, (i+1)%3], F[:, (i+2)%3]) 
-					
-				P_stress = stress_scale * F + (lambda_param * (J_vol - alpha)) * F_cofactor 
-				
-				# Tangent operators map directly to solid material constants
-				mu_stiff = mu 
-				lambda_stiff = lambda_param
-
-			elif mat_id == 400.0: 
-				# --- PHASE B: LIQUID PHASE (Navier-Stokes Continuum) --- 
-				# E behaves as Bulk Modulus (Kf), nu behaves as Dynamic Viscosity
-				Kf = E 
-				viscosity = nu 
-				
-				# 1. Compute Fluid Pressure via Equation of State (EOS)
-				pressure = Kf * (J_vol - 1.0) 
-				
-				# 2. Compute Spatial Velocity Gradient L = grad(v) 
-				# element_velocities must be shape (10, 3)
-				L = element_velocities.T @ dN_dx.T 
-				
-				# 3. Rate-of-Strain Tensor D 
-				D_tensor = 0.5 * (L + L.T) 
-				
-				# 4. Total First Piola-Kirchhoff Fluid Stress Tensor
-				P_stress = -pressure * np.eye(3, dtype=np.float64) + 2.0 * viscosity * D_tensor 
-				
-				# CRITICAL LIQUID TANGENT MAP:
-				# Liquids provide viscous damping parameters (scaled by dt1) to the stiffness matrix
-				# Because Ke acts on a velocity/displacement update delta_v:
-				mu_stiff = viscosity * dt1
-				lambda_stiff = Kf * dt1
-
-			elif mat_id == 202.0: 
-				# --- PHASE C: AMBIENT AIR BUFFER MATRIX (Compliant Elastic Solid) --- 
-				# Air is modeled as a highly compliant solid to guarantee matrix stability and symmetry.
-				# Do NOT use the pure pressure variable loop here.
-				
-				mu_stiff = 1e-4      # Extremely soft structural shear resistance
-				lambda_stiff = 1e-3  # Compliant background compression threshold
-				
-				# Calculate the linear elastic stress tensor for Air directly
-				# strain = 0.5 * (F + F^T - 2*I) approximation or linearized strain:
-				disp_grad = element_displacements.T @ dN_dx.T
-				strain_air = 0.5 * (disp_grad + disp_grad.T)
-				
-				P_stress = 2.0 * mu_stiff * strain_air + lambda_stiff * np.trace(strain_air) * np.eye(3, dtype=np.float64)
-
-			# ======================================================================
-			# CORE ACCUMULATION PASS
-			# ======================================================================
-			# Volume element integration factor
-			dV = det_J * gauss_weight
-
-			# 1. Force Integration Mapping (Internal Forces)
-			# f_int = P * dN_dx integrated over volume
-			f_int_element += (P_stress @ dN_dx * dV).T
-
-			# 2. Matrix-Free Stiffness Action Mapping (q = Ke * p)
-			# Reshape the flat 30-element incoming search vector 'p_flat' to (10, 3) nodes
-			p_nodes = p_flat.reshape(10, 3)
-
-			# Compute the displacement gradient of the search vector field: 
-			# grad_p_ij = sum_a p_{a,i} * dN_dx_{j,a}
-			grad_p = p_nodes.T @ dN_dx.T  # Shape: (3, 3)
-			strain_p = 0.5 * (grad_p + grad_p.T)
-
-			# Compute the corresponding material stress tensor action using Hooke's Law
-			# stress_p = 2 * mu * strain_p + lambda * trace(strain_p) * Identity
-			stress_p = 2.0 * mu_stiff * strain_p + lambda_stiff * np.trace(strain_p) * np.eye(3, dtype=np.float64)
-
-			# Accumulate the stress tensor projection back into all 10 local node slots
-			# This populates your 10x3 matrix action array directly
-			q_local += (stress_p @ dN_dx * dV).T
-
-		# Outside the Gauss quadrature loop, return the variables matching your outer operator expectations
-		return f_int_element, q_local
+		return x_next, v_next ###########
+		# return v_next, x_next
 
 	def visualize_sliced_multiphase_mesh(self, unique_verts, tets, phase_tags, slice_axis=0, slice_val=0.0):
 		"""
@@ -1265,6 +1430,34 @@ class myEquation_dFEM:
 			
 		# Combine original corner nodes with your high-order midpoint vertices
 		all_nodes_extended = np.vstack([nodes, np.array(new_midpoint_nodes)])
+
+		'''
+		DOCUMENTATION of returns
+
+		1.. all_nodes_extended (The Nodes
+		What it is: A 2D array of 3D geometric coordinates ((x, y, z)).
+		Contents: It appends the newly calculated midpoint coordinates to the bottom of your original corner node coordinate list.
+		Shape: (Total New Nodes, 3).
+		Data Type: Floating-point numbers (float64).
+
+		2. np.array(tet10_indices) (The Elements)
+		What it is: A 2D connectivity matrix representing element topology.
+		Contents: It does not contain any spatial coordinates. Instead, it contains integer pointers (indices) that map which 10 nodes from all_nodes_extended group together to form each quadratic tetrahedron element.
+		Shape: (Number of Tetrahedrons, 10).
+		Data Type: Integers (int).
+
+		Direct Comparison
+
+		_Feature_ all_nodes_extended
+		_Concept_ Geometry / Locations
+		_Data_ Type float64 (e.g., 0.531, 1.240, -0.442)
+		_Row Meaning_ A single spatial point in 3D space.
+
+		_Feature_ np.array(tet10_indices)
+		_Concept_ Topology / Connectivity
+		_Data_ Type int (e.g., 0, 1, 2, 3, 44, 45...)
+		_Row Meaning_ A single 10-node tetrahedral element.
+		'''
 
 		return all_nodes_extended, np.array(tet10_indices)
 
@@ -1637,8 +1830,8 @@ class myEquation_dFEM:
 		obj = mySphere_h
 		mesh = obj.data
 
-		total_frames = 2
-		# total_frames = 1
+		# total_frames = 3
+		total_frames = 1
 		frame_dt=0.01 ########
 		# frame_dt=.5
 		# frame_dt=1
@@ -1662,14 +1855,20 @@ class myEquation_dFEM:
 			obj.shape_key_add(name="Basis")
 
 		# --- PHASE 2: THE TR-BDF2 TIME STRIDE LOOP ---
-		for frame in range(1, total_frames + 1):
+		# for frame in range(0, total_frames + 1):
+		# for frame in range(2, total_frames + 1):
+		for frame in range(1, total_frames + 1): ######
 			print('~~~~~~~~~~~~~~~~~~~~~~~ FRAME = ', frame)
 			bpy.context.scene.frame_set(frame)
 			x_next, v_next = self.run_tr_bdf2_time_step(myEquation_dFEM,
 				nodes_tet10, topology_tet10, tags, 
 				x_current, v_current, F_ext, frame_dt)
 
-			# continue
+			# print('frame = ', frame)
+			# print('x_next = ', x_next)
+			# print('v_next = ', v_next)
+
+			continue
 			
 			x_current, v_current = x_next, v_next
 
@@ -1697,7 +1896,9 @@ class myEquation_dFEM:
 			# Insert evaluation timeline driving metrics
 			sk.value = 0.0
 			sk.keyframe_insert(data_path="value", frame=frame - 1)
+
 			sk.value = 1.0
+			# sk.value = 0.0
 			sk.keyframe_insert(data_path="value", frame=frame)
 			sk.value = 0.0
 			sk.keyframe_insert(data_path="value", frame=frame + 1)
@@ -1773,11 +1974,13 @@ class myEquation_dFEM:
 		return vertex_to_tet_id, vertex_weights
 
 class MatrixFreeTet10Operator(splinalg.LinearOperator):
-	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, dt1, myEquation_dFEM):
+	# def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, fixed_dofs, dt1, myEquation_dFEM):
+	def __init__(self, nodes_tet10, topology_tet10, element_properties, current_displacements, current_veolocity, fixed_dofs, dt1, myEquation_dFEM):
 		self.nodes = nodes_tet10
 		self.topology = topology_tet10
 		self.properties = element_properties
 		self.current_U = current_displacements
+		self.current_V = current_veolocity
 		self.fixed_dofs = fixed_dofs
 		self.dof = len(nodes_tet10) * 3
 		self.shape = (self.dof, self.dof)
@@ -1785,125 +1988,179 @@ class MatrixFreeTet10Operator(splinalg.LinearOperator):
 		self.dt1 = dt1
 		self.myEquation_dFEM_usable = myEquation_dFEM
 
-	def compute_forces_and_action(self, p_vector=None):
+	def compute_element_forces_jax(self, element_displacements, element_velocities, element_node_coords, mat_id, E, nu, dt1):
+		"""Evaluates and integrates total internal forces over the Tet10 element geometry."""
+		f_int_element = jnp.zeros((10, 3))
+		
+		# 4-Point Gauss Quadrature Constants
+		a, b = 0.5854101966249685, 0.1381966011250105
+		gauss_points = jnp.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]])
+		gauss_weight = 1.0 / 24.0
+		
+		for gp in gauss_points:
+			r, s, t = gp[0], gp[1], gp[2]
+			u = 1.0 - r - s - t
+			
+			# Tet10 Basis derivatives
+			dN_dr = jnp.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
+			dN_ds = jnp.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
+			dN_dt = jnp.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
+			
+			dN_dxi = jnp.stack([dN_dr, dN_ds, dN_dt], axis=0)
+			Jacobian = jnp.dot(dN_dxi, element_node_coords)
+			det_J = jnp.linalg.det(Jacobian)
+			inv_Jacobian = jnp.linalg.inv(Jacobian)
+			
+			dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
+			dV = det_J * gauss_weight
+			
+			# Extract deformation gradients relative to reference layout
+			disp_grad = element_displacements.T @ dN_dx.T
+			vel_grad = element_velocities.T @ dN_dx.T
+			F = jnp.eye(3) + disp_grad
+			
+			P_stress = self.evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
+			f_int_element += (P_stress @ dN_dx * dV).T
+			
+		return f_int_element		
+
+	def evaluate_p_stress_jax(self, F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, dt_scale):
+		"""Computes First Piola-Kirchhoff stress tensor universally for any phase using JAX."""
+		# JAX matrix determinants are natively differentiable
+		J_vol = jnp.linalg.det(F_eval)
+		
+		# --- PHASE A: SOLID TISSUE (Stable Neo-Hookean) ---
+		if mat_id == 101.0:
+			mu = E / (2.0 * (1.0 + nu))
+			lambda_param = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
+			alpha = 1.0 + (mu / lambda_param)
+			
+			# trace and matrix operations map directly to JAX primitives
+			stress_scale = mu * (1.0 - (1.0 / (jnp.trace(F_eval.T @ F_eval) + 1.0)))
+			
+			# Differentiable cofactor formulation using matrix inverses
+			# J_vol * F^-T is mathematically identical to your cross-product loop
+			F_cofactor = J_vol * jnp.linalg.inv(F_eval).T
+			
+			return stress_scale * F_eval + (lambda_param * (J_vol - alpha)) * F_cofactor
+			
+		# --- PHASE B: LIQUID PHASE (Navier-Stokes Continuum) ---
+		elif mat_id == 400.0:
+			# Map incoming variables to physics parameters
+			# E behaves as Bulk Modulus (Kf), nu behaves as Dynamic Viscosity (mu)
+			Kf = E
+			viscosity_mu = nu
+			dt_scale = dt1  # Dynamically receives time_scale from the JAX operator
+			
+			# 1. Compute Fluid Pressure via Equation of State (EOS)
+			pressure = Kf * (J_vol - 1.0)
+			
+			# 2. Compute Rate-of-Strain Tensor (D) from velocity gradient
+			# vel_grad_eval represents L = grad(v)
+			D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+			
+			# 3. Compute Divergence of Velocity (Trace of Rate-of-Strain)
+			# div_v represents the local volumetric expansion rate of the fluid
+			div_v = jnp.trace(D_tensor)
+			
+			# 4. Apply True Compressible Navier-Stokes Viscous Stress Equation
+			# Total Viscous Stress = 2*mu*D + lambda_fluid*trace(D)*Identity
+			# According to the Stokes hypothesis, bulk viscosity defaults to: lambda_fluid = -2/3 * mu
+			lambda_fluid = -(2.0 / 3.0) * viscosity_mu
+			viscous_stress = 2.0 * viscosity_mu * D_tensor + lambda_fluid * div_v * jnp.eye(3)
+			
+			# 5. Integrate dynamic tangent scaling parameters for JAX AD tracking channels
+			# These variables tell JAX how the operator scales when differentiating forces 
+			# with respect to velocity/displacement updates across the active sub-interval width.
+			mu_stiff = viscosity_mu * dt_scale
+			lambda_stiff = Kf * dt_scale
+			
+			# 6. Return the true First Piola-Kirchhoff Fluid Stress Tensor
+			# In a spatial reference frame, P_fluid = J * \sigma * F^-T
+			# For a standard Eulerian/weakly-compressible fluid mapping:
+			total_cauchy_stress = -pressure * jnp.eye(3) + viscous_stress
+
+			return J_vol * total_cauchy_stress @ jnp.linalg.inv(F_eval).T
+
+		# elif mat_id == 400.0:
+		# 	Kf = E
+		# 	viscosity = nu
+		# 	pressure = Kf * (J_vol - 1.0)
+		# 	D_tensor = 0.5 * (vel_grad_eval + vel_grad_eval.T)
+
+		# 	mu_stiff = viscosity * dt1
+		# 	lambda_stiff = Kf * dt1
+
+		# 	# return -pressure * jnp.eye(3) + 2.0 * viscosity * D_tensor
+		# 	return -pressure * jnp.eye(3) + 2.0 * viscosity * D_tensor
+			
+		# --- PHASE C: AMBIENT AIR BUFFER MATRIX (Compliant Elastic Solid) ---
+		elif mat_id == 202.0:
+			mu_stiff = 1e-4
+			lambda_stiff = 1e-3
+			strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
+			return 2.0 * mu_stiff * strain_air + lambda_stiff * jnp.trace(strain_air) * jnp.eye(3)
+			
+		return jnp.zeros((3, 3))
+
+	def compute_forces_and_action(self):
+		"""
+		Computes and assembles the global internal force vector.
+		The 'p_vector' parameter is retained only for backwards compatibility 
+		with your existing pipeline calls, but it is no longer used.
+		"""
+		# Initialize the global 1D tracking array (e.g., size 11742)
 		f_int_global = np.zeros(self.dof, dtype=np.float64)
-		y_action_global = np.zeros(self.dof, dtype=np.float64)
 		
-		p_velocity = np.zeros(self.dof, dtype=np.float64)
-		p_nodes_flat = np.zeros(self.dof, dtype=np.float64)
-		
-		if p_vector is not None:
-			# Create a true deep copy of the flat incoming solver matrix array
-			p_constrained = p_vector.copy().ravel()
-			# Zero out only the precise single flat scalar boundaries
-			p_constrained[self.fixed_dofs] = 0.0
-			
-			p_velocity = p_constrained.copy()
-			p_nodes_flat = p_constrained.copy()
-
-		# Shape them to (num_nodes, 3) safely for element local extraction loops
-		p_velocity_nodes = p_velocity.reshape(-1, 3)
-		p_nodes = p_nodes_flat.reshape(-1, 3)
-
-		#self.compile_painted_mesh_to_fem_attributes()
-
-		# ONE UNIFIED LOOP FOR ALL CONTINUUM PHYSICS
+		# ONE UNIFIED LOOP FOR ALL CONTINUUM PHYSICS (Base Force Assembly Only)
 		for t_idx, tet in enumerate(self.topology):
+			if self.properties[t_idx] == 0:    # Air
+				mat_id, E, nu = 202.0, 1.0, 0.001
+			elif self.properties[t_idx] == 1:  # Solid Sphere
+				mat_id, E, nu = 101.0, 10.0, 0.45
+			else:
+				continue
 
-			#E = young's modulus (stiffness)
-			#nu = poissons ratio (compressability)
+			# Call the new JAX-native force calculator 
+			# It only returns one item: f_local (the 10x3 internal forces)
+			f_local = self.compute_element_forces_jax(
+				element_displacements=jnp.array(self.current_U[tet]),
+				element_velocities=jnp.array(self.current_V[tet]), # Assuming tracked on self
+				element_node_coords=jnp.array(self.nodes[tet]),
+				mat_id=mat_id,
+				E=E,
+				nu=nu,
+				dt1=self.dt1
+			)
+
+
+			# f_local = compute_element_forces_jax(
+			# 	element_displacements=jnp.array(self.current_U[tet]),
+			# 	element_velocities=jnp.array(self.p_velocity_nodes[tet]), # Assuming tracked on self
+			# 	element_node_coords=jnp.array(self.nodes[tet]),
+			# 	mat_id=mat_id,
+			# 	E=E,
+			# 	nu=nu,
+			# 	dt1=self.dt1
+			# )
 			
-			# mat_id, E, nu, density = self.properties[t_idx]
-			mat_id = None
-			E = None
-			nu = None
-			density = None
+			# Convert JAX array back to NumPy for standard scatter processing
+			f_local_np = np.array(f_local)
 
-			if self.properties[t_idx] == 0: #air
-				mat_id = 202.0
-				# E = 1e-6 #####
-				E = 1
-				nu = .001
-				density = .001
-
-			# elif self.properties[t_idx] == 1: #solid SPHERE
-			# 	mat_id = 101.0
-			# 	# E = 5000 #####
-			# 	E = 100
-			# 	# nu = .499
-			# 	nu = .45
-			# 	density = 5
-
-			elif self.properties[t_idx] == 1: #solid SPHERE DEBUG AS AIR WITH ALT PROP
-				mat_id = 101.0
-
-				# mat_id = 202.0
-				# E = 1e-6 #####
-				E = 10
-				# nu = .001
-				nu = .45
-				density = 5
-
-			elif self.properties[t_idx] == 2: #solid CUBE
-				E = 5000
-				nu = .499
-				density = 5
-
-			
-			f_local, q_local = self.myEquation_dFEM_usable.compute_tet10_multiphase_dual_kernel(self.myEquation_dFEM_usable, self.nodes[tet], self.current_U[tet], p_velocity_nodes[tet], p_nodes[tet], E, nu, mat_id, self.dt1)
-			
-			# --- HIGH-ORDER SCATTER PASS ---
-			# Explicitly loop over the 10 structural nodes expected by the Tet10 topology
+			# --- HIGH-ORDER SCATTER PASS (STILL ESSENTIAL FOR FORCES) ---
 			for local_idx in range(10):
-				global_node_idx = tet[local_idx] # Pulls the true high-order global index pointer
+				global_node_idx = tet[local_idx]
 				start = global_node_idx * 3
 				
-				# Map elements into global system arrays safely
-				f_int_global[start : start + 3] += f_local[local_idx]
-				if p_vector is not None:
-					y_action_global[start : start + 3] += q_local[local_idx]
+				# Assembly of structural elements into the unified global state
+				f_int_global[start : start + 3] += f_local_np[local_idx]
 
-		if p_vector is not None:
-			# Standard FEM Identity enforcement on constrained rows
-			y_action_global[self.fixed_dofs] = p_vector.ravel()[self.fixed_dofs] * 1.0
-			return f_int_global.ravel(), y_action_global.ravel()
-			
+		# Enforce fixed boundary conditions on the force residual mapping
+		f_int_global[self.fixed_dofs] = 0.0
+
 		return f_int_global.ravel()
-
-		'''
-			# 4. PACK DATA INTENT INTO GPU TEXTURE STRIDES (RGBA float32 maps)
-			# Texture 1: Material Profiles & Gravity Controls
-			# R = Material ID (101: Elastic Solid, 202: Fluid/Air)
-			# G = Gravity Multiplier (0.0 for box, 1.0 for sphere, 0.0 for air)
-			# B = Target Density / Mass Factor
-			# A = Unused / Boundary Flag
-			material_texture = np.zeros((num_tets, 4), dtype=np.float32)
-			
-			# Texture 2: Structural Constants Per Element
-			# R = Young's Modulus (Stiffness E)
-			# G = Poisson's Ratio (v - Volume Preservation Factor)
-			# B = Bulk Modulus / Fluid Viscosity
-			constants_texture = np.zeros((num_tets, 4), dtype=np.float32)
-
-			for idx, pos in enumerate(tet_centers):
-				d_box = sdf_box(pos, box_center, box_size)
-				d_sphere = sdf_sphere(pos, sphere_center, sphere_radius)
-				
-				if d_box <= 0:
-					# Rigid Stationary Box
-					material_texture[idx] = [101.0, 0.0, 5.0, 1.0]      # ID=101, Gravity=0, Mass=5
-					constants_texture[idx] = [50000.0, 0.45, 0.0, 0.0]  # High Stiffness E=50k, v=0.45
-				elif d_sphere <= 0:
-					# Heavy Squishy Neo-Hookean Sphere
-					material_texture[idx] = [101.0, 1.0, 2.0, 0.0]      # ID=101, Gravity=1.0 (ON), Mass=2
-					constants_texture[idx] = [5000.0, 0.48, 0.0, 0.0]   # Squishier E=5k, High volume preservation v->0.5
-				else:
-					# Surrounding Ambient Gas / Multi-phase Local Air
-					material_texture[idx] = [202.0, 0.0, 0.001, 0.0]    # ID=202, Gravity=0, Ultra light mass
-					constants_texture[idx] = [0.0, 0.0, 100.0, 0.0]     # Fluid Bulk Modulus = 100
-			'''
 
 	def _matvec(self, p):
 		# Mandatory SciPy callback. Evaluates strictly the action product channels
-		_, y_action = self.compute_forces_and_action(p)
+		y_action = self.compute_forces_and_action()
 		return y_action
