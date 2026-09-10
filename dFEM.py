@@ -164,42 +164,6 @@ def compute_element_forces_jax(element_displacements, element_velocities, elemen
 		
 	return f_int_element
 
-def compute_element_forces_jax0(element_displacements, element_velocities, element_node_coords, mat_id, E, nu, dt1):
-	"""Evaluates and integrates total internal forces over the Tet10 element geometry."""
-	f_int_element = jnp.zeros((10, 3))
-	
-	# 4-Point Gauss Quadrature Constants
-	a, b = 0.5854101966249685, 0.1381966011250105
-	gauss_points = jnp.array([[a,b,b], [b,a,b], [b,b,a], [b,b,b]])
-	gauss_weight = 1.0 / 24.0
-	
-	for gp in gauss_points:
-		r, s, t = gp[0], gp[1], gp[2]
-		u = 1.0 - r - s - t
-		
-		# Tet10 Basis derivatives
-		dN_dr = jnp.array([-4*u+1, 4*r-1, 0, 0, 4*u-4*r, 4*s, -4*s, -4*t, 4*t, 0])
-		dN_ds = jnp.array([-4*u+1, 0, 4*s-1, 0, -4*r, 4*r, 4*u-4*s, -4*t, 0, 4*t])
-		dN_dt = jnp.array([-4*u+1, 0, 0, 4*t-1, -4*r, 0, -4*s, 4*u-4*t, 4*r, 4*s])
-		
-		dN_dxi = jnp.stack([dN_dr, dN_ds, dN_dt], axis=0)
-		Jacobian = jnp.dot(dN_dxi, element_node_coords)
-		det_J = jnp.linalg.det(Jacobian)
-		inv_Jacobian = jnp.linalg.inv(Jacobian)
-		
-		dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
-		dV = det_J * gauss_weight
-		
-		# Extract deformation gradients relative to reference layout
-		disp_grad = element_displacements.T @ dN_dx.T
-		vel_grad = element_velocities.T @ dN_dx.T
-		F = jnp.eye(3) + disp_grad
-		
-		P_stress = evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
-		f_int_element += (P_stress @ dN_dx * dV).T
-		
-	return f_int_element
-
 vmapped_forces_engine = jax.vmap(compute_element_forces_jax, in_axes=(0, 0, 0, 0, 0, 0, None))
 
 def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, dt_scale):
@@ -259,7 +223,7 @@ def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, 
 	mu_air, lambda_air = 1e-4, 1e-3
 	strain_air = 0.5 * (disp_grad_eval + disp_grad_eval.T)
 	P_air = 2.0 * mu_air * strain_air + lambda_air * jnp.trace(strain_air) * jnp.eye(3)
-		
+
 	# ----------------------------------------------------------------------
 	# MATHEMATICAL ROUTING BLOCK (Replaces Python if/elif)
 	# ----------------------------------------------------------------------
@@ -276,10 +240,153 @@ def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, 
 		jnp.where(is_liquid, P_liquid, P_air)
 	)
 
-	# return P_stress_final
-	return P_air
+	return P_stress_final
+	# return P_air
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class Substep1JacobianOperatorJAX(splinalg.LinearOperator):
+	def __init__(self, num_dofs_int, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt1, M_diag):
+		clean_dof = int(num_dofs_int)
+		super().__init__(np.dtype(dtype), (clean_dof, clean_dof))
+		
+		self.u_global = jnp.array(u_global).reshape(-1, 3)
+		self.v_global = jnp.array(v_global).reshape(-1, 3)
+		self.nodes_global = jnp.array(nodes_global)
+		self.topology = jnp.array(topology)
+		self.properties = jnp.array(properties)
+		self.fixed_dofs = fixed_dofs
+		self.dt1 = dt1
+		self.M_diag = np.array(M_diag).ravel()
+
+	def _matvec(self, p):
+		p_constrained = p.copy().ravel()
+		p_constrained[self.fixed_dofs] = 0.0
+		p_nodes = jnp.array(p_constrained).reshape(-1, 3)
+		
+		# Exact Position Chain Rule Multiplier for Trapezoidal Rule
+		dx_dv_scale = self.dt1 / 2.0
+
+		u_batched = self.u_global[self.topology]
+		v_batched = self.v_global[self.topology]
+		coords_batched = self.nodes_global[self.topology]
+		p_batched = p_nodes[self.topology]
+
+		mat_ids = jnp.where(self.properties == 1, 101.0, 202.0)
+		Es = jnp.where(self.properties == 1, 10.0, 1.0)
+		nus = jnp.where(self.properties == 1, 0.45, 0.001)
+
+		def batch_force_vs_disp(u_b):
+			return vmapped_forces_engine(u_b, v_batched, coords_batched, mat_ids, Es, nus, self.dt1)
+		def batch_force_vs_vel(v_b):
+			return vmapped_forces_engine(u_batched, v_b, coords_batched, mat_ids, Es, nus, self.dt1)
+
+		# Evaluate directional derivatives using JAX JVP engine
+		_, dF_du = jax.jvp(batch_force_vs_disp, (u_batched,), (p_batched * dx_dv_scale,))
+		_, dF_dv = jax.jvp(batch_force_vs_vel, (v_batched,), (p_batched,))
+		
+		# Chain rule contribution to the force Jacobian
+		q_batched_tet = np.array(dF_du + dF_dv)
+
+		q_stiffness_global = np.zeros((len(self.u_global), 3), dtype=np.float64)
+		for t_idx, tet in enumerate(np.array(self.topology)):
+			q_stiffness_global[tet] += q_batched_tet[t_idx]
+			
+		q_stiffness_flat = q_stiffness_global.ravel()
+		
+		# dR/dv = M - (dt1 / 2) * (dF/dv) -> Notice the addition due to the double negative sign
+		res = self.M_diag * p_constrained - (self.dt1 / 2.0) * q_stiffness_flat
+		res[self.fixed_dofs] = 0.0
+		return res
+
+
+class Substep2JacobianOperatorJAX(splinalg.LinearOperator):
+	def __init__(self, num_dofs_int, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt, gamma, M_diag):
+		clean_dof = int(num_dofs_int)
+		super().__init__(np.dtype(dtype), (clean_dof, clean_dof))
+		
+		self.u_global = jnp.array(u_global).reshape(-1, 3)
+		self.v_global = jnp.array(v_global).reshape(-1, 3)
+		self.nodes_global = jnp.array(nodes_global)
+		self.topology = jnp.array(topology)
+		self.properties = jnp.array(properties)
+		self.fixed_dofs = fixed_dofs
+		self.dt = dt
+		self.gamma = gamma
+		self.M_diag = np.array(M_diag).ravel()
+
+	def _matvec(self, p):
+		p_constrained = p.copy().ravel()
+		p_constrained[self.fixed_dofs] = 0.0
+		p_nodes = jnp.array(p_constrained).reshape(-1, 3)
+		
+		# Calculate matching constants for literature-standard BDF2 step split
+		dt1 = self.gamma * self.dt
+		dt2 = (1.0 - self.gamma) * self.dt
+		alpha_bdf = (2.0 - self.gamma) / (1.0 + self.gamma)
+		beta_bdf = (1.0 - self.gamma) / (1.0 + self.gamma)
+		
+		# Exact position chain rule multiplier: dx/dv = (dt2 * beta_bdf) / alpha_bdf
+		dx_dv_scale = (dt2 * beta_bdf) / alpha_bdf
+
+		u_batched = self.u_global[self.topology]
+		v_batched = self.v_global[self.topology]
+		coords_batched = self.nodes_global[self.topology]
+		p_batched = p_nodes[self.topology]
+
+		mat_ids = jnp.where(self.properties == 1, 101.0, 202.0)
+		Es = jnp.where(self.properties == 1, 10.0, 1.0)
+		nus = jnp.where(self.properties == 1, 0.45, 0.001)
+
+		def batch_force_vs_disp(u_b):
+			return vmapped_forces_engine(u_b, v_batched, coords_batched, mat_ids, Es, nus, dt2)
+		def batch_force_vs_vel(v_b):
+			return vmapped_forces_engine(u_batched, v_b, coords_batched, mat_ids, Es, nus, dt2)
+
+		_, dF_du = jax.jvp(batch_force_vs_disp, (u_batched,), (p_batched * dx_dv_scale,))
+		_, dF_dv = jax.jvp(batch_force_vs_vel, (v_batched,), (p_batched,))
+		
+		q_batched_tet = np.array(dF_du + dF_dv)
+
+		q_stiffness_global = np.zeros((len(self.u_global), 3), dtype=np.float64)
+		for t_idx, tet in enumerate(np.array(self.topology)):
+			q_stiffness_global[tet] += q_batched_tet[t_idx]
+			
+		q_stiffness_flat = q_stiffness_global.ravel()
+		
+		# dR/dv = alpha_bdf * M - dt2 * beta_bdf * (dF/dv)
+		res = alpha_bdf * (self.M_diag * p_constrained) - (dt2 * beta_bdf) * q_stiffness_flat
+		res[self.fixed_dofs] = 0.0
+		return res
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class Substep1JacobianOperatorJAX0(splinalg.LinearOperator):
 	def __init__(self, num_dofs_int, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt1, M_diag):
 		clean_dof = int(num_dofs_int)
 		super().__init__(np.dtype(dtype), (clean_dof, clean_dof))
@@ -329,7 +436,7 @@ class Substep1JacobianOperatorJAX(splinalg.LinearOperator):
 		# Subtraction perfectly balances the negative gradient direction of R
 		return self.M_diag * p.ravel() - q_stiffness_flat
 
-class Substep2JacobianOperatorJAX(splinalg.LinearOperator):
+class Substep2JacobianOperatorJAX0(splinalg.LinearOperator):
 	def __init__(self, num_dofs_int, dtype, u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt, gamma, M_diag):
 		clean_dof = int(num_dofs_int)
 		super().__init__(np.dtype(dtype), (clean_dof, clean_dof))
@@ -869,8 +976,6 @@ class myEquation_dFEM:
 		# M_diag[fixed_dofs] = 1.0 
 		# M_diag_jax = jnp.array(M_diag)
 
-
-
 		# ==========================================================================
 		# UPGRADED PROPERTY: TRUE INTEGRATED LUMPED MASS VECTOR
 		# ==========================================================================
@@ -883,16 +988,7 @@ class myEquation_dFEM:
 		# Cast to JAX array for internal hardware operations
 		M_diag_jax = jnp.array(M_diag, dtype=jnp.float64)
 
-
-
-
-
-
-
-
-
-
-		# progress_callback = PercentageCallback(tol=tol)
+		progress_callback = PercentageCallback(tol=tol)
 
 		gamma = 2.0 - np.sqrt(2.0)
 		dt1 = gamma * dt 
@@ -908,38 +1004,35 @@ class myEquation_dFEM:
 		x_gamma = x_t.copy()
 		v_gamma = v_t.copy()
 
-		for n_iter in range(max_newton_iter):
-			progress_callback = PercentageCallback(tol=tol)
+		x_gamma0 = x_t.copy()
+		v_gamma0 = v_t.copy()
 
+		for n_iter in range(max_newton_iter):
 			u_gamma_jax = jnp.array(x_gamma - nodes_tet10)
 			v_gamma_jax = jnp.array(v_gamma)
 
 			f_int_gamma = np.array(assemble_global_forces_jax(u_gamma_jax, v_gamma_jax, nodes_jax, topology_jax, properties_jax, fixed_dofs_jax, dt1))
 
-			# CRITICAL SIGN ALIGNMENT FIX: Subtraction maps forces as physical drag profiles
-			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + 2.0 * F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma)
-			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
-			R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
-			# R_combined = R + M_diag * (R_pos / (dt / 2.0))
-			R_combined[fixed_dofs] = 0.0
-
-			#old
-			# R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma + 2.0 * F_ext)
+			# R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + 2.0 * F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma) ##old
 			# R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
-			# # R_combined = R + M_diag * (R_pos / dt1)
-			# R_combined = R + M_diag * (R_pos / dt)
+			# R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
+			# # R_combined = R + M_diag * (R_pos / (dt / 2.0))
 			# R_combined[fixed_dofs] = 0.0
 
-			if np.linalg.norm(R_combined) < tol:
+			# if np.linalg.norm(R_combined) < tol:
+			# 	break
+
+
+			# Pure Momentum Residual Vector (M * dv - dt/2 * sum(F))
+			R_new = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma)
+			R_new[fixed_dofs] = 0.0
+
+			if np.linalg.norm(R_new) < tol:
 				break
 
-			# print('step 1 debug info')
-			# print('R_combined = ', R_combined)
-			# print('len(R_combined) = ', R_combined)
-			# print('np.linalg.norm(R_combined) = ', np.linalg.norm(R_combined))
-
 			J_op = Substep1JacobianOperatorJAX(
-				num_dofs_int=len(R_combined),
+				# num_dofs_int=len(R_combined),
+				num_dofs_int=len(R_new),
 				dtype=np.float64,
 				u_global=x_gamma - nodes_tet10,
 				v_global=v_gamma,
@@ -948,16 +1041,15 @@ class myEquation_dFEM:
 				properties=element_properties,
 				fixed_dofs=fixed_dofs,
 				dt1=dt1,
+				# dt1=dt,
 				M_diag=M_diag
 			)
-
-			# progress_callback = PercentageCallback(tol=tol)
 			
 			######################
 			## SOLVERS 1
 			#######################
 			## CG
-			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=tol, maxiter=200, callback=progress_callback) ###
+			# delta_v_flat, info = splinalg.cg(J_op, -R_combined, x0=np.zeros_like(R_combined), rtol=tol, maxiter=200, callback=progress_callback)
 
 			## GMRES
 			# delta_v_flat, info = splinalg.gmres(J_op, -R_combined, restart=30, maxiter=100, callback=progress_callback)
@@ -972,8 +1064,10 @@ class myEquation_dFEM:
 			
 			delta_v_flat, info = splinalg.bicgstab(
 				J_op, 
-				-R_combined, 
-				x0=np.zeros_like(R_combined), 
+				# -R_combined, 
+				# x0=np.zeros_like(R_combined), 
+				-R_new, 
+				x0=np.zeros_like(R_new), 
 				rtol=tol, 
 				maxiter=100, 
 				M=M_precond, # Activates the diagonal preconditioning channel
@@ -983,76 +1077,92 @@ class myEquation_dFEM:
 			if info > 0:
 				raise ValueError('Solver convergence stalled on Substep 1.')
 
-
-
 			v_gamma += delta_v_flat.reshape(-1, 3)
-			x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
+			# x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
+
+		# Finalize explicit position calculation for stage 1
+		x_gamma = x_t + (dt1 / 2.0) * (v_t + v_gamma) ########
+
+		x_gamma = x_gamma0 ########
+		v_gamma = v_gamma0 ########
 
 		# ==========================================================================
 		# SUBSTEP 2: BDF2 STEP
 		# ==========================================================================
-		# dt2 = (1.0 - gamma) * dt
-		# time_scale = (dt * (2.0 - gamma)) / 2.0
-		# x_next = x_gamma.copy()
-		# v_next = v_gamma.copy()
+		##########
+		#new 04 look
+		##########
 
-		# for n_iter in range(max_newton_iter):
-		# 	u_next_jax = jnp.array(x_next - nodes_tet10)
-		# 	v_next_jax = jnp.array(v_next)
-
-		# 	f_int_next = np.array(assemble_global_forces_jax(u_next_jax, v_next_jax, nodes_jax, topology_jax, properties_jax, fixed_dofs_jax, dt2))
-
-		# 	v_history_flat = (1.0 / (gamma * (2.0 - gamma))) * v_gamma.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * v_t.ravel()
-		# 	R = M_diag * (v_next.ravel() - v_history_flat) - time_scale * F_ext.ravel() - time_scale * f_int_next
-			
-		# 	R_pos = x_next.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * x_t.ravel()
-		# 	R_combined = R + M_diag * (R_pos / time_scale)
-		# 	R_combined[fixed_dofs] = 0.0
-			
-		# 	if np.linalg.norm(R_combined) < tol:
-		# 		break
-
-
-
-
-		###########################
-		#new 02a - semi good - not breaking just going in wrong place
-		##########################
 		dt2 = (1.0 - gamma) * dt
-		time_scale = (dt * (2.0 - gamma)) / 2.0
+		d = dt2 / (dt1 + dt2)
 
+		alpha_bdf = (2.0 - gamma) / (1.0 + gamma)
+		beta_bdf = (1.0 - gamma) / (1.0 + gamma)
+
+		time_scale = (dt * (2.0 - gamma)) / 2.0
+		time_scale_bdf = dt2 * beta_bdf
+		
 		x_next = x_gamma.copy()
 		v_next = v_gamma.copy()
 
-		# Newton-Raphson Loop for Substep 2
-		for n_iter in range(max_newton_iter):
-			u_next_jax = jnp.array(x_next - nodes_tet10)
-			v_next_jax = jnp.array(v_next)
+		x_next0 = x_gamma.copy()
+		v_next0 = v_gamma.copy()
 
-			f_int_next = np.array(assemble_global_forces_jax(u_next_jax, v_next_jax, nodes_jax, topology_jax, properties_jax, fixed_dofs_jax, dt2))
+		# 2. Compute composite history states for BOTH velocity and position
+		v_history_flat = (1.0 / (gamma * (2.0 - gamma))) * v_gamma.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * v_t.ravel()
+		x_history_flat = (1.0 / (gamma * (2.0 - gamma))) * x_gamma.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * x_t.ravel()
+
+		for n_iter in range(max_newton_iter):
+			# Kinematically locked position mapping for BDF2 Rule
+			x_next_flat = (x_history_flat + dt2 * beta_bdf * v_next.ravel()) / alpha_bdf
+			x_next = x_next_flat.reshape(-1, 3)
+
+			# 1. Compute forces dynamically using the jitted assembler
+			f_int_next = np.array(
+				assemble_global_forces_jax(
+					jnp.array(x_next - nodes_tet10), jnp.array(v_next), 
+					jnp.array(nodes_tet10), jnp.array(topology_tet10), 
+					jnp.array(element_properties), jnp.array(fixed_dofs), dt2
+				), 
+				dtype=np.float64
+			)
+
 			
-			# Calculate step 2 residual mapping
-			# For TR-BDF2 standard configurations, the composite formula evaluates cleanly as:
-			v_history_flat = (1.0 / (gamma * (2.0 - gamma))) * v_gamma.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * v_t.ravel()
-			R = M_diag * (v_next.ravel() - v_history_flat) - time_scale * (f_int_next + F_ext)
+			# # 3. Mathematically Aligned Residual Formulas (Forces mapped as physical drag opposing momentum deltas)
+			# R = M_diag * (alpha_bdf * v_next.ravel() - v_history_flat) - dt2 * beta_bdf * F_ext.ravel() - dt2 * beta_bdf * f_int_next
+			# R_pos = (alpha_bdf * x_next.ravel() - x_history_flat) - dt2 * beta_bdf * v_next.ravel()
 			
-			R_pos = x_next.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * x_t.ravel() # Historical positions bounds
-			R_combined = R + M_diag * (R_pos / dt2) ####s
-			# R_combined = R + M_diag * (R_pos / dt1) ####s
-			# R_combined = R + M_diag * (R_pos / dt) ####s
-			R_combined = R_combined.ravel()
-			R_combined[fixed_dofs] = 0.0
+			# # Scale the combined penalty block precisely by the active BDF sub-step parameter (dt2 * beta_bdf)
+			# # R_combined = R + M_diag * (R_pos / time_scale_bdf) ####
+			# # R_combined = R + M_diag * (R_pos / (dt1 / 2.0)) #substep 1
+
+			# R_combined = R + M_diag * (R_pos / dt2) # !
+			# # R_combined = R + M_diag * (R_pos) #still
+			# R_combined[fixed_dofs] = 0.0
 			
-			if np.linalg.norm(R_combined) < tol:
+			# if np.linalg.norm(R_combined) < tol:
+			# 		break
+
+
+
+			# Pure BDF2 Momentum Residual (M * (alpha * v - v_hist) - dt * beta * F)
+			R_new2 = M_diag * (alpha_bdf * v_next.ravel() - v_history_flat) - dt2 * beta_bdf * F_ext.ravel() - dt2 * beta_bdf * f_int_next
+			R_new2[fixed_dofs] = 0.0
+
+			if np.linalg.norm(R_new2) < tol:
 				break
 
-			# print('step 2 debug info')
-			# print('R_combined = ', R_combined)
-			# print('len(R_combined) = ', R_combined)
-			# print('np.linalg.norm(R_combined) = ', np.linalg.norm(R_combined))
+
+
+
+
+
+
+			time_scale = time_scale_bdf
 
 			J_op2 = Substep2JacobianOperatorJAX(
-				num_dofs_int=len(R_combined),
+				# num_dofs_int=len(R_combined),
+				num_dofs_int=len(R_new2),
 				dtype=np.float64,
 				u_global=x_next - nodes_tet10,
 				v_global=v_next,
@@ -1061,6 +1171,8 @@ class myEquation_dFEM:
 				properties=element_properties,
 				fixed_dofs=fixed_dofs,
 				dt=dt,
+				# dt=dt1,
+				# dt=dt2,
 				gamma=gamma,
 				M_diag=M_diag
 			)
@@ -1069,7 +1181,7 @@ class myEquation_dFEM:
 			## SOLVERS 2
 			#######################
 			##CG
-			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, x0=np.zeros_like(R_combined), rtol=tol, maxiter=200, callback=progress_callback) ###
+			# delta_v_flat, info = splinalg.cg(J_op2, -R_combined, x0=np.zeros_like(R_combined), rtol=tol, maxiter=200, callback=progress_callback)
 
 			## GMRES
 			# delta_v_flat, info = splinalg.gmres(J_op2, -R_combined, restart=30, maxiter=100, callback=progress_callback)
@@ -1085,8 +1197,10 @@ class myEquation_dFEM:
 
 			delta_v_flat, info = splinalg.bicgstab(
 				J_op2, 
-				-R_combined, 
-				x0=np.zeros_like(R_combined), 
+				# -R_combined, 
+				# x0=np.zeros_like(R_combined), 
+				-R_new2, 
+				x0=np.zeros_like(R_new2), 
 				rtol=tol, 
 				maxiter=100, 
 				M=M_precond2, # Activates the diagonal preconditioning channel
@@ -1097,7 +1211,19 @@ class myEquation_dFEM:
 				raise ValueError('Solver convergence stalled on Substep 2.')
 
 			v_next += delta_v_flat.reshape(-1, 3)
+
+			x_next_flat = (x_history_flat + dt2 * beta_bdf * v_next.ravel()) / alpha_bdf
+			# x_next_flat = (v_next.ravel())
 			x_next += (delta_v_flat * time_scale).reshape(-1, 3)
+
+		# Final definitive kinematic synchronization before exporting to Blender frame buffer
+		# x_next_flat = (x_history_flat + dt2 * beta_bdf * v_next.ravel()) / alpha_bdf
+		# x_next = x_next_flat.reshape(-1, 3)
+
+
+		# x_next = x_next0
+		# x_next = x_history_flat.ravel()
+		# v_next = v_next0
 
 		return x_next, v_next
 
@@ -1598,13 +1724,6 @@ class myEquation_dFEM:
 		layer_data_s_h = [("sdf_joined", vdb_sphere_sdf_h)]
 		mySphere_h = self.sdf_vdb_visualizer(layer_data_s_h)
 
-		# return
-
-		# layer_data_b_h = [("sdf_joined", vdb_box_sdf_h)]
-		# myBox_h = self.sdf_vdb_visualizer(layer_data_b_h)
-
-		
-
 		vertex_tet_ids, vertex_bary_weights = self.precompute_skin_barycentric_weights(mySphere_h, nodes_tet4, topology_tet4)
 
 		nodes_tet10, topology_tet10 = self.convert_tet4_lattice_to_tet10(nodes_tet4, topology_tet4)
@@ -1612,17 +1731,29 @@ class myEquation_dFEM:
 		###############################
 		#### BAKE
 		##############################
-		# obj = bpy.context.scene.objects.get(high_res_mesh_name)
+		# obj = bpy.context.scene.objects.get(mySphere_h)
+		# obj = bpy.context.scene.objects.get(mySphere_h.name)
 		obj = mySphere_h
 		mesh = obj.data
 
+		if not mesh.shape_keys:
+			obj.shape_key_add(name="Basis")
+
+		# 1. FIX: Explicitly toggle absolute mode on the underlying mesh block
+		obj.data.shape_keys.use_relative = False
+		# mesh.shape_keys.use_relative = False
+
+		# return
+
 		# total_frames = 2
-		total_frames = 3
+		# total_frames = 3
+		total_frames = 10
 		# total_frames = 1
-		# frame_dt=0.01 ########
+		# frame_dt=0.1 ########sss
+		# frame_dt=0.01 ########sss
 		# frame_dt=0.0001 ######## new
 		# frame_dt=0.0000001 ######## new2
-		frame_dt=.000001 ######## new2
+		frame_dt=.000001 ######## new2 current
 		# frame_dt=.5
 		# frame_dt=1
 
@@ -1633,16 +1764,14 @@ class myEquation_dFEM:
 		# F_ext = np.zeros(len(nodes_tet10)*3, dtype=np.float64)
 		# F_ext = np.array([0, -9.81, 0])
 		# gravity = np.array([0, -9.81, 0]) ##########
-		gravity = np.array([0, 0, 0])
+		# gravity = np.array([0, 0, 0])
+		gravity = np.array([-9.81, -9.81, -9.81])
 
 		num_nodes = len(nodes_tet10) # Assuming v_t is shape (num_nodes, 3)
 
 		# Tile the [0, -9.81, 0] gravity force across all nodes and flatten it
 		# If F_ext is already a per-node force density (like force per unit mass), multiply by mass:
 		F_ext = np.tile(gravity, num_nodes) 
-
-		if not mesh.shape_keys:
-			obj.shape_key_add(name="Basis")
 
 		# --- PHASE 2: THE TR-BDF2 TIME STRIDE LOOP ---
 		# for frame in range(0, total_frames + 1):
@@ -1680,7 +1809,8 @@ class myEquation_dFEM:
 			)
 
 			# 4. BAKE TO NATIVE BLENDER ANIMATION timetracks
-			sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}")
+			# sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}")
+			sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}", from_mix=False)
 			
 			# Shift local coordinates back to local object space before caching inside data-block
 			# Reverses world matrix transformations to prevent double-transform artifacts during joint actions
@@ -1689,16 +1819,81 @@ class myEquation_dFEM:
 
 			# Push raw array memory block straight into Blender's C-arrays instantaneously
 			sk.data.foreach_set("co", local_skin_coords.ravel())
+
 			
-			#Insert evaluation timeline driving metrics
-			sk.value = 0.0
-			sk.keyframe_insert(data_path="value", frame=frame - 1)
+			# #Insert evaluation timeline driving metrics
+			# sk.value = 0.0
+			# sk.keyframe_insert(data_path="value", frame=frame - 1)
 
-			sk.value = 1.0
-			sk.keyframe_insert(data_path="value", frame=frame)
+			# sk.value = 1.0
+			# sk.keyframe_insert(data_path="value", frame=frame)
 
-			sk.value = 0.0
-			sk.keyframe_insert(data_path="value", frame=frame + 1)
+			# if frame != total_frames:
+			# 	sk.value = 0.0
+			# 	sk.keyframe_insert(data_path="value", frame=frame + 1)
+
+
+
+		# 2. Keyframe evaluation time track linearly across the timeline
+		for frame in range(1, total_frames + 1):
+			# Frame 1 uses eval_time = 10.0, Frame 2 = 20.0, matching Blender's layout
+			obj.data.shape_keys.eval_time = frame * 10.0
+			obj.data.shape_keys.keyframe_insert(data_path="eval_time", frame=frame)
+
+
+		# Clean curve interpolation handles ONCE at the end for performance
+			anim_data = obj.data.shape_keys.animation_data
+			if anim_data and anim_data.action and anim_data.action_slot:
+				action = anim_data.action
+				slot = anim_data.action_slot
+				
+				if action.layers and action.layers[0].strips:
+					channelbag = action.layers[0].strips[0].channelbag(slot)
+					for fcurve in channelbag.fcurves:
+						if fcurve.data_path == "eval_time":
+							for kp in fcurve.keyframe_points:
+								kp.interpolation = 'LINEAR'
+
+
+
+		# # 2. Keyframe the absolute evaluation time track linearly across the timeline
+		# # In Absolute mode, 'eval_time' tracks from 0.0 to C (where C = 10.0 per shape key)
+		# # The evaluation indices map directly as: Basis=0, Frame1=10, Frame2=20, Frame3=30...
+		# for frame in range(1, total_frames + 1):
+		# 	obj.data.shape_keys.eval_time = frame * 10.0
+		# 	obj.data.shape_keys.keyframe_insert(data_path="eval_time", frame=frame)
+			
+		# 	# Clean curve interpolation handles to be strictly linear (avoids time bending)
+		# 	anim_data = obj.data.shape_keys.animation_data
+		# 	# if anim_data and anim_data.action:
+		# 	# 	for fcurve in anim_data.action.fcurves:
+		# 	# 		if fcurve.data_path == "eval_time":
+		# 	# 			for kp in fcurve.keyframe_points:
+		# 	# 				kp.interpolation = 'LINEAR'
+
+		# 	# Clean curve interpolation handles to be strictly linear (avoids time bending)
+		# 	anim_data = obj.data.shape_keys.animation_data
+		# 	if anim_data and anim_data.action and anim_data.action_slot:
+		# 		action = anim_data.action
+		# 		slot = anim_data.action_slot
+				
+		# 		# In Blender 5.x, animation data lives in layers and strips
+		# 		if action.layers:
+		# 			# Safely fetch the channelbag assigned to this specific object slot
+		# 			channelbag = action.layers[0].strips[0].channelbag(slot)
+					
+		# 			# Iterate through the fcurves stored inside the channelbag
+		# 			for fcurve in channelbag.fcurves:
+		# 				if fcurve.data_path == "eval_time":
+		# 					for kp in fcurve.keyframe_points:
+		# 						kp.interpolation = 'LINEAR'
+
+
+
+
+
+
+
 
 		totalTime = datetime.now() - startTime
 		print(' ')
