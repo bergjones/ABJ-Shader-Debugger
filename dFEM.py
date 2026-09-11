@@ -96,33 +96,33 @@ class PercentageCallback:
 
 @jax.jit
 def assemble_global_forces_jax(u_global, v_global, nodes_global, topology, properties, fixed_dofs, dt_scale):
-    """
-    XLA JIT-Compiled Global Multi-Phase Force Assembler.
-    Computes and gathers internal forces across the entire mesh instantly.
-    """
-    # 1. Gather elements into parallel batched tensors
-    u_batched = u_global[topology]
-    v_batched = v_global[topology]
-    coords_batched = nodes_global[topology]
+	"""
+	XLA JIT-Compiled Global Multi-Phase Force Assembler.
+	Computes and gathers internal forces across the entire mesh instantly.
+	"""
+	# 1. Gather elements into parallel batched tensors
+	u_batched = u_global[topology]
+	v_batched = v_global[topology]
+	coords_batched = nodes_global[topology]
 
-    # 2. Parallel vectorization map across element material property arrays
-    mat_ids = jnp.where(properties == 1, 101.0, 202.0)
-    Es = jnp.where(properties == 1, 10.0, 1.0)
-    nus = jnp.where(properties == 1, 0.45, 0.001)
+	# 2. Parallel vectorization map across element material property arrays
+	mat_ids = jnp.where(properties == 1, 101.0, 202.0)
+	Es = jnp.where(properties == 1, 10.0, 1.0)
+	nus = jnp.where(properties == 1, 0.45, 0.001)
 
-    # 3. Parallel execution pass using your standalone core kernel
-    vmapped_forces = jax.vmap(compute_element_forces_jax, in_axes=(0, 0, 0, 0, 0, 0, None))
-    f_batched_tet = vmapped_forces(u_batched, v_batched, coords_batched, mat_ids, Es, nus, dt_scale)
+	# 3. Parallel execution pass using your standalone core kernel
+	vmapped_forces = jax.vmap(compute_element_forces_jax, in_axes=(0, 0, 0, 0, 0, 0, None))
+	f_batched_tet = vmapped_forces(u_batched, v_batched, coords_batched, mat_ids, Es, nus, dt_scale)
 
-    # 4. Hardware-accelerated High-Order Scatter Pass
-    f_int_global = jnp.zeros_like(u_global)
-    f_int_global = f_int_global.at[topology.ravel()].add(f_batched_tet.reshape(-1, 3))
-    
-    # Flatten and enforce boundary conditions
-    f_int_flat = f_int_global.ravel()
-    f_int_flat = f_int_flat.at[fixed_dofs].set(0.0)
-    
-    return f_int_flat
+	# 4. Hardware-accelerated High-Order Scatter Pass
+	f_int_global = jnp.zeros_like(u_global)
+	f_int_global = f_int_global.at[topology.ravel()].add(f_batched_tet.reshape(-1, 3))
+
+	# Flatten and enforce boundary conditions
+	f_int_flat = f_int_global.ravel()
+	f_int_flat = f_int_flat.at[fixed_dofs].set(0.0)
+
+	return f_int_flat
 
 
 def compute_element_forces_jax(element_displacements, element_velocities, element_node_coords, mat_id, E, nu, dt1):
@@ -145,19 +145,16 @@ def compute_element_forces_jax(element_displacements, element_velocities, elemen
 		
 		dN_dxi = jnp.stack([dN_dr, dN_ds, dN_dt], axis=0)
 		Jacobian = jnp.dot(dN_dxi, element_node_coords)
-		# Jacobian = dN_dxi @ element_node_coords
 		det_J = jnp.linalg.det(Jacobian)
 		inv_Jacobian = jnp.linalg.inv(Jacobian)
 		
-		# dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
-		dN_dx = inv_Jacobian.T @ dN_dxi
+		dN_dx = jnp.dot(inv_Jacobian.T, dN_dxi)
 		dV = det_J * gauss_weight
 		
 		# Extract deformation gradients relative to reference layout
 		disp_grad = element_displacements.T @ dN_dx.T
 		vel_grad = element_velocities.T @ dN_dx.T
-		F = jnp.eye(3) + disp_grad
-		# F = jnp.eye(3, dtype=np.float64) + disp_grad
+		F = jnp.eye(3, dtype=np.float64) + disp_grad
 		
 		P_stress = evaluate_p_stress_jax(F, disp_grad, vel_grad, mat_id, E, nu, dt1)
 		f_int_element += (P_stress @ dN_dx * dV).T
@@ -170,9 +167,9 @@ def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, 
 	"""Computes First Piola-Kirchhoff stress tensor universally for any phase using pure JAX mathematical branches."""
 	J_vol = jnp.linalg.det(F_eval)
 
-	# # ----------------------------------------------------------------------
-	# # PHASE A: SOLID TISSUE (Stable Neo-Hookean)
-	# # ----------------------------------------------------------------------
+	# ----------------------------------------------------------------------
+	# PHASE A: SOLID TISSUE (Stable Neo-Hookean)
+	# ----------------------------------------------------------------------
 	# mu_solid = E / (2.0 * (1.0 + nu))
 	# lambda_solid = (E * nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
 	# alpha = 1.0 + (mu_solid / lambda_solid)
@@ -204,6 +201,8 @@ def evaluate_p_stress_jax(F_eval, disp_grad_eval, vel_grad_eval, mat_id, E, nu, 
 
 	# The true, non-explosive First Piola-Kirchhoff tensor expression:
 	P_solid = stress_scale * F_eval + (lambda_solid * (J_vol - alpha)) * F_inv_T
+
+	P_solid = F_inv_T
 
 	# ----------------------------------------------------------------------
 	# PHASE B: LIQUID PHASE (Navier-Stokes Continuum)
@@ -305,7 +304,6 @@ class Substep1JacobianOperatorJAX(splinalg.LinearOperator):
 			
 		q_stiffness_flat = q_stiffness_global.ravel()
 		
-		# dR/dv = M - (dt1 / 2) * (dF/dv) -> Notice the addition due to the double negative sign
 		res = self.M_diag * p_constrained - (self.dt1 / 2.0) * q_stiffness_flat
 		res[self.fixed_dofs] = 0.0
 		return res
@@ -339,6 +337,8 @@ class Substep2JacobianOperatorJAX(splinalg.LinearOperator):
 		
 		# Exact position chain rule multiplier: dx/dv = (dt2 * beta_bdf) / alpha_bdf
 		dx_dv_scale = (dt2 * beta_bdf) / alpha_bdf
+		# dx_dv_scale = self.dt / 2.0
+		# dx_dv_scale = (self.dt * (2.0 - self.gamma)) / 2.0
 
 		u_batched = self.u_global[self.topology]
 		v_batched = self.v_global[self.topology]
@@ -365,17 +365,15 @@ class Substep2JacobianOperatorJAX(splinalg.LinearOperator):
 			
 		q_stiffness_flat = q_stiffness_global.ravel()
 		
-		# dR/dv = alpha_bdf * M - dt2 * beta_bdf * (dF/dv)
-		res = alpha_bdf * (self.M_diag * p_constrained) - (dt2 * beta_bdf) * q_stiffness_flat
+		res = alpha_bdf * (self.M_diag * p_constrained) - (dt2 * beta_bdf) * q_stiffness_flat 
+
 		res[self.fixed_dofs] = 0.0
 		return res
 
 
 
-
-
-
-
+		# q_stiffness_flat[self.fixed_dofs] = 0.0
+		# return self.M_diag * p.ravel() - q_stiffness_flat
 
 
 
@@ -1013,26 +1011,25 @@ class myEquation_dFEM:
 
 			f_int_gamma = np.array(assemble_global_forces_jax(u_gamma_jax, v_gamma_jax, nodes_jax, topology_jax, properties_jax, fixed_dofs_jax, dt1))
 
-			# R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + 2.0 * F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma) ##old
-			# R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
-			# R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
-			# # R_combined = R + M_diag * (R_pos / (dt / 2.0))
+			#OLD
+			R = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + 2.0 * F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma) ##old
+			R_pos = x_gamma.ravel() - x_t.ravel() - (dt1 / 2.0) * (v_t.ravel() + v_gamma.ravel())
+			R_combined = R + M_diag * (R_pos / (dt1 / 2.0))
+			# R_combined = R + M_diag * (R_pos / (dt / 2.0))
+			R_combined[fixed_dofs] = 0.0
+
+			if np.linalg.norm(R_combined) < tol:
+				break
+
+			# ####Pure Momentum Residual Vector (M * dv - dt/2 * sum(F))
+			# R_combined = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma)
 			# R_combined[fixed_dofs] = 0.0
 
 			# if np.linalg.norm(R_combined) < tol:
 			# 	break
 
-
-			# Pure Momentum Residual Vector (M * dv - dt/2 * sum(F))
-			R_new = M_diag * (v_gamma.ravel() - v_t.ravel()) - (dt1 / 2.0) * (F_ext.ravel() + F_ext.ravel()) - (dt1 / 2.0) * (f_int_t + f_int_gamma)
-			R_new[fixed_dofs] = 0.0
-
-			if np.linalg.norm(R_new) < tol:
-				break
-
 			J_op = Substep1JacobianOperatorJAX(
-				# num_dofs_int=len(R_combined),
-				num_dofs_int=len(R_new),
+				num_dofs_int=len(R_combined),
 				dtype=np.float64,
 				u_global=x_gamma - nodes_tet10,
 				v_global=v_gamma,
@@ -1044,7 +1041,7 @@ class myEquation_dFEM:
 				# dt1=dt,
 				M_diag=M_diag
 			)
-			
+
 			######################
 			## SOLVERS 1
 			#######################
@@ -1064,27 +1061,29 @@ class myEquation_dFEM:
 			
 			delta_v_flat, info = splinalg.bicgstab(
 				J_op, 
-				# -R_combined, 
-				# x0=np.zeros_like(R_combined), 
-				-R_new, 
-				x0=np.zeros_like(R_new), 
-				rtol=tol, 
-				maxiter=100, 
+				-R_combined, 
+				x0=np.zeros_like(R_combined), 
+				# rtol=tol, 
+				rtol=1e-6, 
+				maxiter=25, 
 				M=M_precond, # Activates the diagonal preconditioning channel
 				callback=progress_callback
 			)
-			
+
 			if info > 0:
 				raise ValueError('Solver convergence stalled on Substep 1.')
 
 			v_gamma += delta_v_flat.reshape(-1, 3)
-			# x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
+			x_gamma += (delta_v_flat * (dt1 / 2.0)).reshape(-1, 3)
 
 		# Finalize explicit position calculation for stage 1
-		x_gamma = x_t + (dt1 / 2.0) * (v_t + v_gamma) ########
+		# x_gamma = x_t + (dt1 / 2.0) * (v_t + v_gamma) ########
 
-		x_gamma = x_gamma0 ########
-		v_gamma = v_gamma0 ########
+		# x_gamma = x_gamma0 ########
+		# v_gamma = v_gamma0 ########
+
+		# return x_gamma, v_gamma
+		# return x_gamma0, v_gamma0
 
 		# ==========================================================================
 		# SUBSTEP 2: BDF2 STEP
@@ -1096,14 +1095,20 @@ class myEquation_dFEM:
 		dt2 = (1.0 - gamma) * dt
 		d = dt2 / (dt1 + dt2)
 
-		alpha_bdf = (2.0 - gamma) / (1.0 + gamma)
-		beta_bdf = (1.0 - gamma) / (1.0 + gamma)
+		# alpha_bdf = (2.0 - gamma) / (1.0 + gamma)
+		# beta_bdf = (1.0 - gamma) / (1.0 + gamma)
+
+		alpha_bdf = (1.0 + 2.0 * d) / (1.0 + d)
+		beta_bdf  = (1.0 - d) / (1.0 + d)  # Note: formulas adapt dynamically based on gamma
 
 		time_scale = (dt * (2.0 - gamma)) / 2.0
 		time_scale_bdf = dt2 * beta_bdf
 		
 		x_next = x_gamma.copy()
 		v_next = v_gamma.copy()
+
+
+		# return x_next, v_next
 
 		x_next0 = x_gamma.copy()
 		v_next0 = v_gamma.copy()
@@ -1127,42 +1132,24 @@ class myEquation_dFEM:
 				dtype=np.float64
 			)
 
-			
-			# # 3. Mathematically Aligned Residual Formulas (Forces mapped as physical drag opposing momentum deltas)
-			# R = M_diag * (alpha_bdf * v_next.ravel() - v_history_flat) - dt2 * beta_bdf * F_ext.ravel() - dt2 * beta_bdf * f_int_next
-			# R_pos = (alpha_bdf * x_next.ravel() - x_history_flat) - dt2 * beta_bdf * v_next.ravel()
-			
-			# # Scale the combined penalty block precisely by the active BDF sub-step parameter (dt2 * beta_bdf)
-			# # R_combined = R + M_diag * (R_pos / time_scale_bdf) ####
-			# # R_combined = R + M_diag * (R_pos / (dt1 / 2.0)) #substep 1
-
-			# R_combined = R + M_diag * (R_pos / dt2) # !
-			# # R_combined = R + M_diag * (R_pos) #still
-			# R_combined[fixed_dofs] = 0.0
-			
-			# if np.linalg.norm(R_combined) < tol:
-			# 		break
-
-
-
-			# Pure BDF2 Momentum Residual (M * (alpha * v - v_hist) - dt * beta * F)
-			R_new2 = M_diag * (alpha_bdf * v_next.ravel() - v_history_flat) - dt2 * beta_bdf * F_ext.ravel() - dt2 * beta_bdf * f_int_next
-			R_new2[fixed_dofs] = 0.0
-
-			if np.linalg.norm(R_new2) < tol:
+			# ## OLD
+			R = M_diag * (v_next.ravel() - v_history_flat) - (dt * (2.0 - gamma) / 2.0) * (f_int_next + F_ext)
+			R_pos = x_next.ravel() - (((1.0 - gamma)**2) / (gamma * (2.0 - gamma))) * x_t.ravel() 
+			R_combined = R + M_diag * (R_pos / dt)
+			R_combined[fixed_dofs] = 0.0
+			if np.linalg.norm(R_combined) < tol:
 				break
 
+			## NEW
+			# # Pure BDF2 Momentum Residual (M * (alpha * v - v_hist) - dt * beta * F)
+			# R_combined = M_diag * (alpha_bdf * v_next.ravel() - v_history_flat) - dt2 * beta_bdf * F_ext.ravel() - dt2 * beta_bdf * f_int_next
+			# R_combined[fixed_dofs] = 0.0
 
-
-
-
-
-
-			time_scale = time_scale_bdf
+			# if np.linalg.norm(R_combined) < tol:
+			# 	break
 
 			J_op2 = Substep2JacobianOperatorJAX(
-				# num_dofs_int=len(R_combined),
-				num_dofs_int=len(R_new2),
+				num_dofs_int=len(R_combined),
 				dtype=np.float64,
 				u_global=x_next - nodes_tet10,
 				v_global=v_next,
@@ -1197,35 +1184,35 @@ class myEquation_dFEM:
 
 			delta_v_flat, info = splinalg.bicgstab(
 				J_op2, 
-				# -R_combined, 
-				# x0=np.zeros_like(R_combined), 
-				-R_new2, 
-				x0=np.zeros_like(R_new2), 
+				-R_combined, 
+				x0=np.zeros_like(R_combined), 
 				rtol=tol, 
-				maxiter=100, 
+				# rtol=1e-6, 
+				# maxiter=100, 
+				# maxiter=50, 
+				maxiter=25, 
 				M=M_precond2, # Activates the diagonal preconditioning channel
 				callback=progress_callback
 			)
-			
+
 			if info > 0:
 				raise ValueError('Solver convergence stalled on Substep 2.')
 
 			v_next += delta_v_flat.reshape(-1, 3)
-
-			x_next_flat = (x_history_flat + dt2 * beta_bdf * v_next.ravel()) / alpha_bdf
-			# x_next_flat = (v_next.ravel())
 			x_next += (delta_v_flat * time_scale).reshape(-1, 3)
 
-		# Final definitive kinematic synchronization before exporting to Blender frame buffer
+		### Final definitive kinematic synchronization before exporting to Blender frame buffer
 		# x_next_flat = (x_history_flat + dt2 * beta_bdf * v_next.ravel()) / alpha_bdf
 		# x_next = x_next_flat.reshape(-1, 3)
-
 
 		# x_next = x_next0
 		# x_next = x_history_flat.ravel()
 		# v_next = v_next0
 
-		return x_next, v_next
+
+		# return x_next, v_next
+		return x_next0, v_next
+		# return x_next, v_next0
 
 	def visualize_sliced_multiphase_mesh(self, unique_verts, tets, phase_tags, slice_axis=0, slice_val=0.0):
 		"""
@@ -1574,6 +1561,20 @@ class myEquation_dFEM:
 	def deform_skin_tissue_mesh(self, x_corners_current, topology_tet4, vertex_to_tet_id, vertex_weights):
 		"""
 		Deforms the high-resolution render skin by multiplying current cage states
+		by cached barycentric weights. Output coordinates map to Local Space.
+		"""
+		active_tets = topology_tet4[vertex_to_tet_id] 
+		tet_nodes_x = x_corners_current[active_tets] # Shape: (V, 4, 3)
+
+		w_expanded = vertex_weights[:, :, np.newaxis] # Shape: (V, 4, 1)
+		deformed_skin_fl64 = np.sum(tet_nodes_x * w_expanded, axis=1) # Shape: (V, 3)
+
+		return deformed_skin_fl64.astype(np.float32)
+
+
+	def deform_skin_tissue_mesh0(self, x_corners_current, topology_tet4, vertex_to_tet_id, vertex_weights):
+		"""
+		Deforms the high-resolution render skin by multiplying current cage states
 		by cached barycentric weights. Completely matrix-free.
 		
 		Args:
@@ -1709,7 +1710,11 @@ class myEquation_dFEM:
 		# nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(32, 16) #######
 		nodes_tet4, topology_tet4, tags, vdb_sphere_sdf_l, vdb_sphere_sdf_h, vdb_box_sdf_l, vdb_box_sdf_h = self.generate_global_multiphase_mesh(8, 16)
 
-		self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=0.0) ###########
+		# return
+
+		myTetLattice = self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=0.0) ###########
+
+		# return
 		# self.visualize_global_multiphase_slice(nodes_tet4, topology_tet4, tags, slice_axis=0, slice_val=1.0) ###########
 
 		# return
@@ -1724,7 +1729,9 @@ class myEquation_dFEM:
 		layer_data_s_h = [("sdf_joined", vdb_sphere_sdf_h)]
 		mySphere_h = self.sdf_vdb_visualizer(layer_data_s_h)
 
-		vertex_tet_ids, vertex_bary_weights = self.precompute_skin_barycentric_weights(mySphere_h, nodes_tet4, topology_tet4)
+		vertex_tet_ids, vertex_bary_weights = self.precompute_skin_barycentric_weights(
+			mySphere_h, nodes_tet4, topology_tet4, tags
+		)
 
 		nodes_tet10, topology_tet10 = self.convert_tet4_lattice_to_tet10(nodes_tet4, topology_tet4)
 
@@ -1741,7 +1748,6 @@ class myEquation_dFEM:
 
 		# 1. FIX: Explicitly toggle absolute mode on the underlying mesh block
 		obj.data.shape_keys.use_relative = False
-		# mesh.shape_keys.use_relative = False
 
 		# return
 
@@ -1751,9 +1757,10 @@ class myEquation_dFEM:
 		# total_frames = 1
 		# frame_dt=0.1 ########sss
 		# frame_dt=0.01 ########sss
-		# frame_dt=0.0001 ######## new
+		frame_dt=0.0001 ######## new
 		# frame_dt=0.0000001 ######## new2
-		frame_dt=.000001 ######## new2 current
+		# frame_dt=.000001 ######## new2 current
+		# frame_dt=float(1 / 24) ######## new2 current
 		# frame_dt=.5
 		# frame_dt=1
 
@@ -1765,7 +1772,8 @@ class myEquation_dFEM:
 		# F_ext = np.array([0, -9.81, 0])
 		# gravity = np.array([0, -9.81, 0]) ##########
 		# gravity = np.array([0, 0, 0])
-		gravity = np.array([-9.81, -9.81, -9.81])
+		gravity = np.array([0, 9.8, 0])
+		# gravity = np.array([-9.81, -9.81, -9.81])
 
 		num_nodes = len(nodes_tet10) # Assuming v_t is shape (num_nodes, 3)
 
@@ -1783,11 +1791,15 @@ class myEquation_dFEM:
 
 			bpy.context.scene.frame_set(frame)
 						
-			# x_next, v_next = self.run_tr_bdf2_time_step(nodes_tet10, topology_tet10, tags, 
-			# 	x_current, v_current, F_ext, frame_dt, 1e-5, 5)
-
 			x_next, v_next = self.run_tr_bdf2_time_step(nodes_tet10, topology_tet10, tags, 
-				x_current, v_current, F_ext, frame_dt, 1e-5, 1)
+				# x_current, v_current, F_ext, frame_dt, 1e-5, 1)
+				x_current, v_current, F_ext, frame_dt, 1e-5, 15)
+
+
+			# continue
+
+			# x_next, v_next = self.run_tr_bdf2_time_step(nodes_tet10, topology_tet10, tags, 
+			# 	x_current, v_current, F_ext, frame_dt, 1e-5, 1)
 
 			# x_next, v_next = self.run_tr_bdf2_time_step(nodes_tet10, topology_tet10, tags, x_current, v_current, F_ext, frame_dt, 1e-5, 5)
 			
@@ -1804,20 +1816,18 @@ class myEquation_dFEM:
 
 			# 3. STREAMING SKIN DEFORMATION PASS
 			# Evaluates the high-res vertex tracking vectors seamlessly
-			deformed_skin_coords_32 = self.deform_skin_tissue_mesh(
+			# deformed_skin_coords_32 = self.deform_skin_tissue_mesh(
+			# 	x_corners_current, topology_tet4, vertex_tet_ids, vertex_bary_weights
+			# )
+
+			# 3. STREAMING SKIN DEFORMATION PASS (Now natively in Local Object Space)
+			local_skin_coords = self.deform_skin_tissue_mesh(
 				x_corners_current, topology_tet4, vertex_tet_ids, vertex_bary_weights
 			)
 
 			# 4. BAKE TO NATIVE BLENDER ANIMATION timetracks
 			# sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}")
 			sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}", from_mix=False)
-			
-			# Shift local coordinates back to local object space before caching inside data-block
-			# Reverses world matrix transformations to prevent double-transform artifacts during joint actions
-			inv_world_matrix = np.array(obj.matrix_world.inverted(), dtype=np.float32)[:3, :4]
-			local_skin_coords = (deformed_skin_coords_32 @ inv_world_matrix[:, :3].T) + inv_world_matrix[:, 3]
-
-			# Push raw array memory block straight into Blender's C-arrays instantaneously
 			sk.data.foreach_set("co", local_skin_coords.ravel())
 
 			
@@ -1834,59 +1844,29 @@ class myEquation_dFEM:
 
 
 
-		# 2. Keyframe evaluation time track linearly across the timeline
+		# 2. Keyframe the absolute evaluation time track linearly across the timeline
+		# In Absolute mode, 'eval_time' tracks from 0.0 to C (where C = 10.0 per shape key)
+		# The evaluation indices map directly as: Basis=0, Frame1=10, Frame2=20, Frame3=30...
 		for frame in range(1, total_frames + 1):
-			# Frame 1 uses eval_time = 10.0, Frame 2 = 20.0, matching Blender's layout
 			obj.data.shape_keys.eval_time = frame * 10.0
 			obj.data.shape_keys.keyframe_insert(data_path="eval_time", frame=frame)
 
-
-		# Clean curve interpolation handles ONCE at the end for performance
+			# Clean curve interpolation handles to be strictly linear (avoids time bending)
 			anim_data = obj.data.shape_keys.animation_data
 			if anim_data and anim_data.action and anim_data.action_slot:
 				action = anim_data.action
 				slot = anim_data.action_slot
 				
-				if action.layers and action.layers[0].strips:
+				# In Blender 5.x, animation data lives in layers and strips
+				if action.layers:
+					# Safely fetch the channelbag assigned to this specific object slot
 					channelbag = action.layers[0].strips[0].channelbag(slot)
+					
+					# Iterate through the fcurves stored inside the channelbag
 					for fcurve in channelbag.fcurves:
 						if fcurve.data_path == "eval_time":
 							for kp in fcurve.keyframe_points:
 								kp.interpolation = 'LINEAR'
-
-
-
-		# # 2. Keyframe the absolute evaluation time track linearly across the timeline
-		# # In Absolute mode, 'eval_time' tracks from 0.0 to C (where C = 10.0 per shape key)
-		# # The evaluation indices map directly as: Basis=0, Frame1=10, Frame2=20, Frame3=30...
-		# for frame in range(1, total_frames + 1):
-		# 	obj.data.shape_keys.eval_time = frame * 10.0
-		# 	obj.data.shape_keys.keyframe_insert(data_path="eval_time", frame=frame)
-			
-		# 	# Clean curve interpolation handles to be strictly linear (avoids time bending)
-		# 	anim_data = obj.data.shape_keys.animation_data
-		# 	# if anim_data and anim_data.action:
-		# 	# 	for fcurve in anim_data.action.fcurves:
-		# 	# 		if fcurve.data_path == "eval_time":
-		# 	# 			for kp in fcurve.keyframe_points:
-		# 	# 				kp.interpolation = 'LINEAR'
-
-		# 	# Clean curve interpolation handles to be strictly linear (avoids time bending)
-		# 	anim_data = obj.data.shape_keys.animation_data
-		# 	if anim_data and anim_data.action and anim_data.action_slot:
-		# 		action = anim_data.action
-		# 		slot = anim_data.action_slot
-				
-		# 		# In Blender 5.x, animation data lives in layers and strips
-		# 		if action.layers:
-		# 			# Safely fetch the channelbag assigned to this specific object slot
-		# 			channelbag = action.layers[0].strips[0].channelbag(slot)
-					
-		# 			# Iterate through the fcurves stored inside the channelbag
-		# 			for fcurve in channelbag.fcurves:
-		# 				if fcurve.data_path == "eval_time":
-		# 					for kp in fcurve.keyframe_points:
-		# 						kp.interpolation = 'LINEAR'
 
 
 
@@ -1900,7 +1880,166 @@ class myEquation_dFEM:
 		bpy.context.scene.frame_set(0)
 		print('totalTime = ', totalTime)
 
-	def precompute_skin_barycentric_weights(self, render_mesh_obj, nodes_tet4, topology_tet4):
+
+
+
+
+
+
+	def precompute_skin_barycentric_weights(self, render_mesh_obj, nodes_tet4, topology_tet4, phase_tags):
+		"""
+		Finds the containing tetrahedron for every vertex in the high-res render mesh,
+		forcing bindings ONLY to elements assigned to Phase 1 (Soft Tissue Sphere).
+		"""
+		mesh = render_mesh_obj.data
+		num_verts = len(mesh.vertices)
+		
+		# Keep coordinates in LOCAL space to match your background nodes grid
+		render_coords = np.zeros((num_verts, 3), dtype=np.float64)
+		mesh.vertices.foreach_get("co", render_coords.ravel())
+
+		vertex_to_tet_id = np.full(num_verts, -1, dtype=np.int32)
+		vertex_weights = np.zeros((num_verts, 4), dtype=np.float64)
+
+		# ==========================================================================
+		# STRATEGY UPDATE: Extract indices of elements matching phase 1
+		# ==========================================================================
+		target_tet_global_indices = np.where(phase_tags == 1)[0]
+		filtered_topology = topology_tet4[target_tet_global_indices]
+
+		print(f"Pre-computing barycentric weights for {num_verts} skin vertices...")
+		print(f"Restricting search grid strictly to {len(filtered_topology)} elements marked as Phase 1.")
+
+		# Loop ONLY over the valid soft-tissue elements
+		for local_idx, global_t_idx in enumerate(target_tet_global_indices):
+			tet = filtered_topology[local_idx]
+			v0, v1, v2, v3 = nodes_tet4[tet]
+			
+			# Build parametric transformation space matrix
+			T = np.column_stack([v0 - v3, v1 - v3, v2 - v3])
+			try:
+				T_inv = np.linalg.inv(T)
+			except np.linalg.inv.LinAlgError:
+				continue 
+
+			# Projection calculation mapping cleanly to row vector structures
+			diffs = render_coords - v3
+			w012 = diffs @ T_inv
+			
+			w0, w1, w2 = w012[:, 0], w012[:, 1], w012[:, 2]
+			w3 = 1.0 - (w0 + w1 + w2)
+
+			# Inversion threshold limit test
+			inside_mask = (w0 >= -1e-4) & (w1 >= -1e-4) & (w2 >= -1e-4) & (w3 >= -1e-4)
+			
+			valid_indices = np.where(inside_mask & (vertex_to_tet_id == -1))[0]
+			if len(valid_indices) > 0:
+				# Save the GLOBAL element array tracking index to prevent index mapping mismatch later
+				vertex_to_tet_id[valid_indices] = global_t_idx
+				vertex_weights[valid_indices] = np.column_stack([
+					w0[valid_indices], w1[valid_indices], w2[valid_indices], w3[valid_indices]
+				])
+
+		# Handle outer edge boundary vertices by evaluating distance only to Phase 1 centroids
+		unassigned_count = np.sum(vertex_to_tet_id == -1)
+		if unassigned_count > 0:
+			print(f"Warning: {unassigned_count} skin vertices fell outside Phase 1 cells. Snapping to closest tissue element.")
+			
+			phase_1_centers = nodes_tet4[filtered_topology].mean(axis=1)
+			
+			for idx in np.where(vertex_to_tet_id == -1)[0]:
+				v_coord = render_coords[idx]
+				# Identify closest element among Phase 1 elements exclusively
+				closest_local_idx = np.argmin(np.linalg.norm(phase_1_centers - v_coord, axis=1))
+				global_t_idx = target_tet_global_indices[closest_local_idx]
+				
+				# Reconstruct exact weights for the boundary target block
+				v0, v1, v2, v3 = nodes_tet4[topology_tet4[global_t_idx]]
+				T_inv = np.linalg.inv(np.column_stack([v0 - v3, v1 - v3, v2 - v3]))
+				w012_fallback = (v_coord - v3) @ T_inv
+				w0_f, w1_f, w2_f = w012_fallback[0], w012_fallback[1], w012_fallback[2]
+				
+				vertex_to_tet_id[idx] = global_t_idx
+				vertex_weights[idx] = [w0_f, w1_f, w2_f, 1.0 - (w0_f + w1_f + w2_f)]
+
+		return vertex_to_tet_id, vertex_weights
+
+
+
+
+
+
+	def precompute_skin_barycentric_weights1(self, render_mesh_obj, nodes_tet4, topology_tet4):
+		"""
+		Finds the containing tetrahedron for every vertex in the high-res render mesh
+		and computes its 4 corresponding barycentric coordinate weighting factors.
+		Executed in matching Local Coordinates space.
+		"""
+		mesh = render_mesh_obj.data
+		num_verts = len(mesh.vertices)
+		
+		# 1. CORRECT: Keep coordinates in LOCAL space to match nodes_tet4 exactly
+		render_coords = np.zeros((num_verts, 3), dtype=np.float64)
+		mesh.vertices.foreach_get("co", render_coords.ravel())
+
+		vertex_to_tet_id = np.full(num_verts, -1, dtype=np.int32)
+		vertex_weights = np.zeros((num_verts, 4), dtype=np.float64)
+
+		print(f"Pre-computing barycentric weights for {num_verts} skin vertices...")
+
+		# 2. CORRECTED GEOMETRIC SEARCH PASS
+		for t_idx, tet in enumerate(topology_tet4):
+			v0, v1, v2, v3 = nodes_tet4[tet]
+			
+			# Build parametric transformation space matrix T = [v0-v3, v1-v3, v2-v3]
+			T = np.column_stack([v0 - v3, v1 - v3, v2 - v3])
+			try:
+				T_inv = np.linalg.inv(T)
+			except np.linalg.inv.LinAlgError:
+				continue 
+
+			# 3. FIX: Row-Vector projection math maps to T_inv, NOT T_inv.T
+			diffs = render_coords - v3
+			w012 = diffs @ T_inv  # Correct conversion equivalent to T_inv @ vector
+			
+			w0, w1, w2 = w012[:, 0], w012[:, 1], w012[:, 2]
+			w3 = 1.0 - (w0 + w1 + w2)
+
+			# Inclusion test with a small numerical epsilon safety cushion
+			inside_mask = (w0 >= -1e-4) & (w1 >= -1e-4) & (w2 >= -1e-4) & (w3 >= -1e-4)
+			
+			valid_indices = np.where(inside_mask & (vertex_to_tet_id == -1))[0]
+			if len(valid_indices) > 0:
+				vertex_to_tet_id[valid_indices] = t_idx
+				vertex_weights[valid_indices] = np.column_stack([w0[valid_indices], w1[valid_indices], w2[valid_indices], w3[valid_indices]])
+
+		# Catch remaining outer skin boundary vertices gracefully
+		unassigned_count = np.sum(vertex_to_tet_id == -1)
+		if unassigned_count > 0:
+			print(f"Warning: {unassigned_count} vertices fell outside the background grid. Finding nearest element...")
+			# Clean fallback: map unassigned vertices to the geometrically closest element center
+			tet_centers = nodes_tet4[topology_tet4].mean(axis=1)
+			for idx in np.where(vertex_to_tet_id == -1)[0]:
+				v_coord = render_coords[idx]
+				closest_tet = np.argmin(np.linalg.norm(tet_centers - v_coord, axis=1))
+				
+				# Recalculate weights for the closest element cell explicitly
+				v0, v1, v2, v3 = nodes_tet4[topology_tet4[closest_tet]]
+				T_inv = np.linalg.inv(np.column_stack([v0 - v3, v1 - v3, v2 - v3]))
+				w012_fallback = (v_coord - v3) @ T_inv
+				w0_f, w1_f, w2_f = w012_fallback[0], w012_fallback[1], w012_fallback[2]
+				
+				vertex_to_tet_id[idx] = closest_tet
+				vertex_weights[idx] = [w0_f, w1_f, w2_f, 1.0 - (w0_f + w1_f + w2_f)]
+
+		return vertex_to_tet_id, vertex_weights
+
+
+
+
+
+
+	def precompute_skin_barycentric_weights0(self, render_mesh_obj, nodes_tet4, topology_tet4):
 		"""
 		Finds the containing tetrahedron for every vertex in the high-res render mesh
 		and computes its 4 corresponding barycentric coordinate weighting factors.
