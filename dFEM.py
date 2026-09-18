@@ -51,1077 +51,145 @@ bpy.utils.expose_bundled_modules()
 import openvdb as vdb
 
 
-# --- 2. TRUE STAGGERED EULERIAN MULTIPHASE LATTICE ENGINE ---
-class TrueStaggeredVoxelSolver:
-	def __init__(self, res=(16, 16, 24)):
-		self.res = np.array(res)
-		self.dx = 0.5
-		
-		# 4D Multiphase Tracking Matrix: [X, Y, Z, Phase]
-		# Phases: 0 = Air (Vacuum environment), 1 = Liquid, 2 = Deformable Solid
-		self.phases = np.zeros((*res, 3), dtype=np.float64)
-		self.phases[..., 0] = 1.0  # Entire domain defaults to 100% Air
-		
-		# Staggered Velocity Fields (MAC Grid architecture prevents streaming stretching)
-		self.u = np.zeros((res[0]+1, res[1], res[2]), dtype=np.float64) # X-velocity on faces
-		self.v = np.zeros((res[0], res[1]+1, res[2]), dtype=np.float64) # Y-velocity on faces
-		self.w = np.zeros((res[0], res[1], res[2]+1), dtype=np.float64) # Z-velocity on faces
-		
-		# True Smith 2018 Stable Neo-Hookean Parameters
-		self.mu = 500.0   # Shear stiffness (controls ripple speed)
-		self.lam = 3000.0 # High Bulk modulus ensures strict volume preservation
-
-		# self.mu = 50.0   # Shear stiffness (controls ripple speed)
-		# self.lam = 300.0 # High Bulk modulus ensures strict volume preservation
-
-		self.alpha = 1.0 + (self.mu / self.lam)
-		self.damping = 0.96
-		
-		# Exact 3D solid cube collision boundary mapping
-		self.cube_mask = np.zeros(res, dtype=bool)
-		x_idx, y_idx, z_idx = np.indices(res)
-		world_x = (x_idx - res[0]/2.0) * self.dx
-		world_y = (y_idx - res[1]/2.0) * self.dx
-		world_z = (z_idx - res[2]/2.0) * self.dx + 4.0
-		
-		self.cube_mask = (world_x >= -2.0) & (world_x <= 2.0) & \
-							(world_y >= -2.0) & (world_y <= 2.0) & \
-							(world_z >= -2.0) & (world_z <= 2.0)
-
-	def seed_spherical_rubber_ball(self, cx=8, cy=8, cz=19, r_voxels=3.4):
-		"""Seeds continuous volume fractions, cleanly preserving decimal weights like 0.499."""
-		x_idx, y_idx, z_idx = np.indices(self.res)
-		dist = np.sqrt((x_idx-cx)**2 + (y_idx-cy)**2 + (z_idx-cz)**2)
-		
-		mask_full = dist <= r_voxels
-		mask_edge = (dist > r_voxels) & (dist <= r_voxels + 1.0)
-		
-		self.phases[mask_full, 2] = 1.0
-		self.phases[mask_full, 0] = 0.0
-		
-		edge_fractions = (r_voxels + 1.0 - dist[mask_edge])
-		self.phases[mask_edge, 2] = edge_fractions
-		self.phases[mask_edge, 0] = 1.0 - edge_fractions
-
-	def update_physics(self, dt, gravity=-9.81):
-		"""Computes true 2018 Stable Neo-Hookean forces and advects BOTH mass and velocity."""
-		solid_fraction = self.phases[..., 2]
-		
-		# 1. Apply Gravity to the vertical face velocities where solid exists
-		for z in range(self.res[2]):
-			cell_solid = solid_fraction[:, :, np.minimum(z, self.res[2]-1)]
-			self.w[:, :, z] += np.where(cell_solid > 0.01, gravity * dt, 0.0)
-			
-		# 2. Strict Hard Cube Collision Boundary Enforcement
-		# Block velocities trying to penetrate the marked solid mask rows
-		for z in range(self.res[2]):
-			if np.any(self.cube_mask[:, :, z]):
-				self.w[:, :, z] = np.maximum(self.w[:, :, z], 0.0)
-				self.u[:, :, z] = 0.0
-				self.v[:, :, z] = 0.0
-
-		# 3. 2018 Stable Volume-Preservation Stresses (Calculates lateral expansion forces)
-		J = 1.0 / np.maximum(solid_fraction, 0.02)
-		p_force = -self.lam * (J - self.alpha) * solid_fraction
-		
-		# Central difference spatial gradients
-		grad_x = np.zeros_like(solid_fraction)
-		grad_y = np.zeros_like(solid_fraction)
-		grad_x[1:-1, :, :] = (solid_fraction[2:, :, :] - solid_fraction[:-2, :, :]) / (2.0 * self.dx)
-		grad_y[:, 1:-1, :] = (solid_fraction[:, 2:, :] - solid_fraction[:, :-2, :]) / (2.0 * self.dx)
-		
-		# Accelerate velocities outward horizontally based on the pressure spikes
-		self.u[1:-1, :, :] += 0.5 * (p_force[1:, :, :] + p_force[:-1, :, :]) * grad_x[1:, :, :] * dt
-		self.v[:, 1:-1, :] += 0.5 * (p_force[:, 1:, :] + p_force[:, :-1, :]) * grad_y[:, 1:, :] * dt
-
-		# 4. CONSERVATIVE VELOCITY + DENSITY ADVECTION SWEEP (Prevents the fluid stream bug)
-		new_phases = np.copy(self.phases)
-		new_w = np.copy(self.w)
-		new_u = np.copy(self.u)
-		new_v = np.copy(self.v)
-		
-		for z in range(1, self.res[2] - 1):
-			# Calculate non-skipping translation flux fraction (CFL bounded at 0.85 max per cell)
-			flux_z = np.clip(abs(self.w[:, :, z]) * dt / self.dx, 0.0, 0.85)
-			down_flow = self.w[:, :, z] < 0
-			
-			if np.any(down_flow):
-				blocked = self.cube_mask[:, :, z - 1]
-				effective_flux = np.where(blocked, 0.0, flux_z)
-				
-				# Move Density and Velocities together down the grid channels
-				for p in range(3):
-					mass_moved = self.phases[:, :, z, p] * effective_flux
-					new_phases[:, :, z, p] -= mass_moved
-					new_phases[:, :, z - 1, p] += mass_moved
-					
-				# Move momentum down to prevent stretching artifacts
-				mom_moved = self.w[:, :, z] * effective_flux
-				new_w[:, :, z] -= mom_moved
-				new_w[:, :, z - 1] += mom_moved
-
-		# Horizontal Expansion Advection Sweep
-		for x in range(1, self.res[0] - 1):
-			flux_x = np.clip(abs(self.u[x, :, :]) * dt / self.dx, 0.0, 0.85)
-			right_flow = self.u[x, :, :] > 0
-			if np.any(right_flow):
-				for p in range(3):
-					mass_moved = self.phases[x, :, :, p] * flux_x
-					new_phases[x, :, :, p] -= mass_moved
-					new_phases[x + 1, :, :, p] += mass_moved
-					
-				mom_moved = self.u[x, :, :] * flux_x
-				new_u[x, :, :] -= mom_moved
-				new_u[x + 1, :, :] += mom_moved
-
-		# Finalize states with strict conservation constraints
-		self.phases = np.clip(new_phases, 0.0, 1.0)
-		self.w = new_w * self.damping
-		self.u = new_u * self.damping
-		self.v = new_v * self.damping
-
-
-
-# --- 2. MULTIPHASE EULERIAN VOLUMETRIC LATTICE FEM ENGINE ---
-class MultiphaseVoxelSolver:
-	def __init__(self, res=(16, 16, 24)):
-		self.res = np.array(res)
-		self.dx = 0.5
-		
-		# Multiphase tracking matrix: [X, Y, Z, Phase]
-		# Phase indices: 0 = Air, 1 = Liquid, 2 = Deformable Solid
-		self.phases = np.zeros((*res, 3), dtype=np.float64)
-		self.phases[..., 0] = 1.0  # Entire domain defaults to 100% Air
-		
-		# Velocity fields
-		self.vel_x = np.zeros(res, dtype=np.float64)
-		self.vel_y = np.zeros(res, dtype=np.float64)
-		self.vel_z = np.zeros(res, dtype=np.float64)
-		
-		# True Smith 2018 Stable Neo-Hookean Parameters
-		self.mu = 450.0   # Shear stiffness
-		self.lam = 1800.0 # Bulk modulus
-		self.alpha = 1.0 + (self.mu / self.lam) # Stability shift constant
-		self.damping = 0.94
-		
-		# Set up exact 3D solid cube collision bounds mask inside the grid matrix
-		self.cube_mask = np.zeros(res, dtype=bool)
-		x_idx, y_idx, z_idx = np.indices(res)
-		world_x = (x_idx - res[0]/2.0) * self.dx
-		world_y = (y_idx - res[1]/2.0) * self.dx
-		world_z = (z_idx - res[2]/2.0) * self.dx + 4.0 # Spatial world tracking baseline
-		
-		self.cube_mask = (world_x >= -2.0) & (world_x <= 2.0) & \
-							(world_y >= -2.0) & (world_y <= 2.0) & \
-							(world_z >= -2.0) & (world_z <= 2.0)
-
-	def seed_spherical_rubber_ball(self, cx=8, cy=8, cz=19, r_voxels=3.4):
-		"""Seeds continuous volume fractions, cleanly preserving decimal weights like 0.499."""
-		x_idx, y_idx, z_idx = np.indices(self.res)
-		dist = np.sqrt((x_idx-cx)**2 + (y_idx-cy)**2 + (z_idx-cz)**2)
-		
-		mask_full = dist <= r_voxels
-		mask_edge = (dist > r_voxels) & (dist <= r_voxels + 1.0)
-		
-		# Inject Solid phase fraction
-		self.phases[mask_full, 2] = 1.0
-		self.phases[mask_full, 0] = 0.0 # Clear Air
-		
-		edge_fractions = (r_voxels + 1.0 - dist[mask_edge])
-		self.phases[mask_edge, 2] = edge_fractions
-		self.phases[mask_edge, 0] = 1.0 - edge_fractions # Maintained conservation check
-
-	def compute_smith2018_stresses(self, dt):
-		"""Applies exact 2018 Smith et al. Stable Neo-Hookean strain energy equations."""
-		solid_fraction = self.phases[..., 2]
-		
-		# Calculate localized spatial displacement mapping gradients
-		grad_x = np.zeros_like(solid_fraction)
-		grad_y = np.zeros_like(solid_fraction)
-		grad_x[1:-1, :, :] = (solid_fraction[2:, :, :] - solid_fraction[:-2, :, :]) / 2.0
-		grad_y[:, 1:-1, :] = (solid_fraction[:, 2:, :] - solid_fraction[:, :-2, :]) / 2.0
-		
-		# Trace Jacobian volume deformations: J = V_current / V_reference
-		# Multi-phase scaling ensures Air components offer zero hydrostatic resistance
-		J = 1.0 / np.maximum(solid_fraction, 0.01)
-		
-		# First Piola-Kirchhoff derivative approximation tracking the reparameterized alpha stability boundary
-		# Hydrostatic restorative pressure vector calculations
-		p_force = -self.lam * (J - self.alpha) * solid_fraction
-		
-		# Apply local shear tensor variations (governing the visual surface ripples)
-		ripple_x = self.mu * grad_x
-		ripple_y = self.mu * grad_y
-		
-		# Update velocities cleanly based on absolute material density presence
-		active_solid = solid_fraction > 0.02
-		self.vel_x[active_solid] += (p_force[active_solid] * grad_x[active_solid] + ripple_x[active_solid]) * dt
-		self.vel_y[active_solid] += (p_force[active_solid] * grad_y[active_solid] + ripple_y[active_solid]) * dt
-
-	def advance_multiphase_advection(self, dt, gravity=-9.81):
-		"""Performs non-skipping conservative VOF multi-phase step loops."""
-		solid_fraction = self.phases[..., 2]
-		
-		# Apply external forces to the solid phase only (Air remains completely passive)
-		self.vel_z[solid_fraction > 0.01] += gravity * dt
-		
-		# Rigid Cube Contact Enforcement: Kill penetrating velocities inside the cube mask
-		self.vel_z[self.cube_mask] = np.maximum(self.vel_z[self.cube_mask], 0.0)
-		self.vel_x[self.cube_mask] = 0.0
-		self.vel_y[self.cube_mask] = 0.0
-		
-		new_phases = np.copy(self.phases)
-		
-		# Vertical advection sweep
-		for z in range(1, self.res[2] - 1):
-			flux_z = np.clip(abs(self.vel_z[:, :, z]) * dt / self.dx, 0.0, 0.85)
-			down_flow = self.vel_z[:, :, z] < 0
-			
-			if np.any(down_flow):
-				# Ensure mass cannot enter the marked collision mask cells
-				blocked = self.cube_mask[:, :, z - 1]
-				effective_flux = np.where(blocked, 0.0, flux_z)
-				
-				# Shift both solid and air layers conservatively (Multiphasic split balance)
-				for p in range(3):
-					mass_moved = self.phases[:, :, z, p] * effective_flux
-					new_phases[:, :, z, p] -= mass_moved
-					new_phases[:, :, z - 1, p] += mass_moved
-					
-		# Horizontal expansion sweep (Governing the flat squish flattening across the cube)
-		for x in range(1, self.res[0] - 1):
-			flux_x = np.clip(abs(self.vel_x[x, :, :]) * dt / self.dx, 0.0, 0.85)
-			for p in range(3):
-				mass_moved = self.phases[x, :, :, p] * flux_x
-				new_phases[x, :, :, p] -= mass_moved
-				new_phases[x + 1, :, :, p] += mass_moved
-				
-		self.phases = np.clip(new_phases, 0.0, 1.0)
-		
-		# Apply standard material damping to control numerical noise ripples
-		self.vel_z *= self.damping
-		self.vel_x *= self.damping
-		self.vel_y *= self.damping
-
-
-
-
-# --- 2. HYBRID CONSERVATIVE VOF LATTICE SOLVER WITH 3D CUBE COLLIDER ---
-class HybridVofLatticeSolver:
-	def __init__(self, res=(16, 16, 24)):
-		self.res = np.array(res)
-		self.dx = 0.5  # Fixed voxel size matching world scale space
-		
-		# Static Grid Arrays
-		self.density = np.zeros(res, dtype=np.float64)  # Continuous VOF fraction [0.0, 1.0]
-		self.vel_z = np.zeros(res, dtype=np.float64)    # Vertical velocity field
-		self.vel_x = np.zeros(res, dtype=np.float64)    # Horizontal X velocity
-		self.vel_y = np.zeros(res, dtype=np.float64)    # Horizontal Y velocity
-		
-		# Physics Parameters (Tuned strictly to prevent volume explosions)
-		self.mu = 150.0        # Shear ripple speed propagation
-		self.lam = 400.0       # Softened bulk modulus to allow realistic squishing without spikes
-		self.damping = 0.88    # Increased dampening to absorb sudden collision shockwaves
-
-		# Generate the precise 3D Voxel Collision Mask for a size 4 cube at (0,0,0)
-		# World boundaries of the cube: X:[-2, 2], Y:[-2, 2], Z:[-2, 2]
-		self.collision_mask = np.zeros(res, dtype=bool)
-		
-		# Correctly unpack the indices to avoid creating a 4D array
-		x_idx, y_idx, z_idx = np.indices(res)
-		
-		# Convert grid indices back into absolute world coordinates to build the mask
-		world_x = (x_idx - res[0]/2.0) * self.dx
-		world_y = (y_idx - res[1]/2.0) * self.dx
-		world_z = (z_idx - res[2]/2.0) * self.dx + 4.0 # Offset matching mesh tracking
-		
-		# Mark voxels inside the size 4 cube space
-		self.collision_mask = (world_x >= -2.0) & (world_x <= 2.0) & \
-								(world_y >= -2.0) & (world_y <= 2.0) & \
-								(world_z >= -2.0) & (world_z <= 2.0)
-
-	def seed_spherical_rubber_mass(self, cx=8, cy=8, cz=19, r_voxels=3.5):
-		"""Seeds continuous volume fractions, preserving decimals like 0.499."""
-		x_idx, y_idx, z_idx = np.indices(self.res)
-		dist = np.sqrt((x_idx-cx)**2 + (y_idx-cy)**2 + (z_idx-cz)**2)
-		
-		mask_full = dist <= r_voxels
-		mask_edge = (dist > r_voxels) & (dist <= r_voxels + 1.0)
-		
-		self.density[mask_full] = 1.0
-		self.density[mask_edge] = (r_voxels + 1.0 - dist[mask_edge])
-
-	def solve_volume_preservation_forces(self, dt):
-		"""Calculates stable volume restoration and horizontal shearing."""
-		# Calculate outward flow driven by gradient densities (Pressure moves high -> low)
-		grad_x = np.zeros_like(self.density)
-		grad_y = np.zeros_like(self.density)
-		
-		# Central difference grid gradient calculations
-		grad_x[1:-1, :, :] = (self.density[2:, :, :] - self.density[:-2, :, :]) / 2.0
-		grad_y[:, 1:-1, :] = (self.density[:, 2:, :] - self.density[:, :-2, :]) / 2.0
-		
-		# When density hits the cube top, push it outward horizontally along the density gradient
-		# Cap the maximum force to guarantee it never violates per-cell advection limits
-		force_x = -grad_x * self.lam
-		force_y = -grad_y * self.lam
-		
-		# Accumulate forces into velocities, heavily clamped to ensure stability
-		self.vel_x += np.clip(force_x * dt, -2.0, 2.0)
-		self.vel_y += np.clip(force_y * dt, -2.0, 2.0)
-
-	def advance_eulerian_step(self, dt, gravity=-9.81):
-		"""Performs safe, non-skipping conservative cell-to-cell advection."""
-		# 1. Apply gravity to voxels containing material
-		self.vel_z[self.density > 0.01] += gravity * dt
-		
-		# 2. Strict 3D Voxel Collision Enforcement
-		# Zero out velocities trying to penetrate the marked cube mask voxels
-		self.vel_z[self.collision_mask] = np.maximum(self.vel_z[self.collision_mask], 0.0)
-		self.vel_x[self.collision_mask] = 0.0
-		self.vel_y[self.collision_mask] = 0.0
-		
-		# 3. Non-Skipping Conservative Advection Loop
-		new_density = np.copy(self.density)
-		
-		for z in range(1, self.res[2] - 1):
-			# Calculate vertical CFL translation factor (Capped at 0.90 to limit movement to 1 cell max)
-			flux_pct_z = np.clip(abs(self.vel_z[:, :, z]) * dt / self.dx, 0.0, 0.90)
-			
-			# Downward flow advection tracking
-			down_mask = self.vel_z[:, :, z] < 0
-			if np.any(down_mask):
-				mass_out = self.density[:, :, z] * flux_pct_z
-				# Ensure we don't advect mass into the solid collision cube cells
-				target_mask = self.collision_mask[:, :, z - 1]
-				mass_out[target_mask] = 0.0 # Block the flow
-				
-				new_density[:, :, z] -= mass_out
-				new_density[:, :, z - 1] += mass_out
-				
-		# 4. Process horizontal expansion flow (Squishing out across the cube face)
-		for x in range(1, self.res[0] - 1):
-			flux_pct_x = np.clip(abs(self.vel_x[x, :, :]) * dt / self.dx, 0.0, 0.90)
-			right_mask = self.vel_x[x, :, :] > 0
-			if np.any(right_mask):
-				mass_out = self.density[x, :, :] * flux_pct_x
-				new_density[x, :, :] -= mass_out
-				new_density[x + 1, :, :] += mass_out
-				
-		self.density = np.clip(new_density, 0.0, 1.5) # Clip tightly to prevent density explosions
-		
-		# Apply material damping to create smooth wave profiles
-		self.vel_z *= self.damping
-		self.vel_x *= self.damping
-		self.vel_y *= self.damping
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# --- 2. HYBRID CONSERVATIVE VOF LATTICE SOLVER WITH 3D CUBE COLLIDER ---
-class HybridVofLatticeSolver0:
-	def __init__(self, res=(16, 16, 24)):
-		self.res = np.array(res)
-		self.dx = 0.5  # Fixed voxel size matching world scale space
-		
-		# Static Grid Arrays
-		self.density = np.zeros(res, dtype=np.float64)  # Continuous VOF fraction [0.0, 1.0]
-		self.vel_z = np.zeros(res, dtype=np.float64)    # Vertical velocity field
-		self.vel_x = np.zeros(res, dtype=np.float64)    # Horizontal X velocity
-		self.vel_y = np.zeros(res, dtype=np.float64)    # Horizontal Y velocity
-		
-		# Physics Parameters (Tuned strictly to prevent volume explosions)
-		self.mu = 150.0        # Shear ripple speed propagation
-		self.lam = 400.0       # Softened bulk modulus to allow realistic squishing without spikes
-		self.damping = 0.88    # Increased dampening to absorb sudden collision shockwaves
-
-		# Generate the precise 3D Voxel Collision Mask for a size 4 cube at (0,0,0)
-		# World boundaries of the cube: X:[-2, 2], Y:[-2, 2], Z:[-2, 2]
-		self.collision_mask = np.zeros(res, dtype=bool)
-		idx = np.indices(res)
-		
-		# Convert grid indices back into absolute world coordinates to build the mask
-		world_x = (idx[0] - res[0]/2.0) * self.dx
-		world_y = (idx[1] - res[1]/2.0) * self.dx
-		world_z = (idx[2] - res[2]/2.0) * self.dx + 4.0 # Offset matching mesh tracking
-		
-		# Mark voxels inside the size 4 cube space
-		self.collision_mask = (world_x >= -2.0) & (world_x <= 2.0) & \
-								(world_y >= -2.0) & (world_y <= 2.0) & \
-								(world_z >= -2.0) & (world_z <= 2.0)
-
-	def seed_spherical_rubber_mass(self, cx=8, cy=8, cz=19, r_voxels=3.5):
-		"""Seeds continuous volume fractions, preserving decimals like 0.499."""
-		idx = np.indices(self.res)
-		dist = np.sqrt((idx-cx)**2 + (idx-cy)**2 + (idx-cz)**2)
-		
-		mask_full = dist <= r_voxels
-		mask_edge = (dist > r_voxels) & (dist <= r_voxels + 1.0)
-		
-		self.density[mask_full] = 1.0
-		self.density[mask_edge] = (r_voxels + 1.0 - dist[mask_edge])
-
-	def solve_volume_preservation_forces(self, dt):
-		"""Calculates stable volume restoration and horizontal shearing."""
-		# Detect where density is packing up tightly
-		over_compressed = self.density > 1.0
-		
-		# Calculate outward flow driven by gradient densities (Pressure moves high -> low)
-		grad_x = np.zeros_like(self.density)
-		grad_y = np.zeros_like(self.density)
-		
-		# Central difference grid gradient calculations
-		grad_x[1:-1, :, :] = (self.density[2:, :, :] - self.density[:-2, :, :]) / 2.0
-		grad_y[:, 1:-1, :] = (self.density[:, 2:, :] - self.density[:, :-2, :]) / 2.0
-		
-		# When density hits the cube top, push it outward horizontally along the density gradient
-		# Cap the maximum force to guarantee it never violates per-cell advection limits
-		force_x = -grad_x * self.lam
-		force_y = -grad_y * self.lam
-		
-		# Accumulate forces into velocities, heavily clamped to ensure stability
-		self.vel_x += np.clip(force_x * dt, -2.0, 2.0)
-		self.vel_y += np.clip(force_y * dt, -2.0, 2.0)
-
-	def advance_eulerian_step(self, dt, gravity=-9.81):
-		"""Performs safe, non-skipping conservative cell-to-cell advection."""
-		# 1. Apply gravity to voxels containing material
-		self.vel_z[self.density > 0.01] += gravity * dt
-		
-		# 2. Strict 3D Voxel Collision Enforcement
-		# Zero out velocities trying to penetrate the marked cube mask voxels
-		self.vel_z[self.collision_mask] = np.maximum(self.vel_z[self.collision_mask], 0.0)
-		self.vel_x[self.collision_mask] = 0.0
-		self.vel_y[self.collision_mask] = 0.0
-		
-		# 3. Non-Skipping Conservative Advection Loop
-		new_density = np.copy(self.density)
-		
-		for z in range(1, self.res[2] - 1):
-			# Calculate vertical CFL translation factor (Capped at 0.90 to limit movement to 1 cell max)
-			flux_pct_z = np.clip(abs(self.vel_z[:, :, z]) * dt / self.dx, 0.0, 0.90)
-			
-			# Downward flow advection tracking
-			down_mask = self.vel_z[:, :, z] < 0
-			if np.any(down_mask):
-				mass_out = self.density[:, :, z] * flux_pct_z
-				# Ensure we don't advect mass into the solid collision cube cells
-				target_mask = self.collision_mask[:, :, z - 1]
-				mass_out[target_mask] = 0.0 # Block the flow
-				
-				new_density[:, :, z] -= mass_out
-				new_density[:, :, z - 1] += mass_out
-				
-		# 4. Process horizontal expansion flow (Squishing out across the cube face)
-		for x in range(1, self.res[0] - 1):
-			flux_pct_x = np.clip(abs(self.vel_x[x, :, :]) * dt / self.dx, 0.0, 0.90)
-			right_mask = self.vel_x[x, :, :] > 0
-			if np.any(right_mask):
-				mass_out = self.density[x, :, :] * flux_pct_x
-				new_density[x, :, :] -= mass_out
-				new_density[x + 1, :, :] += mass_out
-				
-		self.density = np.clip(new_density, 0.0, 1.5) # Clip tightly to prevent density explosions
-		
-		# Apply material damping to create smooth wave profiles
-		self.vel_z *= self.damping
-		self.vel_x *= self.damping
-		self.vel_y *= self.damping
-
-
+# ==============================================================================
+# 3. POSITION-INDEPENDENT HIGH-STIFFNESS FORCE ENGINE
+# ==============================================================================
+# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.0, floor_stiffness=35000.0):
+# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.0, floor_stiffness=35000.0):
+def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.05, floor_stiffness=35000.0):
+	pos_2d = jnp.reshape(pos, (-1, 3))
+	num_p = pos_2d.shape
+
+	# FIXED: True Relative Transformation Framing completely removes translation drift.
+	# By isolating deformation purely relative to the ACTIVE center of mass, 
+	# uniform freefall acceleration generates EXACTLY zero strain forces.
+	active_center = jnp.mean(pos_2d, axis=0)
+	disp_local = (pos_2d - active_center) - (STATIC_INIT_POS - STATIC_CENTER)
+
+	#Smith stable 2018
+	# Vectorized batch outer product broadcasting handles local strain gradient mapping
+	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * STATIC_NORMALS[:, None, :]) / 1.8
+
+	J = vmap_det(F)
+	J_stable = jnp.maximum(J, 0.20)
+	I_C = vmap_trace(F)
+	F_inv_t = vmap_inv_t(F)
+
+	alpha = 1.0 + (mu / lam)
+	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
+	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
+	P = term1 + term2
+
+	continuum_forces = -jnp.matmul(P, STATIC_NORMALS[..., None]).squeeze(-1)
+
+	# Pairwise self-collision avoidance bubbles
+	diff = pos_2d[:, None, :] - pos_2d[None, :, :]  
+	dists = jnp.sqrt(jnp.sum(diff**2, axis=-1) + 1e-8) 
+	overlap = jnp.maximum(collision_radius - dists, 0.0)
+	col_normals = diff / dists[..., None]
+
+	repulsion_mag = (overlap ** 2) * collision_stiffness
+	# repulsion_mag = repulsion_mag * (jnp.eye(num_p) == 0)
+	repulsion_mag = repulsion_mag * (jnp.eye(num_p[0]) == 0)
+	
+	self_collision_forces = jnp.sum(col_normals * repulsion_mag[..., None], axis=1) * 0.02
+
+	# Smooth potential floor check against the dynamic lowest extreme bounding node
+	lowest_vertex_z = jnp.min(pos_2d[:, 2])
+	floor_penetration = jnp.maximum((floor_z + 0.02) - lowest_vertex_z, 0.0)
+	floor_push_z = (floor_penetration ** 2) * floor_stiffness
+
+	# Apply floor forces cleanly to the active bottom hemisphere layer vertices
+	floor_forces_mask = jnp.where(pos_2d[:, 2] < active_center[2], floor_push_z, 0.0)
+	floor_forces = jnp.zeros_like(pos_2d).at[:, 2].set(floor_forces_mask)
+
+	total_forces = continuum_forces + self_collision_forces + floor_forces
+	return jnp.reshape(total_forces, pos.shape)
+
+def jax_physics_step(state, step_idx, mu, lam, damping, dt, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS):
+	pos, vel = state
+	gravity = -9.81
+	gamma = 2.0 - jnp.sqrt(2.0)
+	dt1 = gamma * dt
+
+	# --- FIXED: VECTORIZED AERODYNAMIC DRAG ACCELERATION ---
+	# Velocity-dependent drag vector directly maps drag as deceleration: a_drag = - (b/m) * v * |v|
+	v_mags = jnp.linalg.norm(vel, axis=1, keepdims=True)
+	drag_forces = - (drag_coefficient / object_mass) * vel * v_mags
+
+	gravity_forces1 = jnp.zeros_like(vel).at[:, 2].set(gravity)
+	total_accel1 = gravity_forces1 + drag_forces
+	vel_est1 = vel + total_accel1 * dt1
+
+	f1 = compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
+	v_mid = vel_est1 + f1 * dt1
+
+	pos_est = pos + v_mid * dt1
+	f2 = compute_forces_jax(pos_est, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
+
+	c_mid = 1.0 / (gamma * (2.0 - gamma))
+	c_cur = ((1.0 - gamma) ** 2) / (gamma * (2.0 - gamma))
+
+	# Re-inject gravity and aerodynamic drag into Stage 2 TR-BDF2 recovery step
+	gravity_forces2 = jnp.zeros_like(vel).at[:, 2].set(gravity)
+	total_accel2 = gravity_forces2 + drag_forces
+
+	new_vel = (c_mid * v_mid) - (c_cur * vel) + (f2 * dt * (1.0 - gamma) / (2.0 - gamma)) + total_accel2 * dt
+	new_vel *= damping
+	next_pos = pos + new_vel * dt
+
+	min_allowed_z = 2.0 + STATIC_THICKNESS
+	below_floor = next_pos[:, 2] <= min_allowed_z
+	clamped_z = jnp.where(below_floor, min_allowed_z, next_pos[:, 2])
+	next_pos = next_pos.at[:, 2].set(clamped_z)
+
+	v_z_reflected = jnp.where(below_floor & (new_vel[:, 2] < 0), -new_vel[:, 2] * restitution, new_vel[:, 2])
+	lost_momentum_magnitude = jnp.where(below_floor & (new_vel[:, 2] < 0), jnp.abs(new_vel[:, 2]) * (1.0 - restitution), 0.0)
+
+	center_xy = jnp.mean(next_pos[:, :2], axis=0)
+	dir_xy = next_pos[:, :2] - center_xy
+	out_dir = dir_xy / jnp.maximum(jnp.linalg.norm(dir_xy, axis=1, keepdims=True), 1e-4)
+
+	new_vel_x = new_vel[:, 0] + out_dir[:, 0] * lost_momentum_magnitude * 0.85
+	new_vel_y = new_vel[:, 1] + out_dir[:, 1] * lost_momentum_magnitude * 0.85
 
+	next_vel = new_vel.at[:, 0].set(new_vel_x)
+	next_vel = next_vel.at[:, 1].set(new_vel_y)
+	next_vel = next_vel.at[:, 2].set(v_z_reflected)
 
+	return (next_pos, next_vel), next_pos
 
+def loss_function(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, target_frame_idx, target_height):
+	"""Loss function tracking separate individual scalars."""
+	trajectory = run_simulation_scan(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300)
+	frame_positions = trajectory[target_frame_idx]
+	
+	max_z = jnp.max(frame_positions[:, 2])
+	min_z = jnp.min(frame_positions[:, 2])
+	bounding_box_center_z = (max_z + min_z) / 2.0
+	
+	raw_loss = (bounding_box_center_z - target_height) ** 2
+	return jnp.log(1.0 + raw_loss)
 
 
 
+def run_simulation_scan(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300):
+	"""FIXED: Parameters are passed as separate scalar arguments to completely prevent index bleeding."""
+	init_vel = jnp.zeros_like(STATIC_INIT_POS).at[:, 2].set(initial_spike_vel)
 
-
-
-
-# --- 2. HYBRID CONSERVATIVE VOF QUADRATIC TET10 LATTICE SOLVER ---
-class HybridVofTet10Solver:
-	def __init__(self, res=(12, 12, 16)):
-		self.res = np.array(res)
-		self.dx = 0.6  # Size of each voxel cell
-		
-		# Static Grid Properties
-		self.density = np.zeros(res, dtype=np.float64)  # VOF Material Fraction [0.0, 1.0]
-		self.vel_z = np.zeros(res, dtype=np.float64)    # Vertical Velocity Field
-		
-		# Hard Voxel Floor Constraint (Index row Z = 3)
-		self.FLOOR_INDEX_Z = 3
-		
-		# Define the 10 local reference nodes for a localized Tet10 element matrix
-		self.tet10_ref = np.array([
-			[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], # 4 Corners
-			[0.5, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 0.5, 0.0],                   # 3 Base Midpoints
-			[0.0, 0.0, 0.5], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]                   # 3 Vertical Midpoints
-		], dtype=np.float64) * self.dx
-		
-		# 2018 Stable Neo-Hookean Parameters
-		self.mu = 500.0        # Shear Modulus (Stiffness & Rippling speed)
-		self.lam = 2500.0      # Bulk Modulus (Aggressive volume preservation under compression)
-		self.damping = 0.93    # Viscous material damping for smooth wave decay
-
-	def seed_spherical_rubber_mass(self, cx=6, cy=6, cz=12, r_voxels=3.2):
-		"""Seeds continuous volume fractions, preserving numbers like 0.499 exactly."""
-		idx = np.indices(self.res)
-		dist = np.sqrt((idx[0]-cx)**2 + (idx[1]-cy)**2 + (idx[2]-cz)**2)
-		
-		# Smooth conservative density gradient mapping (No truncation)
-		mask_full = dist <= r_voxels
-		mask_edge = (dist > r_voxels) & (dist <= r_voxels + 1.0)
-		
-		self.density[mask_full] = 1.0
-		self.density[mask_edge] = (r_voxels + 1.0 - dist[mask_edge])
-
-	def solve_quadratic_volume_forces(self, z_idx):
-		"""
-		Uses Tet10 quadratic shape properties to calculate stable volume restoration pressure
-		and horizontal lateral expansion vectors for a given grid layer slice.
-		"""
-		# Compute local structural matrix deformation gradient approximations
-		# Based on how compressed the material distribution is compared to ideal solid state (1.0)
-		layer_densities = self.density[:, :, z_idx]
-		mean_d = np.mean(layer_densities)
-		
-		if mean_d < 0.05:
-			return np.zeros((self.res[0], self.res[1], 2)) # No active forces in empty space
-
-		# Analytical Jacobian Volume tracker: J = 1.0 / Density
-		# If density spikes over 1.0 due to compression accumulation, J drops below 1.0, triggering restorative pressure
-		J = 1.0 / np.maximum(layer_densities, 0.05)
-		J_stable = np.maximum(J, 0.1)
-		
-		# Calculate divergence gradient direction vectors away from the local slice core
-		idx = np.indices(layer_densities.shape)
-		total_mass = np.sum(layer_densities)
-		if total_mass < 0.01:
-			return np.zeros((self.res[0], self.res[1], 2))
-			
-		cx = np.sum(idx[0] * layer_densities) / total_mass
-		cy = np.sum(idx[1] * layer_densities) / total_mass
-		
-		# Compute horizontal force components (X, Y vectors)
-		forces_xy = np.zeros((self.res[0], self.res[1], 2))
-		for x in range(1, self.res[0] - 1):
-			for y in range(1, self.res[1] - 1):
-				if layer_densities[x, y] < 0.05:
-					continue
-				
-				# Spatial direction normal pointing outward from local mass center
-				dx = x - cx
-				dy = y - cy
-				dist = np.maximum(np.sqrt(dx**2 + dy**2), 0.1)
-				nx, ny = dx / dist, dy / dist
-				
-				# 2018 Stable Neo-Hookean Volume Preservation Force Equation:
-				# Force = lam * (J_stable - 1.0) mapped horizontally to expand the rubber outward
-				f_volume_pressure = -self.lam * (J_stable[x, y] - 1.0) * layer_densities[x, y]
-				
-				# Add elastic shear wave rippling (proportional to local density variation gradients)
-				f_shear_ripple = self.mu * (layer_densities[x+1, y] + layer_densities[x-1, y] - 2.0*layer_densities[x, y])
-				
-				forces_xy[x, y, 0] = (nx * f_volume_pressure) + (f_shear_ripple * nx)
-				forces_xy[x, y, 1] = (ny * f_volume_pressure) + (f_shear_ripple * ny)
-				
-		return forces_xy
-
-	def advance_eulerian_step(self, dt, gravity=-9.81):
-		"""Performs non-skipping conservative VOF advection and rigid floor impact updates."""
-		# A. Gravity acceleration injection
-		active_cells = self.density > 0.01
-		self.vel_z[active_cells] += gravity * dt
-		
-		# B. Floor Collision Hard Boundary
-		self.vel_z[:, :, :self.FLOOR_INDEX_Z + 1] = np.maximum(self.vel_z[:, :, :self.FLOOR_INDEX_Z + 1], 0.0)
-		
-		# C. Non-skipping Upwind Advection
-		new_density = np.copy(self.density)
-		for z in range(1, self.res[2] - 1):
-			# Calculate fractional cell translation limits (CFL bounded factor [0.0, 1.0])
-			flux_pct = np.clip(abs(self.vel_z[:, :, z]) * dt / self.dx, 0.0, 0.95)
-			
-			# Downward flow advection
-			down_mask = self.vel_z[:, :, z] < 0
-			if np.any(down_mask):
-				mass_transferred = self.density[:, :, z] * flux_pct
-				new_density[:, :, z] -= mass_transferred
-				new_density[:, :, z - 1] += mass_transferred
-				
-			# Upward rebound compression wave advection
-			up_mask = self.vel_z[:, :, z] > 0
-			if np.any(up_mask):
-				mass_transferred = self.density[:, :, z] * flux_pct
-				new_density[:, :, z] -= mass_transferred
-				new_density[:, :, z + 1] += mass_transferred
-				
-		self.density = np.clip(new_density, 0.0, 1.0)
-		self.vel_z *= self.damping  # Viscous dampening creates beautiful clean ripple profiles
-
-
-
-
-
-
-# --- 2. EULERIAN CONSERVATIVE LATTICE SOLVER CLASS ---
-class ConservativeLatticeSolver:
-	def __init__(self, res=(16, 16, 24)):
-		self.res = np.array(res)
-		
-		# 3D Grid storing continuous material density fractions (0.0 to 1.0)
-		self.density = np.zeros(res, dtype=np.float64)
-		
-		# 3D Grid for vertical Z velocities
-		self.vel_z = np.zeros(res, dtype=np.float64)
-		
-		# Define structural voxel spacing (scaling factor)
-		self.dx = 0.5 
-		
-		# Define a hard collision floor inside the lattice rows (Index space Z = 4)
-		self.FLOOR_INDEX_Z = 4
-
-	def seed_spherical_density(self, center_voxel=(8, 8, 18), radius_in_voxels=3.5):
-		"""Seeds continuous density fractions inside the lattice."""
-		idx = np.indices(self.res)
-		dist = np.sqrt((idx[0]-center_voxel[0])**2 + (idx[1]-center_voxel[1])**2 + (idx[2]-center_voxel[2])**2)
-		
-		# Continuous fractional seeding: smooth transition at edges prevents value clipping
-		mask_full = dist <= radius_in_voxels
-		mask_edge = (dist > radius_in_voxels) & (dist <= radius_in_voxels + 1.0)
-		
-		self.density[mask_full] = 1.0
-		self.density[mask_edge] = (radius_in_voxels + 1.0 - dist[mask_edge])
-
-	def step_simulation(self, dt, gravity=-9.81):
-		"""Performs non-skipping conservative cell-by-cell advection and collision."""
-		# A. Apply Gravity to all cells containing active material density
-		active_mask = self.density > 0.001
-		self.vel_z[active_mask] += gravity * dt
-		
-		# B. Rigid Voxel Floor Collision
-		# Any velocity trying to force mass below the floor index is zeroed out
-		self.vel_z[:, :, :self.FLOOR_INDEX_Z + 1] = np.maximum(self.vel_z[:, :, :self.FLOOR_INDEX_Z + 1], 0.0)
-		
-		# C. Upwind Conservative Advection (Max 1 cell shift limit per timestep)
-		new_density = np.copy(self.density)
-		
-		for z in range(1, self.res[2] - 1):
-			# Calculate dynamic translation flux coefficient (CFL limited fraction between 0.0 and 1.0)
-			flux_fraction = np.clip(abs(self.vel_z[:, :, z]) * dt / self.dx, 0.0, 0.99)
-			
-			# Identify active downward flow components
-			downward_flow = self.vel_z[:, :, z] < 0
-			
-			if np.any(downward_flow):
-				# Calculate exactly how much fractional mass leaves the current cell
-				leaving_mass = self.density[:, :, z] * flux_fraction
-				
-				# Conserved balance: subtract from source, add directly to neighbor cell below
-				new_density[:, :, z] -= leaving_mass
-				new_density[:, :, z - 1] += leaving_mass
-				
-			# Identify active upward compression/rebound vectors
-			upward_flow = self.vel_z[:, :, z] > 0
-			if np.any(upward_flow):
-				leaving_mass = self.density[:, :, z] * flux_fraction
-				new_density[:, :, z] -= leaving_mass
-				new_density[:, :, z + 1] += leaving_mass
-				
-		# Update density state and force strict normalization limits [0, 1]
-		self.density = np.clip(new_density, 0.0, 1.0)
-
-	def get_center_of_mass_at_z(self, target_z_idx):
-		"""Helper to find horizontal distribution weights at a given cell layer."""
-		slice_d = self.density[:, :, target_z_idx]
-		total_d = np.sum(slice_d)
-		if total_d < 0.01:
-			return np.array([self.res[0]/2, self.res[1]/2])
-		idx = np.indices(slice_d.shape)
-		cx = np.sum(idx[0] * slice_d) / total_d
-		cy = np.sum(idx[1] * slice_d) / total_d
-		return np.array([cx, cy])
-
-
-
-
-
-# --- 2. QUADRATIC TET10 CONTINUUM FEM SOLVER ---
-class QuadraticTet10Solver:
-	def __init__(self, start_height=8.0):
-		# We model the rubber ball natively via a localized, high-order element structure
-		# A Tet10 requires 4 corners and 6 midpoints
-		# Local reference coordinates for a unit Tet10 (Reference space Configuration)
-		self.ref_nodes = np.array([
-			[0,0,0], [1,0,0], [0,1,0], [0,0,1],       # Corners (0-3)
-			[0.5,0,0], [0.5,0.5,0], [0,0.5,0],        # Base midpoints (4-6)
-			[0,0,0.5], [0.5,0,0.5], [0,0.5,0.5]         # Vertical midpoints (7-9)
-		], dtype=np.float64) * 2.0
-		
-		# Center the reference system around its mass coordinate
-		self.ref_nodes -= np.mean(self.ref_nodes, axis=0)
+	def step_fn(state, x):
+		return jax_physics_step(state, x, mu, lam, damping, dt, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
 		
-		# World space spatial nodes (Lagrangian high-fidelity tracking)
-		self.nodes = np.copy(self.ref_nodes)
-		self.nodes[:, 2] += start_height # Shift array to match world positioning
-		
-		self.velocity = np.zeros_like(self.nodes)
-		self.forces = np.zeros_like(self.nodes)
-		
-		# Material parameters (2018 Stable Neo-Hookean constants)
-		self.mu = 600.0       # Higher shear resistance to keep the ball together
-		self.lam = 1500.0     # Intense bulk modulus to aggressively preserve volume
-		self.damping = 0.94   # Viscous material damping for clean surface ripples
-		
-		# Approximate nodal masses for a Tet10 element (consistent with a dense rubber object)
-		self.node_mass = np.array([1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]) * 0.1
-
-	def compute_shape_functions(self, local_pos):
-		"""Computes the 10 quadratic shape function weights for a given local coordinate."""
-		r, s, t = local_pos
-		u = 1.0 - r - s - t
-		
-		N = np.zeros(10)
-		# Corner Nodes
-		N[0] = u * (2.0 * u - 1.0)
-		N[1] = r * (2.0 * r - 1.0)
-		N[2] = s * (2.0 * s - 1.0)
-		N[3] = t * (2.0 * t - 1.0)
-		# Midpoint Nodes
-		N[4] = 4.0 * r * u
-		N[5] = 4.0 * r * s
-		N[6] = 4.0 * s * u
-		N[7] = 4.0 * t * u
-		N[8] = 4.0 * r * t
-		N[9] = 4.0 * s * t
-		return N
-
-	def solve_continuum_physics(self, dt, gravity=-9.81, floor_z=2.0):
-		"""Evaluates true 2018 Stable Neo-Hookean integration over the Tet10 space."""
-		self.forces[:] = 0.0
-		
-		# Compute the Deformation Gradient F from the spatial node state
-		# For a high-order continuum step, we evaluate at the element centroid
-		# Spatial deformation mapping tensor
-		Ds = np.zeros((3, 3))
-		Dm = np.zeros((3, 3))
-		for i in range(3):
-			Ds[:, i] = self.nodes[i+1] - self.nodes[0]
-			Dm[:, i] = self.ref_nodes[i+1] - self.ref_nodes[0]
-			
-		try:
-			F = np.dot(Ds, np.linalg.inv(Dm))
-			F_inv_t = np.linalg.inv(F).T
-		except np.linalg.LinAlgError:
-			F = np.eye(3)
-			F_inv_t = np.eye(3)
-			
-		# 2018 Stable Neo-Hookean Strain Formulation invariants
-		J = np.linalg.det(F)
-		I_C = np.trace(np.dot(F.T, F))
-		
-		# Smith et al. First Piola-Kirchhoff Stress P Tensor
-		P = self.mu * (1.0 - 1.0 / (I_C + 1.0)) * F + self.lam * (J - 1.0) * F_inv_t
-		
-		# Convert energy stress tensor back to nodal element force vectors
-		Bm = np.linalg.inv(Dm)
-		V_element = abs(np.linalg.det(Dm)) / 6.0 # Reference volume
-		
-		f1 = -V_element * np.dot(P, Bm[:, 0])
-		f2 = -V_element * np.dot(P, Bm[:, 1])
-		f3 = -V_element * np.dot(P, Bm[:, 2])
-		f0 = -(f1 + f2 + f3)
-		
-		# Apply core forces to corners, and distribute high-order strain energy to midpoints
-		self.forces[0] += f0
-		self.forces[1] += f1
-		self.forces[2] += f2
-		self.forces[3] += f3
-		
-		# Midpoint nodes act as structural dampeners and non-linear stabilizers
-		self.forces[4:] += (f0 + f1) * 0.25
-		self.forces[5:] += (f1 + f2) * 0.25
-		
-		# --- TIMESTEP INTEGRATION (ADVECTION) ---
-		for i in range(10):
-			# Apply Gravity
-			self.velocity[i, 2] += gravity * dt
-			# Apply Internal Elastic Force
-			accel = self.forces[i] / self.node_mass[i]
-			self.velocity[i] += accel * dt
-			self.velocity[i] *= self.damping
-			
-			# Position update step
-			self.nodes[i] += self.velocity[i] * dt
-			
-			# --- RIGID ZIVA PLANE CONTACT CONSTRAINTS ---
-			if self.nodes[i, 2] <= floor_z:
-				self.nodes[i, 2] = floor_z # Perfect surface lock
-				
-				# Dynamic squish transfer: Convert falling energy into outward rubber ripples
-				v_impact = self.velocity[i, 2]
-				if v_impact < 0:
-					self.velocity[i, 0] += (self.nodes[i, 0] * abs(v_impact) * 0.4)
-					self.velocity[i, 1] += (self.nodes[i, 1] * abs(v_impact) * 0.4)
-					self.velocity[i, 2] = -v_impact * 0.12 # Controlled hyperelastic bounce
-
-
-# --- 2. KUHN 5-SPLIT TETRAHEDRAL LATTICE FEM CLASS ---
-class Kuhn5EulerianFEM:
-	def __init__(self, bounds=(-5, 5, -5, 5, 2, 14), res=(10, 10, 12)):
-		self.res = np.array(res)
-		self.num_nodes = (res[0]+1) * (res[1]+1) * (res[2]+1)
-		
-		# Build Static Node Coordinates Layout
-		x = np.linspace(bounds[0], bounds[1], res[0]+1)
-		y = np.linspace(bounds[2], bounds[3], res[1]+1)
-		z = np.linspace(bounds[4], bounds[5], res[2]+1)
-		X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-		self.node_coords = np.stack([X, Y, Z], axis=-1).reshape(-1, 3)
-		
-		# Node Index Mapper utility
-		self.node_idx = np.arange(self.num_nodes).reshape(res[0]+1, res[1]+1, res[2]+1)
-		
-		# Dynamic Advected Grid Fields
-		self.material_density = np.zeros(self.num_nodes)  # 0.0 = Air, 1100.0 = Solid
-		self.velocity = np.zeros((self.num_nodes, 3))
-		self.forces = np.zeros((self.num_nodes, 3))
-		
-		# Reference mapping space grid used to determine F (Advected material coordinates)
-		self.advected_X = np.copy(self.node_coords)
-		
-		# Generate Kuhn 5 Tet Topologies per Voxel
-		self.tets = []
-		for i in range(res[0]):
-			for j in range(res[1]):
-				for k in range(res[2]):
-					# Extract 8 corners of the voxel cube
-					n000 = self.node_idx[i, j, k]
-					n100 = self.node_idx[i+1, j, k]
-					n010 = self.node_idx[i, j+1, k]
-					n110 = self.node_idx[i+1, j+1, k]
-					n001 = self.node_idx[i, j, k+1]
-					n101 = self.node_idx[i+1, j, k+1]
-					n011 = self.node_idx[i, j+1, k+1]
-					n111 = self.node_idx[i+1, j+1, k+1]
-					
-					# Alternating voxel parity configurations for matching shared internal faces smoothly
-					if (i + j + k) % 2 == 0:
-						self.tets.extend([
-							[n000, n100, n010, n001],
-							[n101, n100, n111, n001],
-							[n011, n010, n111, n001],
-							[n110, n100, n010, n111],
-							[n100, n010, n001, n111]  # Core Internal Tet
-						])
-					else:
-						self.tets.extend([
-							[n100, n000, n110, n101],
-							[n010, n000, n110, n011],
-							[n001, n000, n101, n011],
-							[n111, n110, n101, n011],
-							[n000, n110, n101, n011]  # Core Internal Tet
-						])
-		self.tets = np.array(self.tets)
-		self.num_elements = len(self.tets)
-
-	def seed_rubber_ball(self, center=(0.0, 0.0, 10.0), radius=2.0):
-		"""Initializes mass distribution inside the spatial grid array."""
-		dists = np.linalg.norm(self.node_coords - np.array(center), axis=1)
-		self.material_density[dists <= radius] = 1100.0  # Rubber Density
-
-	def solve_stable_neohookean_forces(self, mu=500.0, lam=1000.0):
-		"""Computes true 2018 Smith et al. Stable Neo-Hookean forces on Kuhn nodes."""
-		self.forces[:] = 0.0
-		
-		# Loop through elements (Vectorized or optimized chunks are best; shown clearly here)
-		for tet in self.tets:
-			nodes = self.node_coords[tet]
-			ref_nodes = self.advected_X[tet]
-			
-			# Element Mass weight approximation
-			elem_density = np.mean(self.material_density[tet])
-			if elem_density < 10.0: 
-				continue # Skip pure atmospheric air cells to optimize
-				
-			# Compute spatial edge vectors matrix Ds (Static Kuhn matrix grid)
-			Ds = np.stack([nodes[1] - nodes[0], nodes[2] - nodes[0], nodes[3] - nodes[0]], axis=-1)
-			# Compute reference space edge vectors matrix Dm (Advected material space deformation track)
-			Dm = np.stack([ref_nodes[1] - ref_nodes[0], ref_nodes[2] - ref_nodes[0], ref_nodes[3] - ref_nodes[0]], axis=-1)
-			
-			try:
-				# Deformation Gradient F = Ds * inv(Dm)
-				F = np.dot(Ds, np.linalg.inv(Dm))
-				F_inv_t = np.linalg.inv(F).T
-			except np.linalg.LinAlgError:
-				continue
-				
-			# Compute Invariants & Stable Determinants
-			J = np.linalg.det(F)
-			I_C = np.trace(np.dot(F.T, F))
-			V_element = abs(np.linalg.det(Ds)) / 6.0 # Spatial volume size
-			
-			# 2018 Stable Formulation Stress Equation (P)
-			P = mu * (1.0 - 1.0 / (I_C + 1.0)) * F + lam * (J - 1.0) * F_inv_t
-			
-			# Distribute forces back to the 4 corners of the tetrahedron element
-			# Bm = inv(Dm)^T elements scaling factors
-			Bm = np.linalg.inv(Dm)
-			f1 = -V_element * np.dot(P, Bm[:, 0])
-			f2 = -V_element * np.dot(P, Bm[:, 1])
-			f3 = -V_element * np.dot(P, Bm[:, 2])
-			f0 = -(f1 + f2 + f3)
-			
-			self.forces[tet[0]] += f0
-			self.forces[tet[1]] += f1
-			self.forces[tet[2]] += f2
-			self.forces[tet[3]] += f3
-
-	def advance_timestep(self, dt, gravity=-9.81, collision_z=4.0):
-		"""Updates velocity fields, boundary constraints, and handles Eulerian advection."""
-		# 1. Update velocities using dynamic forces + gravity
-		accel = self.forces / 1100.0  # normalized by material density base
-		accel[:, 2] += np.where(self.material_density > 10.0, gravity, 0.0)
-		self.velocity += accel * dt
-		
-		# 2. Strict Boundary Solid Cube Rigid Collision Constraint
-		below_floor = self.node_coords[:, 2] <= collision_z
-		self.velocity[below_floor, 2] = np.maximum(self.velocity[below_floor, 2], 0.0)
-		# Apply strict position hard-clamping to simulate infinite friction boundaries
-		self.velocity[below_floor, 0] *= 0.1 
-		self.velocity[below_floor, 1] *= 0.1 
-		
-		# 3. Semi-Lagrangian Advection Step for Material Fields
-		# Trace backwards where coordinates came from
-		backtrace_pos = self.node_coords - dt * self.velocity
-		
-		# Basic interpolation matching reference space coordinate offsets
-		# Evolve advected material spaces mapping reference trackers
-		self.advected_X[:, 0] += dt * self.velocity[:, 0] * 0.1
-		self.advected_X[:, 1] += dt * self.velocity[:, 1] * 0.1
-		self.advected_X[:, 2] += dt * self.velocity[:, 2] * 0.1
-
-
+	_, trajectory = jax.lax.scan(step_fn, (STATIC_INIT_POS, init_vel), None, length=num_frames)
+	return trajectory
 
 
-
-
-
-
-class StableNeoHookeanVoxelSolver:
-	def __init__(self, resolution=(16, 16, 16)):
-		self.res = np.array(resolution)
-		
-		# Grid fields
-		self.velocity = np.zeros((*resolution, 3))
-		self.mass = np.ones(resolution) * 1.225 # Default Air Mass
-		
-		# Material tracking: 3D Grid of 3x3 Deformation Gradient Matrices (F)
-		# Initialized to the Identity Matrix (no deformation)
-		self.F = np.zeros((*resolution, 3, 3))
-		self.F[..., 0, 0] = 1.0
-		self.F[..., 1, 1] = 1.0
-		self.F[..., 2, 2] = 1.0
-		
-		# Voxel Color Grid for visualization (R, G, B)
-		self.color_grid = np.zeros((*resolution, 3))
-		
-		# Material parameters for the Rubber Ball
-		self.mu = 5000.0      # Shear modulus (stiffness)
-		self.lambda_ = 10000.0 # Bulk modulus (volume preservation)
-
-	def seed_ball_and_cube(self):
-		"""Seeds initial mass distribution and base attributes."""
-		# Ball centered high up
-		idx = np.indices(self.res)
-		dist_to_ball = np.sqrt((idx[0]-8)**2 + (idx[1]-8)**2 + (idx[2]-12)**2)
-		ball_mask = dist_to_ball <= 3.5
-		self.mass[ball_mask] = 1100.0 # Heavy solid rubber
-		self.color_grid[ball_mask] = [0.1, 0.6, 0.9] # Base cyan color
-		
-		# Static collision cube at the bottom
-		cube_mask = (idx[0] >= 2) & (idx[0] <= 14) & (idx[1] >= 2) & (idx[1] <= 14) & (idx[2] >= 1) & (idx[2] <= 4)
-		self.mass[cube_mask] = 5000.0 # Ultra heavy static barrier
-		self.color_grid[cube_mask] = [0.2, 0.2, 0.2] # Gray floor
-		self.static_cube = cube_mask
-
-	def update_physics_step(self, dt):
-		"""Computes Stable Neo-Hookean forces, handles advection and collisions."""
-		# 1. Compute Deformation Gradient Gradient (Grad v) to evolve F
-		# F_new = F_old + dt * (Grad v * F_old)
-		grad_v = np.zeros_like(self.F)
-		for axis in range(3):
-			# Simple central difference for velocity gradients
-			grad_v[1:-1, 1:-1, 1:-1, axis, 0] = (self.velocity[2:, 1:-1, 1:-1, axis] - self.velocity[:-2, 1:-1, 1:-1, axis]) / 2.0
-			grad_v[1:-1, 1:-1, 1:-1, axis, 1] = (self.velocity[1:-1, 2:, 1:-1, axis] - self.velocity[1:-1, :-2, 1:-1, axis]) / 2.0
-			grad_v[1:-1, 1:-1, 1:-1, axis, 2] = (self.velocity[1:-1, 1:-1, 2:, axis] - self.velocity[1:-1, 1:-1, :-2, axis]) / 2.0
-
-		# Evolve F matrix via matrix multiplication at each voxel
-		if dt > 0:
-			self.F += dt * np.matmul(grad_v, self.F)
-
-		# 2. Stable Neo-Hookean Stress Calculation
-		# Determinant of F (Volume change ratio J)
-		J = np.linalg.det(self.F)
-		# Avoid division-by-zero or negative inversion artifacts by clamping J
-		J_stable = np.maximum(J, 0.1) 
-		
-		# Compute First Piola-Kirchhoff Stress (P)
-		# Stable Formula: P = mu * (F - F^-T) + lambda * (J - 1) * J * F^-T
-		# We approximate the restorative force direction to prevent inversion crashes:
-		F_inv_t = np.zeros_like(self.F)
-		try:
-			F_inv_t = np.linalg.inv(self.F).transpose(0, 1, 2, 4, 3)
-		except np.linalg.LinAlgError:
-			# Fallback if matrix collapses completely during high impact
-			F_inv_t[..., 0, 0] = 1.0; F_inv_t[..., 1, 1] = 1.0; F_inv_t[..., 2, 2] = 1.0
-			
-		P = self.mu * (self.F - F_inv_t) + self.lambda_ * (J_stable - 1.0)[..., np.newaxis, np.newaxis] * F_inv_t
-		
-		# 3. Apply Internal Forces (Divergence of Stress P) and Gravity
-		f_internal = np.zeros_like(self.velocity)
-		# Divergence approximation
-		f_internal[1:-1, 1:-1, 1:-1, 0] = np.sum(P[2:, 1:-1, 1:-1, 0, :] - P[:-2, 1:-1, 1:-1, 0, :], axis=-1) / 2.0
-		f_internal[1:-1, 1:-1, 1:-1, 1] = np.sum(P[1:-1, 2:, 1:-1, 1, :] - P[1:-1, :-2, 1:-1, 1, :], axis=-1) / 2.0
-		f_internal[1:-1, 1:-1, 1:-1, 2] = np.sum(P[1:-1, 1:-1, 2:, 2, :] - P[1:-1, 1:-1, :-2, 2, :], axis=-1) / 2.0
-		
-		# Gravity acceleration
-		accel = f_internal / np.maximum(self.mass[..., np.newaxis], 1e-4)
-		accel[self.mass > 2.0, 2] += -9.81 # Apply gravity to solid masses
-		
-		self.velocity += accel * dt
-		
-		# 4. Handle Rigid Voxel Collision with Static Box
-		self.velocity[self.static_cube] = 0.0 # Force floor to zero movement
-		# Simple velocity reflection for voxels touching the boundary
-		collision_zone = (self.mass > 2.0) & (self.static_cube == False)
-		
-		# 5. Dynamic Compression Color Keyframing (Visualize ripples/squish)
-		# Turn red based on how compressed the volume is (J < 1.0)
-		compression_ratio = np.clip(1.0 - J_stable, 0.0, 1.0)
-		self.color_grid[..., 0] = np.where(collision_zone, compression_ratio, self.color_grid[..., 0]) # Red spike
-		self.color_grid[..., 1] = np.where(collision_zone, 1.0 - compression_ratio, self.color_grid[..., 1]) # Green fade
+# Compiled engine tracks separate inputs seamlessly
+jit_simulation_engine = jax.jit(run_simulation_scan, static_argnums=(12,))
 
+vmap_det = jax.vmap(jnp.linalg.det)
+vmap_trace = jax.vmap(lambda mat: jnp.trace(jnp.dot(mat.T, mat)))
+vmap_inv_t = jax.vmap(lambda mat: jnp.linalg.inv(mat + 1e-5 * jnp.eye(3)).T)
 
 
 # 1. Define a custom callback class to track progress
@@ -2605,41 +1673,6 @@ class myEquation_dFEM:
 
 		return deformed_skin_fl64.astype(np.float32)
 
-
-	def deform_skin_tissue_mesh0(self, x_corners_current, topology_tet4, vertex_to_tet_id, vertex_weights):
-		"""
-		Deforms the high-resolution render skin by multiplying current cage states
-		by cached barycentric weights. Completely matrix-free.
-		
-		Args:
-			x_corners_current: (N, 3) float64 array of current frame node positions from solver.
-			topology_tet4: (M, 4) int32 array tracking element connectivity.
-			vertex_to_tet_id: (V,) int32 pre-computed containment map.
-			vertex_weights: (V, 4) float64 pre-computed barycentric mapping arrays.
-			
-		Returns:
-			deformed_skin_coords: (V, 3) float32 array ready for native Blender casting.
-		"""
-		# 1. FETCH UPDATED CAGE NODE COORDINATES FOR EVERY VERTEX'S TARGET TET
-		# Gather element corner point pointers matching vertex mappings
-		active_tets = topology_tet4[vertex_to_tet_id] # Shape: (V, 4)
-		
-		# Extract absolute 3D position matrices for the 4 corners of all tets simultaneously
-		# Produces a high-dimensional vector array: (V, 4, 3)
-		tet_nodes_x = x_corners_current[active_tets]
-		
-		# 2. RUN BARYCENTRIC RECONSTRUCTION LOP
-		# New_Pos = w0*v0 + w1*v1 + w2*v2 + w3*v3
-		# We expand vertex_weights dimension footprint to multiply cleanly across the 3D columns
-		w_expanded = vertex_weights[:, :, np.newaxis] # Shape: (V, 4, 1)
-		
-		# Multiply elements element-by-element and sum along the tet corner axis
-		deformed_skin_fl64 = np.sum(tet_nodes_x * w_expanded, axis=1) # Shape: (V, 3)
-		
-		# 3. DOWNCAST TO SINGLE PRECISION ONLY AT GRAPHICS HANDOFF BOUNDARY
-		return deformed_skin_fl64.astype(np.float32)
-
-
 	def compile_painted_mesh_to_fem_attributes(self, mesh_obj_name, nodes, tet_indices):
 		pass
 
@@ -2734,523 +1767,438 @@ class myEquation_dFEM:
 		obj_eval.to_mesh_clear()
 		return element_properties
 
-	def embeddedVoxelFemAdvectionTest(self):
-		# 1. Create the high-resolution target sphere (Barycentric Target)
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=3.0, location=(8.0, 8.0, 12.0), segments=32, ring_count=32)
-		sphere_obj = bpy.context.active_object
-		sphere_obj.name = "Embedded_Sphere"
 
-		mesh = sphere_obj.data
-		num_verts = len(mesh.vertices)
+	def bounce_diff_03(self, abj_sd_b_instance):
+		bpy.context.scene.render.engine = 'CYCLES'
+		# bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+		bpy.context.scene.cycles.device = 'GPU'
 
-		# Store baseline vertex positions
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
+		bpy.context.scene.cycles.samples = 64
+		bpy.context.scene.cycles.denoising_use_gpu = True
 
-		# 2. Instantiate our stable solver
-		solver = StableNeoHookeanVoxelSolver(resolution=(16, 16, 16))
-		solver.seed_ball_and_cube()
+		# ==============================================================================
+		# 1. SCENE CLEANUP & BLENDER ENVIRONMENT LAYOUT SETUP
+		# ==============================================================================
+		print("Initializing unified JAX Unified Bounce-and-Crush Continuum Engine...")
 
-		# Initialize shape key blocks on the object
-		sphere_obj.shape_key_add(name="Basis", from_mix=False)
+		for name in ["Rubber_Ball", "Voxel_Collision_Cube"]:
+			if name in bpy.data.objects:
+				bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
 
-		# 3. Simulate and Bake Animation over Time Range
-		start_frame = 1
-		end_frame = 50
-		# end_frame = 10
-		# dt = 0.02
-		dt = 0.2
-		# dt = 0.2
+		SPHERE_RES = 32  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 40  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 48  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 64  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 100  # High resolution captures both fluid ripples and flat cushion folds
 
-		print("Beginning stable solver baking run...")
+		# Spawn target sphere at Z = 7.5
+		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=SPHERE_RES, ring_count=SPHERE_RES)
+		# bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 7.5), size=6)
 
-		for frame in range(start_frame, end_frame + 1):
-			# Step physics forward
-			solver.update_physics_step(dt)
-			
-			# Simple explicit advection approximation for the displacement field
-			# Calculate current deformation displacement vector per voxel corner
-			# Extract structural translation from F matrix (displacement component)
-			disp_grid_x = solver.F[..., 0, 2] * 0.1  # Shearing/Translation shift mapping
-			disp_grid_y = solver.F[..., 1, 2] * 0.1
-			disp_grid_z = (solver.velocity[..., 2] * dt) # Velocity displacement tracking
-			
-			# Create new shape key data block for this specific frame
-			# key_name = f"Frame_{frame}"
-			# skey = sphere_obj.shape_key_add(name=key_name, from_mix=False)
-			
-			# Compute deformed vertex coordinates using local trilinear barycentric interpolation
-			deformed_coords = np.copy(orig_coords)
-			
-			for i, vert in enumerate(mesh.vertices):
-				# Local space position relative to the grid bounding box layout
-				px, py, pz = vert.co[0], vert.co[1], vert.co[2]
-				
-				# Calculate base floor index on our 16x16x16 grid
-				fx = int(np.clip(np.floor(px), 0, 14))
-				fy = int(np.clip(np.floor(py), 0, 14))
-				fz = int(np.clip(np.floor(pz), 0, 14))
-				
-				# Calculate local barycentric fraction coordinates [0.0, 1.0] inside the voxel cell
-				tx = px - fx
-				ty = py - fy
-				tz = pz - fz
-				
-				# Sample the displacement offsets from the surrounding grid voxel
-				dx = disp_grid_x[fx, fy, fz] * (1.0 - tx) + disp_grid_x[fx+1, fy, fz] * tx
-				dy = disp_grid_y[fx, fy, fz] * (1.0 - ty) + disp_grid_y[fx, fy+1, fz] * ty
-				dz = disp_grid_z[fx, fy, fz] * (1.0 - tz) + disp_grid_z[fx, fy, fz+1] * tz
-				
-				# Apply the deformation wave to the vertex
-				deformed_coords[i, 0] += dx
-				deformed_coords[i, 1] += dy
-				deformed_coords[i, 2] += dz
-
-			# # Write positions directly into the created Blender shape key block
-			# skey.data.foreach_set("co", deformed_coords.ravel())
-			
-			# # Keyframe the Shape Key weights so they sequentially activate frame-by-frame
-			# bpy.context.scene.frame_set(frame)
-			
-			# # Animate this keyframe active (value=1.0) and previous/next inactive (value=0.0)
-			# skey.value = 1.0
-			# skey.keyframe_insert(data_path="value", frame=frame)
-			
-			# if frame > start_frame:
-			# 	# Keyframe previous frame fading down to clear out the progressive history stack
-			# 	prev_key = sphere_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-			# 	prev_key.value = 0.0
-			# 	prev_key.keyframe_insert(data_path="value", frame=frame)
-
-
-
-
-
-			# 4. BAKE TO NATIVE BLENDER ANIMATION timetracks
-			# sk = obj.shape_key_add(name=f"FEM_Frame_{frame:04d}")
-			sk = sphere_obj.shape_key_add(name=f"FEM_Frame_{frame:04d}", from_mix=False)
-			sk.data.foreach_set("co", deformed_coords.ravel())
-
-			#Insert evaluation timeline driving metrics
-			sk.value = 0.0
-			sk.keyframe_insert(data_path="value", frame=frame - 1)
-
-			sk.value = 1.0
-			sk.keyframe_insert(data_path="value", frame=frame)
-
-			if frame != end_frame:
-				sk.value = 0.0
-				sk.keyframe_insert(data_path="value", frame=frame + 1)
-
-
-		print("Baking process finished successfully! Scrub through timelines to view compression ripples.")
-
-
-	def embeddedVoxelFemAdvectionTest_02(self):
-		# --- 1. CLEAN CLEAN UP & SETUP ---
-		if "Rubber_Ball" in bpy.data.objects:
-			bpy.data.objects.remove(bpy.data.objects["Rubber_Ball"], do_unlink=True)
-
-		# Create a high-res UV Sphere (Our target rubber ball)
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=2.0, location=(0, 0, 8.0), segments=32, ring_count=32)
 		ball_obj = bpy.context.active_object
 		ball_obj.name = "Rubber_Ball"
-		mesh = ball_obj.data
 
-		# Setup Shape Keys
-		basis_key = ball_obj.shape_key_add(name="Basis", from_mix=False)
 
-		# Get initial vertex coordinates
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
 
-		# Simulation Physics Parameters
-		num_frames = 60
-		dt = 0.02
-		gravity = -9.81
+		# # 3. Switch to Edit Mode to modify the geometry
+		# bpy.ops.object.mode_set(mode='EDIT')
 
-		# Track physics states directly on the vertices (Lagrangian Tracking)
-		positions = np.copy(orig_coords)
-		# Offset positions to match world-space starting location (Z = 8.0)
-		positions[:, 2] += 8.0 
-		velocities = np.zeros((num_verts, 3))
+		# # 4. Select all geometry (vertices/edges/faces)
+		# bpy.ops.mesh.select_all(action='SELECT')
 
-		# Material Constants (Stable Neo-Hookean Rubber parameters)
-		stiffness = 300.0  # Shear resistance
-		bulk_modulus = 1200.0  # Volume preservation (Higher = harder to compress/less holes)
-		damping = 0.95  # Absorbs chaotic shockwaves upon collision
+		# # 5. Subdivide the mesh 
+		# # Set number_cuts to your desired resolution. Keep smoothness at 0.0 to prevent rounding!
+		# # bpy.ops.mesh.subdivide(number_cuts=12, smoothness=0.0)
+		# # bpy.ops.mesh.subdivide(number_cuts=16, smoothness=0.0)
+		# bpy.ops.mesh.subdivide(number_cuts=32, smoothness=0.0)
 
-		# Define the Collision Floor Plane (World-Space Z boundary)
-		FLOOR_Z = 1.5 
-		# FLOOR_Z = -2
+		# # 6. Switch back to Object Mode
+		# bpy.ops.object.mode_set(mode='OBJECT')
 
-		print("Starting Stable Hybrid Voxel/Vertex Simulation Run...")
 
-		# --- 2. PHYSICS & SHAPE KEY GENERATION LOOP ---
-		for frame in range(1, num_frames + 1):
-			# Create a fresh shape key for this specific frame
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			
-			# --- STEP A: APPLY EXTERNAL FORCES (GRAVITY) ---
-			# velocities[:, 2] += gravity * dt
-			velocities[:, 2] += gravity * dt
-			
-			# --- STEP B: COMPUTE GRID-BASED VOLUME STRESS (NEO-HOOKEAN STIMULUS) ---
-			# Find the current bounding bounds of the ball to calculate volume compression
-			center_mass = np.mean(positions, axis=0)
-			current_radius = np.mean(np.linalg.norm(positions - center_mass, axis=1))
-			
-			# Volume preservation ratio (J)
-			# Target volume V0 radius is 2.0. If current radius shrinks or expands, J deviates from 1.0
-			initial_radius = 2.0
-			J = (current_radius / initial_radius) ** 3
-			J_stable = np.maximum(J, 0.1) # Safe guard against collapse
-			
-			# Calculate restorative Neo-Hookean pressure force vector per vertex
-			# Restores shape back to original relative vector offsets from center of mass
-			to_center = positions - center_mass
-			dist_to_center = np.linalg.norm(to_center, axis=1, keepdims=True)
-			normal_dirs = to_center / np.maximum(dist_to_center, 1e-5)
-			
-			# Stable Neo-Hookean Stress representation acting on the vertex vectors
-			# Force = stiffness * (deformation) + bulk_modulus * (J - 1) * volume_direction
-			ideal_distances = (orig_coords / 2.0) * initial_radius # mapped local scale
-			ideal_dist_len = np.linalg.norm(ideal_distances, axis=1, keepdims=True)
-			
-			# Internal elastic restorative force pushing elements back to position
-			f_elastic = -stiffness * (dist_to_center - ideal_dist_len) * normal_dirs
-			# Bulk volume pressure force (prevents mesh from blowing up or tearing open)
-			f_volume = -bulk_modulus * (J_stable - 1.0) * normal_dirs
-			
-			# Total internal material force
-			f_internal = f_elastic + f_volume
-			velocities += f_internal * dt
-			velocities *= damping # Prevent numerical explosion explosions
-			
-			# --- STEP C: ADVECTION (UPDATE POSITIONS) ---
-			positions += velocities * dt
-			
-			# --- STEP D: BOUNDARY SOLID COLLISION HANDLING ---
-			# Check if any vertex crosses the static cube floor threshold
-			for i in range(num_verts):
-				if positions[i, 2] <= FLOOR_Z:
-					positions[i, 2] = FLOOR_Z  # Snap directly onto floor surface
-					
-					# Squish behavior: Convert vertical impact velocity into lateral expansion waves
-					v_impact = velocities[i, 2]
-					if v_impact < 0:
-						velocities[i, 0] += normal_dirs[i, 0] * abs(v_impact) * 0.6
-						velocities[i, 1] += normal_dirs[i, 1] * abs(v_impact) * 0.6
-						velocities[i, 2] = -v_impact * 0.2  # Slight elastic bounce energy
-						
-			# --- STEP E: KEYFRAME SHAPE MAP BLOCK ---
-			# Convert world space simulation positions back to local mesh space relative to the object origin
-			local_baked_coords = np.copy(positions)
-			local_baked_coords[:, 2] -= 8.0 # Re-align back to origin baseline for shape keys
-			
-			# Write positions directly into the Blender shape key
-			skey.data.foreach_set("co", local_baked_coords.ravel())
-			
-			# Timeline Keyframe Driver Logic
-			bpy.context.scene.frame_set(frame)
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			
-			if frame > 1:
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
 
-		print("Baking Complete! Play the timeline animation to watch the ball drop, hit the floor, and squish safely.")
+		'''
+		############################
+		#######BAKE GABOR TO PTS
+		############################
 
-	def kuhn5_01(self):
-		# Create high-res embedded visual sphere at Z=10.0
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=2.0, location=(0.0, 0.0, 10.0), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
+
+		# 1. Setup target object 
+		# bpy.ops.mesh.primitive_grid_add(x_subdivisions=100, y_subdivisions=100, size=2)
+		# ball_obj = bpy.context.active_object
+
+		# 2. Add the modifier slot and link a clean GeometryNodeTree
+		gn_mod = ball_obj.modifiers.new(name="ProceduralDisplacement", type='NODES')
+		node_group = bpy.data.node_groups.new(name="GaborDisplaceTree", type='GeometryNodeTree')
+		gn_mod.node_group = node_group
+
+		# Create the required structural geometry sockets (Blender 5.2 API flat tree style)
+		node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+		node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+
+		# 3. Create the standard, universally supported nodes
+		node_in = node_group.nodes.new(type="NodeGroupInput")
+		node_out = node_group.nodes.new(type="NodeGroupOutput")
+
+		# We use 'GeometryNodeSetPosition' which is completely stable and supported
+		node_set_pos = node_group.nodes.new(type="GeometryNodeSetPosition")
+
+		# Texture node (e.g., Gabor or Noise)
+		node_noise = node_group.nodes.new(type="ShaderNodeTexGabor") 
+
+		# Vector Math nodes to calculate: Normal * Noise Value * Strength
+		node_normal = node_group.nodes.new(type="GeometryNodeInputNormal")
+		node_multiply = node_group.nodes.new(type="ShaderNodeVectorMath")
+		node_multiply.operation = 'MULTIPLY'
+
+		node_scale = node_group.nodes.new(type="ShaderNodeVectorMath")
+		node_scale.operation = 'SCALE'
+		# node_scale.inputs[3].default_value = 0.3  # This acts as your displacement "Strength"
+		node_scale.inputs[3].default_value = 0.5  # This acts as your displacement "Strength"
+
+		# 4. Connect the node architecture
+		links = node_group.links
+
+		# Link the core geometry line
+		links.new(node_in.outputs['Geometry'], node_set_pos.inputs['Geometry'])
+		links.new(node_set_pos.outputs['Geometry'], node_out.inputs['Geometry'])
+
+		# Calculate displacement vector: Normal * Gabor Value
+		links.new(node_normal.outputs['Normal'], node_multiply.inputs[0])
+		links.new(node_noise.outputs['Value'], node_multiply.inputs[1])
+
+		# Scale the final vector by your strength setting and pipe it into 'Offset'
+		links.new(node_multiply.outputs['Vector'], node_scale.inputs[0])
+		links.new(node_scale.outputs['Vector'], node_set_pos.inputs['Offset'])
+
+		# 5. Freeze the Modifier (Locks down procedural changes to real vertices)
+		bpy.ops.object.modifier_apply(modifier=gn_mod.name)
+
+		print(f"Success! Mesh baked. {len(ball_obj.data.vertices)} points available for your BPY loop.")
+
+
+		'''
+
+
+		# return
+
+		# bpy.ops.object.modifier_add(type='SUBSURF')
+		# # ball_obj.modifiers["Subdivision"].levels = 1
+		# ball_obj.modifiers["Subdivision"].levels = 4
+		# bpy.ops.object.modifier_apply(modifier="Subdivision")
+		
+		# return
+		
+		# bpy.ops.object.modifier_add(type='SUBSURF')
+		# ball_obj.modifiers["Subdivision"].levels = 1
+		# # ball_obj.modifiers["Subdivision"].levels = 2
+		# ball_obj.modifiers["Subdivision"].use_adaptive_subdivision = True
+
+		# bpy.ops.object.modifier_apply(modifier="Subdivision")
+
 		ball_obj.shape_key_add(name="Basis", from_mix=False)
-
-		# Create static physical collision cube beneath it at Z=4.0
-		bpy.ops.mesh.primitive_cube_add(size=6.0, location=(0.0, 0.0, 1.0))
-		cube_obj = bpy.context.active_object
-		cube_obj.name = "Static_Collision_Cube"
-
-
-		# --- 3. RUN BAKING SYSTEM & POPULATE BLENDER SHAPE KEYS ---
-		fem = Kuhn5EulerianFEM()
-		fem.seed_rubber_ball()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_verts = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_verts.ravel())
-
-		# World positions tracker initialized exactly matching starting UV coordinates layout
-		sphere_world_pos = np.copy(orig_verts)
-		sphere_world_pos[:, 2] += 10.0  # Align to starting spatial Z center
-
-		num_frames = 60
-		dt = 0.015
-
-		print("Baking Stable Neo-Hookean Kuhn 5 FEM system...")
-
-		for frame in range(1, num_frames + 1):
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			
-			# Calculate forces and step simulation forward
-			fem.solve_stable_neohookean_forces()
-			fem.advance_timestep(dt)
-			
-			# Update embedded sphere coordinates using node velocity fields via interpolation
-			for i in range(num_verts):
-				# Calculate local tracking proximity relative to underlying static nodes map
-				# Find nearest lattice node index to sample physical update updates
-				dists = np.linalg.norm(fem.node_coords - sphere_world_pos[i], axis=1)
-				nearest_node = np.argmin(dists)
-				
-				# Apply spatial displacement transformation vectors explicitly
-				sphere_world_pos[i] += fem.velocity[nearest_node] * dt
-			
-			# Convert positions back to Local Space for Blender Shape Key integrity mapping
-			baked_local = np.copy(sphere_world_pos)
-			baked_local[:, 2] -= 10.0
-			
-			skey.data.foreach_set("co", baked_local.ravel())
-			
-			# Animate weight properties configurations
-			bpy.context.scene.frame_set(frame)
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			if frame > 1:
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-
-		bpy.context.scene.frame_set(1)
-		print("FEM Baking Complete! Play timeline to view true Stable Neo-Hookean ripples.")
-
-	def tet10_solve_01(self):
-		# Create a clean high-resolution UV Sphere for the visual mesh
-		# Set origin perfectly at (0, 0, 0) and use transform location for its physical start
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 0.0), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
-		ball_obj.location = (0.0, 0.0, 8.0) # True initial starting height
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-
-		# Create a clear visual collision floor plane
-		bpy.ops.mesh.primitive_plane_add(size=10.0, location=(0.0, 0.0, 2.0))
-		floor_obj = bpy.context.active_object
-		floor_obj.name = "Floor_Plane"
-
-		# --- 3. EXECUTE SIMULATION AND BAKE CLEAN SHAPE KEYS ---
-		solver = QuadraticTet10Solver(start_height=8.0)
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		# Generate local barycentric projection factors for the embedded mesh vertices
-		# Because our Tet10 is scaled cleanly around the sphere bounds, we map weights directly
-		bary_weights = np.zeros((num_verts, 10))
-		for i in range(num_verts):
-			# Calculate how this vertex maps to the 10-node element coordinates
-			# We use a localized normalized distance matrix to generate stable shape interpolation weights
-			local_pos = orig_coords[i] * 0.3 + 0.25
-			bary_weights[i] = solver.compute_shape_functions(np.clip(local_pos, 0.0, 0.4))
-
-		num_frames = 70
-		dt = 0.015
-
-		print("Baking high-order Tet10 Stable Neo-Hookean Simulation...")
-
-		for frame in range(1, num_frames + 1):
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			
-			# Run the continuous quadratic element physics step
-			solver.solve_continuum_physics(dt, gravity=-9.81, floor_z=2.0)
-			
-			# Deform the high-res sphere smoothly using the quadratic shape weights matrix
-			# This prevents ANY mesh splitting or separation artifacts entirely
-			deformed_world = np.dot(bary_weights, solver.nodes)
-			
-			# CRUCIAL BLENDER FIX: Shape keys calculate deformation relative to the object matrix origin.
-			# The sphere object is physically placed at Z=8.0 in the viewport.
-			# To prevent double-spheres or inverted trajectories, we subtract the object location vector.
-			baked_local_coords = np.copy(deformed_world)
-			baked_local_coords[:, 2] -= 8.0 
-			
-			skey.data.foreach_set("co", baked_local_coords.ravel())
-			
-			# Bind weight properties seamlessly to the active playback frame
-			bpy.context.scene.frame_set(frame)
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			if frame > 1:
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-
-		# Clean up timeline context focus back to initialization frame
-		bpy.context.scene.frame_set(1)
-
-	def tet10_solve_02(self):
-		# Create the visual UV Sphere
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 8.0), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
-
-		# Ensure smooth shading so ripples look clean
 		bpy.ops.object.shade_smooth()
 
-		# Initialize Basis key
-		basis_key = ball_obj.shape_key_add(name="Basis", from_mix=False)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		ball_obj.active_material.displacement_method = 'BOTH'
 
-		# Create a clear visual collision floor plane
-		bpy.ops.mesh.primitive_plane_add(size=10.0, location=(0.0, 0.0, 2.0))
-		floor_obj = bpy.context.active_object
-		floor_obj.name = "Floor_Plane"
 
+		mat = bpy.data.materials.get("principled_test_00")
+		nodes = mat.node_tree.nodes
 
-		# --- 3. EXECUTE SIMULATION AND BAKE SHAPE KEYS ---
-		solver = QuadraticTet10Solver(start_height=8.0)
+		nodes = mat.node_tree.nodes
 
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# displacement_node.inputs[2].default_value = 0.3
+		displacement_node.inputs[2].default_value = 0.5
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		######################################
+		# Wide collision floor plane cube (Top face at world Z = 2.0)
+		######################################
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, 0.0))
+		cube_obj = bpy.context.active_object
+		cube_obj.name = "Voxel_Collision_Cube"
+		cube_obj.scale = (30.0, 30.0, 1.0)
+		cube_obj.location = (0.0, 0.0, 1.5) 
+
+		mat1 = abj_sd_b_instance.newShader("principled_test_grd", "principled", 0, 0, 1)
+
+		# checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		# principledNode = nodes.new(type='ShaderNodeBsdfPrincipled')
+
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+
+		# 1. Get the specific material 
+		mat1 = bpy.data.materials.get("principled_test_grd")
+
+		# Ensure use_nodes is enabled so the node tree exists
+		mat1.use_nodes = True
+		nodes = mat1.node_tree.nodes
+		links = mat1.node_tree.links
+
+		# 2. Correctly create the checker node inside mat1's tree
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+
+		# 3. Find the existing Principled BSDF inside mat1's tree
+		# (Using nodes.get avoids errors if it was renamed)
+		principledNode = nodes.get("Principled BSDF")
+
+		# 4. Safely create the link using the explicitly targeted tree
+		if principledNode:
+			links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+
+		bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+
+		mat1.node_tree.links.new(checkerNode.outputs['Color'], bpy.data.materials["principled_test_grd"].node_tree.nodes["Principled BSDF"].inputs[0])
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+		abj_sd_b_instance.autoArrangeNodes(mat1.node_tree)
+
+		###########
+		# WORLD
+		###########
+
+		world = bpy.context.scene.world
+		worldtree = world.node_tree
+		worldtree.nodes.clear()
+
+		# output_node_world = next((n for n in worldtree.nodes if n.type == 'ShaderNodeOutputWorld'), None)
+		# if not output_node:
+		# 	output_node_world = worldtree.nodes.new(type='ShaderNodeOutputWorld')
+
+		# output_node = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		# bg_node = worldtree.nodes.new(type="ShaderNodeBackground")
+
+		# output_node_world = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		output_node_world = worldtree.nodes.new('ShaderNodeOutputWorld')
+
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		node_sky = worldtree.nodes.new('ShaderNodeTexSky')
+		worldtree.links.new(node_sky.outputs["Color"], output_node_world.inputs["Surface"])
+
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_size = 0.372541
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_intensity = 21.3
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_rotation = -1.57603
+		# node_sky.sun_size = 0.372541
+		# node_sky.sun_intensity = 21.3
+		node_sky.sun_rotation = 1.65806
+		node_sky.sun_elevation = .05
+
+		abj_sd_b_instance.autoArrangeNodes(worldtree)
+
+		bpy.context.view_layer.update()
+
+		abj_sd_b_instance.agxColorSettings_UI()
+
+		# return
+
+		# ==============================================================================
+		# 2. EXTRACT SCENE GEOMETRY TO GLOBAL SCOPE ARRAYS
+		# ==============================================================================
 		mesh = ball_obj.data
 		num_verts = len(mesh.vertices)
 		orig_coords = np.zeros((num_verts, 3))
 		mesh.vertices.foreach_get("co", orig_coords.ravel())
 
-		bary_weights = np.zeros((num_verts, 10))
-		for i in range(num_verts):
-			local_pos = orig_coords[i] * 0.25 + 0.25
-			bary_weights[i] = solver.compute_shape_functions(np.clip(local_pos, 0.0, 0.4))
+		# Baseline world coordinates tracking matrix
+		sphere_tracker = np.copy(orig_coords)
+		sphere_tracker[:, 2] += 7.5  
 
-		num_frames = 60
-		# dt = 0.016
-		dt = 0.1
+		# Extract reference normal direction vectors
+		ref_normals_numpy = np.zeros((num_verts, 3))
+		for v in mesh.vertices:
+			ref_normals_numpy[v.index] = np.array(v.normal)
 
-		print("Baking Tet10 Engine and keyframing timeline dependencies...")
+		# Precompute thickness profile cushion (14% of initial relative height profile)
+		min_init_z = np.min(orig_coords[:, 2])
+		vertex_thickness_numpy = (orig_coords[:, 2] - min_init_z) * 0.14  
 
-		# Get the dependency graph for forcing UI updates
+		# --- GLOBAL SCOPE JAX ARRAYS ---
+		# By assigning these to the global module scope, the JAX functions can read them
+		# directly via closure. They are never passed through scan, so they CANNOT flatten or swap!
+
+		STATIC_INIT_POS = jnp.array(sphere_tracker)
+		STATIC_CENTER = jnp.mean(STATIC_INIT_POS, axis=0) # Pristine Frame 1 rest center
+		STATIC_NORMALS = jnp.array(ref_normals_numpy)
+		STATIC_THICKNESS = jnp.array(vertex_thickness_numpy)
+
+
+		# ==============================================================================
+		# 4. EXPLICIT AUTOMATED INDIVIDUAL-ARGUMENT BACKPROPAGATION GRADIENT DESCENT LOOP
+		# ==============================================================================
+
+		# --- FIXED: WEIGHT PROFILE EXPERIMENT SWITCHBOARD ---
+		# Test Case 1: Heavy Lead Brick -> Mass = 50.0, Drag = 0.15 (Slams down hard, bounces high)
+		# Test Case 2: Light Feather Cushion -> Mass = 0.8, Drag = 1.85 (Floats down slowly, stays soft)
+		# OBJECT_MASS_VAL = 45.0          
+		# DRAG_COEFFICIENT_VAL = 0.25   
+
+
+		num_frames = 600
+		# num_frames = 300
+
+		# ###########
+		# #### SPHERE 01
+		# ###########
+		# MU_VAL = 1450.0
+		# LAM_VAL = 4000.0
+		# # DAMPING_VAL = 0.995
+		# DAMPING_VAL = 0.990
+		# # DT_VAL = 0.01
+		# # DT_VAL = 0.008
+		# DT_VAL = 0.008
+		# # INITIAL_SPIKE_VELOCITY = -30
+		# INITIAL_SPIKE_VELOCITY = -30
+		# RESTITUTION_VAL = .7
+		# OBJECT_MASS_VAL = 400
+		# DRAG_COEFFICIENT_VAL = .5
+
+
+	
+
+		##########
+		### SPHERE GOOD
+		##########
+		MU_VAL = 550.0
+		LAM_VAL = 3000.0
+		# DAMPING_VAL = 0.995
+		DAMPING_VAL = 0.98
+		# DT_VAL = 0.01
+		# DT_VAL = 0.008
+		DT_VAL = 0.008
+		INITIAL_SPIKE_VELOCITY = -30
+		# INITIAL_SPIKE_VELOCITY = -50
+		# RESTITUTION_VAL = .87
+		RESTITUTION_VAL = .7
+		OBJECT_MASS_VAL = 300
+		DRAG_COEFFICIENT_VAL = .05
+
+
+
+		# ########
+		# # CUBE
+		# ########
+		# MU_VAL = 1590.0
+		# LAM_VAL = 3000.0
+		# # DAMPING_VAL = 0.995
+		# DAMPING_VAL = 0.99
+		# # DT_VAL = 0.01
+		# # DT_VAL = 0.008
+		# DT_VAL = 0.008
+		# INITIAL_SPIKE_VELOCITY = -30
+		# # INITIAL_SPIKE_VELOCITY = -10
+		# RESTITUTION_VAL = .9
+		# OBJECT_MASS_VAL = 400
+		# DRAG_COEFFICIENT_VAL = .03
+
+
+
+
+
+
+
+
+
+		loss_fn = jax.jit(lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT))
+
+		# Target index slots securely: 0=mu, 1=lam, 2=damping, 4=velocity, 6=mass
+		grad_fn = jax.jit(jax.grad(
+			lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT),
+			argnums=(0, 1, 2, 4, 6)
+		))
+
+
+		print(f"\n[JAX Optimizer] Launching local manual-argument gradient search trajectory tracking...")
+
+		lr_stiffness = 2.5    
+		# lr_damping = 4e-4 ##
+		# lr_damping = 2
+		lr_damping = .1
+		# lr_velocity = 4e-1    
+		lr_velocity = 10 
+		# lr_mass = 0.5         # Gradient search rate for weight scale optimization
+		lr_mass = .5         # Gradient search rate for weight scale optimization
+		# num_steps = 20
+		# num_steps = 10
+		num_steps = 5
+
+
+		for iteration in range(num_steps):
+			continue
+
+			current_loss = loss_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			raw_grads = grad_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			
+			grad_mu, grad_lam, grad_damp, grad_vel, grad_mass = raw_grads
+			
+			# FIXED: True Sign Fallback. If gradients hit a zero plateau, we use a constant 
+			# directional sign push to dynamically kick the parameter out of the flat zone
+			step_mu   = jnp.sign(grad_mu) * lr_stiffness if jnp.abs(grad_mu) > 1e-5 else jnp.sign(MU_VAL - 450.0) * lr_stiffness
+			step_lam  = jnp.sign(grad_lam) * lr_stiffness if jnp.abs(grad_lam) > 1e-5 else jnp.sign(LAM_VAL - 3500.0) * lr_stiffness
+			step_damp = grad_damp * lr_damping if jnp.abs(grad_damp) > 1e-5 else (DAMPING_VAL - 0.94) * lr_damping
+			
+			# Track velocity derivatives out of dead zones smoothly
+			step_vel  = jnp.sign(grad_vel) * lr_velocity if jnp.abs(grad_vel) > 1e-5 else -1.5 * lr_velocity
+			step_mass = jnp.sign(grad_mass) * lr_mass      if jnp.abs(grad_mass) > 1e-5 else grad_mass * 2
+			
+			# Apply individual unrolled updates smoothly
+			MU_VAL                 = float(jnp.clip(MU_VAL + step_mu, 200.0, 5000.0))
+			LAM_VAL                = float(jnp.clip(LAM_VAL + step_lam, 1000.0, 15000.0))
+			DAMPING_VAL            = float(jnp.clip(DAMPING_VAL - step_damp, 0.98, 0.994))
+			OBJECT_MASS_VAL        = float(jnp.clip(OBJECT_MASS_VAL + step_mass, 0.1, 200.0)) # Clip weight to valid ranges
+			
+			# FIXED: Expanded the clipping boundary ceiling completely to support -120.0 m/s
+			# INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY - step_vel, -120.0, -10.0))
+			INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY + step_vel, -120.0, -10.0))
+			
+			print(f"  Step {iteration+1:02d} -> Loss: {current_loss:.4f} | Mass Weight: {OBJECT_MASS_VAL:.2f} kg | Spike Vel: {INITIAL_SPIKE_VELOCITY:.2f} m/s | Mu: {MU_VAL:.1f} | Lam: {LAM_VAL:.1f} | Damping: {DAMPING_VAL:.4f} Dt: {DT_VAL:.4f}")
+			
+		print("\n[JAX Engine] Optimization target achieved! Pulling verified trajectory memory buffer...")
+
+		# num_frames = 600
+		
+		
+		final_trajectory_matrix = jit_simulation_engine(
+			MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames
+		)
+
+		baked_frames_positions = np.array(final_trajectory_matrix)
 		depsgraph = bpy.context.evaluated_depsgraph_get()
 
-		for frame in range(1, num_frames + 1):
-			# Set active timeline frame
+		print("[Blender Pipeline] Writing exact JAX position memory to timeline Shape Keys...")
+
+		for idx, frame in enumerate(range(1, num_frames + 1)):
+			print('frame_idx = ', idx)
 			bpy.context.scene.frame_set(frame)
 			
-			# Process physics iteration
-			solver.solve_continuum_physics(dt, gravity=-9.81, floor_z=2.0)
-			deformed_world = np.dot(bary_weights, solver.nodes)
+			frame_coords = baked_frames_positions[frame - 1]
+			baked_local_coords = np.copy(frame_coords)
+			baked_local_coords[:, 2] -= 7.5
 			
-			# FIX: Ensure mesh coords stay directly bound to the local space of the object container
-			baked_local_coords = np.copy(deformed_world)
-			baked_local_coords[:, 2] -= 8.0 
-			
-			# Append the keyframe state
 			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
 			skey.data.foreach_set("co", baked_local_coords.ravel())
 			
-			# Turn it on exactly at this frame
 			skey.value = 1.0
 			skey.keyframe_insert(data_path="value", frame=frame)
-			
-			# Zero it out on the frames right before and right after to create a clean sequential flipbook
-			if frame > 1:
-				skey.value = 0.0
-				skey.keyframe_insert(data_path="value", frame=frame - 1)
-				
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-
-			# Force Blender to update the object transformations immediately
-			depsgraph.update()
-
-		# Reset scene to start frame
-		bpy.context.scene.frame_set(1)
-
-	def conservativeLattice_01(self):
-		# Create a clean target mesh. We use a base sphere whose vertex offsets 
-		# will be explicitly manipulated to follow the voxel boundaries.
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=2.0, location=(0.0, 0.0, 0.0), segments=16, ring_count=16)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Lattice_Ball"
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-
-		# Make the visual geometry look faceted to perfectly represent the underlying blocky physics
-		bpy.ops.object.shade_flat()
-
-		# --- 3. SIMULATE AND BAKE TO BLENDER SHAPE KEYS ---
-		solver = ConservativeLatticeSolver()
-		solver.seed_spherical_density()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		# Store reference radial directions of the base mesh vertices to preserve structural integrity
-		normals = np.copy(orig_coords)
-		norms = np.linalg.norm(normals, axis=1, keepdims=True)
-		normals /= np.maximum(norms, 1e-5)
-
-		num_frames = 60
-		dt = 0.02
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-
-		print("Beginning stable conservative lattice advection bake...")
-
-		for frame in range(1, num_frames + 1):
-			bpy.context.scene.frame_set(frame)
-			
-			# Process the safe, non-skipping lattice integration step
-			solver.step_simulation(dt)
-			
-			# Find global bounding metric of the active advected voxel array
-			active_indices = np.argwhere(solver.density > 0.05)
-			if len(active_indices) == 0:
-				continue
-				
-			min_z = np.min(active_indices[:, 2])
-			max_z = np.max(active_indices[:, 2])
-			
-			# Calculate global center of mass vectors within the static grid system
-			total_density = np.sum(solver.density)
-			idx = np.indices(solver.res)
-			world_cx = (np.sum(idx[0] * solver.density) / total_density) * solver.dx
-			world_cy = (np.sum(idx[1] * solver.density) / total_density) * solver.dx
-			world_cz = (np.sum(idx[2] * solver.density) / total_density) * solver.dx
-			
-			# Displace the embedded visual vertices to tightly match the changing blocky boundaries
-			deformed_coords = np.zeros((num_verts, 3))
-			
-			for i in range(num_verts):
-				# Map vertex positions sequentially along the absolute height of the advected voxel column
-				v_pct = (orig_coords[i, 2] + 2.0) / 4.0 # Normalized height range [0, 1]
-				target_z_idx = int(np.clip(min_z + v_pct * (max_z - min_z), 0, solver.res[2] - 1))
-				
-				# Sample horizontal footprint bounds at this specific voxel row
-				layer_cx, layer_cy = solver.get_center_of_mass_at_z(target_z_idx)
-				
-				# Calculate blocky spatial coordinates
-				x_coord = (layer_cx + normals[i, 0] * 3.5 * solver.density[int(layer_cx), int(layer_cy), target_z_idx]) * solver.dx
-				y_coord = (layer_cy + normals[i, 1] * 3.5 * solver.density[int(layer_cx), int(layer_cy), target_z_idx]) * solver.dx
-				z_coord = target_z_idx * solver.dx
-				
-				# Apply strict grid center localization
-				deformed_coords[i, 0] = x_coord - (solver.res[0] * solver.dx / 2.0)
-				deformed_coords[i, 1] = y_coord - (solver.res[1] * solver.dx / 2.0)
-				deformed_coords[i, 2] = z_coord
-				
-			# Bake directly to sequential flipbook shape keys
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			skey.data.foreach_set("co", deformed_coords.ravel())
-			
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			
 			if frame > 1:
 				skey.value = 0.0
 				skey.keyframe_insert(data_path="value", frame=frame - 1)
@@ -3261,431 +2209,15 @@ class myEquation_dFEM:
 			depsgraph.update()
 
 		bpy.context.scene.frame_set(1)
-		print("Safe Voxel-Lattice Bake finished. The mesh now cleanly mirrors the blocky cell-by-cell advection.")
+		print("\n[Bake Finished] Unified engine execution completed successfully! Press Spacebar.")
 
-	def hybridLattice_01(self):
-		# # --- 1. CLEAN ENVIRONMENT SETUP ---
-		# for name in ["Voxel_Ball", "Voxel_Floor_Mesh"]:
-		# 	if name in bpy.data.objects:
-		# 		bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
-
-		# Create a clean high-resolution sphere for the visual mesh embedding
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=2.0, location=(0.0, 0.0, 8.0), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Voxel_Ball"
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-		bpy.ops.object.shade_flat()  # Faceted edges emphasize the blocky physics grid
-
-		# Create a visual floor block for context
-		# bpy.ops.mesh.primitive_cube_add(size=12.0, location=(0.0, 0.0, 1.0))
-		bpy.ops.mesh.primitive_cube_add(size=4.0, location=(0.0, 0.0, 0.0))
-		floor_obj = bpy.context.active_object
-		floor_obj.name = "Voxel_Floor_Mesh"
-
-		# --- 3. EXECUTE SIMULATION AND MAP TO EMBEDDED SHAPE KEYS ---
-		solver = HybridVofTet10Solver()
-		solver.seed_spherical_rubber_mass()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		# Generate base spatial directional normal vectors for clean mesh surface deformation mapping
-		mesh_normals = np.copy(orig_coords)
-		mesh_norms = np.linalg.norm(mesh_normals, axis=1, keepdims=True)
-		mesh_normals /= np.maximum(mesh_norms, 1e-5)
-
-		num_frames = 65
-		dt = 0.02
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-
-		print("Baking stable Conservative VOF Tet10 Elasticity Loop...")
-
-		for frame in range(1, num_frames + 1):
-			bpy.context.scene.frame_set(frame)
-			
-			# Run the stable grid solver tracking iterations
-			solver.advance_eulerian_step(dt)
-			
-			# Locate spatial geometry footprints of the active mass density fractions
-			active_voxels = np.argwhere(solver.density > 0.02)
-			if len(active_voxels) == 0:
-				continue
-				
-			min_z = np.min(active_voxels[:, 2])
-			max_z = np.max(active_voxels[:, 2])
-			
-			# Global center calculation parameters
-			total_density = np.sum(solver.density)
-			idx_grid = np.indices(solver.res)
-			world_cx = (np.sum(idx_grid[0] * solver.density) / total_density) * solver.dx
-			world_cy = (np.sum(idx_grid[1] * solver.density) / total_density) * solver.dx
-			
-			deformed_vertices = np.zeros((num_verts, 3))
-			
-			for i in range(num_verts):
-				# Calculate matching vertical slice profile layer based on vertex vertex positioning
-				v_height_ratio = (orig_coords[i, 2] + 2.0) / 4.0
-				target_z_idx = int(np.clip(min_z + v_height_ratio * (max_z - min_z), 0, solver.res[2] - 1))
-				
-				# Evaluate high-order Tet10 Neo-Hookean restoration pressures at this layer slice
-				forces_xy = solver.solve_quadratic_volume_forces(target_z_idx)
-				
-				# Calculate internal coordinate metrics
-				cell_x = int(np.clip(world_cx / solver.dx, 0, solver.res[0]-1))
-				cell_y = int(np.clip(world_cy / solver.dx, 0, solver.res[1]-1))
-				
-				# Extract volume expansion scaling factors from our Tet10 solver
-				expansion_x = forces_xy[cell_x, cell_y, 0] * 0.015
-				expansion_y = forces_xy[cell_x, cell_y, 1] * 0.015
-				
-				# Compute final blocky coordinate paths
-				# Radial expansion bows the outer voxels outward to preserve volume as the shape squishes flat
-				vx = world_cx + (mesh_normals[i, 0] * (2.0 + expansion_x) * solver.density[cell_x, cell_y, target_z_idx])
-				vy = world_cy + (mesh_normals[i, 1] * (2.0 + expansion_y) * solver.density[cell_x, cell_y, target_z_idx])
-				vz = target_z_idx * solver.dx
-				
-				# Shift layout relative to grid center bounding boxes
-				deformed_vertices[i, 0] = vx - (solver.res[0] * solver.dx / 2.0)
-				deformed_vertices[i, 1] = vy - (solver.res[1] * solver.dx / 2.0)
-				deformed_vertices[i, 2] = vz
-				
-			# Create and bake to sequential shape key blocks
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			
-			# CRUCIAL BLENDER LOCAL MESH TRACKING CORRECTION:
-			
-			# Subtract object starting offset location to prevent floating duplicates or viewport invisibility
-
-			baked_coords = np.copy(deformed_vertices)
-			baked_coords[:, 2] -= 8.0
-			skey.data.foreach_set("co", baked_coords.ravel())
-			
-			# Apply driver keyframe tracking values
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			
-			if frame > 1:
-				skey.value = 0.0
-				skey.keyframe_insert(data_path="value", frame=frame - 1)
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-				
-			depsgraph.update()
-
-			bpy.context.scene.frame_set(1)
-
-	def hybridLattice_02(self):
-		# Create the visual UV Sphere (Physically starts at Z=7.5)
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Voxel_Ball"
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-		bpy.ops.object.shade_flat()  # Faceted edges emphasize blocky advection
-
-		# Create your updated collision cube: Positioned at 0,0,0 and scaled to size 4
-		bpy.ops.mesh.primitive_cube_add(size=4.0, location=(0.0, 0.0, 0.0))
-		cube_obj = bpy.context.active_object
-		cube_obj.name = "Voxel_Collision_Cube"
-
-		# --- 3. RUN BAKING ENGINE & ANIMATE BLENDER SHAPE KEYS ---
-		solver = HybridVofLatticeSolver()
-		solver.seed_spherical_rubber_mass()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		mesh_normals = np.copy(orig_coords)
-		mesh_norms = np.linalg.norm(mesh_normals, axis=1, keepdims=True)
-		mesh_normals /= np.maximum(mesh_norms, 1e-5)
-
-		num_frames = 60
-		dt = 0.015
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-
-		print("Baking true 3D Cube Collision Solver...")
-
-		for frame in range(1, num_frames + 1):
-			bpy.context.scene.frame_set(frame)
-			
-			# Calculate volume gradients and process the safe advection steps
-			solver.solve_volume_preservation_forces(dt)
-			solver.advance_eulerian_step(dt)
-			
-			# Find spatial boundaries of the active VOF density grid
-			active_voxels = np.argwhere(solver.density > 0.05)
-			if len(active_voxels) == 0:
-				continue
-				
-			min_z = np.min(active_voxels[:, 2])
-			max_z = np.max(active_voxels[:, 2])
-			
-			# Calculate global center coordinates
-			total_density = np.sum(solver.density)
-			idx_grid = np.indices(solver.res)
-			world_cx = (np.sum(idx_grid[0] * solver.density) / total_density) * solver.dx
-			world_cy = (np.sum(idx_grid[1] * solver.density) / total_density) * solver.dx
-			
-			deformed_vertices = np.zeros((num_verts, 3))
-			
-			for i in range(num_verts):
-				# Map vertex profiles smoothly down the columns
-				v_height_ratio = (orig_coords[i, 2] + 1.8) / 3.6
-				target_z_idx = int(np.clip(min_z + v_height_ratio * (max_z - min_z), 0, solver.res[2] - 1))
-				
-				cell_x = int(np.clip(world_cx / solver.dx, 0, solver.res[0]-1))
-				cell_y = int(np.clip(world_cy / solver.dx, 0, solver.res[1]-1))
-				
-				# Calculate dynamic outward scaling based on horizontal expansion velocities
-				expansion_scale = 1.8 + (abs(solver.vel_x[cell_x, cell_y, target_z_idx]) * 0.8)
-				
-				# Displace the visual mesh coordinates to follow the voxel profile
-				vx = (idx_grid[0][cell_x, cell_y, target_z_idx] - solver.res[0]/2.0) * solver.dx + (mesh_normals[i, 0] * expansion_scale * solver.density[cell_x, cell_y, target_z_idx])
-				vy = (idx_grid[1][cell_x, cell_y, target_z_idx] - solver.res[1]/2.0) * solver.dx + (mesh_normals[i, 1] * expansion_scale * solver.density[cell_x, cell_y, target_z_idx])
-				vz = (target_z_idx - solver.res[2]/2.0) * solver.dx + 4.0
-				
-				deformed_vertices[i] = [vx, vy, vz]
-				
-			# Bake to sequential flipbook keys
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			
-			# Correct the Blender object space mapping (matches initial viewport spawn location)
-			baked_coords = np.copy(deformed_vertices)
-			baked_coords[:, 2] -= 7.5
-			
-			skey.data.foreach_set("co", baked_coords.ravel())
-			
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-			
-			if frame > 1:
-				skey.value = 0.0
-				skey.keyframe_insert(data_path="value", frame=frame - 1)
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-				
-			depsgraph.update()
-
-		bpy.context.scene.frame_set(1)
-
-	def multiphaseSolver_01(self):
-		# Spawn high-res visual sphere at its true starting location
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-		bpy.ops.object.shade_flat()
-
-		# Scaled size 4 static cube centered at 0,0,0
-		bpy.ops.mesh.primitive_cube_add(size=4.0, location=(0.0, 0.0, 0.0))
-		cube_obj = bpy.context.active_object
-		cube_obj.name = "Voxel_Collision_Cube"
-
-
-		# --- 3. EXECUTE SIMULATION AND MAP BAKE GRAPH UPDATES ---
-		solver = MultiphaseVoxelSolver()
-		solver.seed_spherical_rubber_ball()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		mesh_normals = orig_coords / np.maximum(np.linalg.norm(orig_coords, axis=1, keepdims=True), 1e-5)
-
-		# num_frames = 60
-		num_frames = 200
-		dt = 0.014
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-
-		print("Beginning 2018 Stable Multiphase Lattice Bake...")
-
-		for frame in range(1, num_frames + 1):
-			bpy.context.scene.frame_set(frame)
-			
-			# Process exact 2018 Hyperelastic stress tensors and multi-phase advections
-			solver.compute_smith2018_stresses(dt)
-			solver.advance_multiphase_advection(dt)
-			
-			# Find spatial centroid of the active solid volume fractions
-			solid_voxels = np.argwhere(solver.phases[..., 2] > 0.05)
-			if len(solid_voxels) == 0:
-				continue
-				
-			min_z = np.min(solid_voxels[:, 2])
-			max_z = np.max(solid_voxels[:, 2])
-			
-			# Track spatial center offsets
-			total_solid_mass = np.sum(solver.phases[..., 2])
-			x_idx, y_idx, z_idx = np.indices(solver.res)
-			world_cx = (np.sum(x_idx * solver.phases[..., 2]) / total_solid_mass) * solver.dx
-			world_cy = (np.sum(y_idx * solver.phases[..., 2]) / total_solid_mass) * solver.dx
-			
-			deformed_vertices = np.zeros((num_verts, 3))
-			
-			for i in range(num_verts):
-				# Shape Preservation Constraint: Keeps the object perfectly spherical during the fall
-				# Compares current minimum vertical height boundary against original reference values
-				current_z_floor = (min_z - solver.res[2]/2.0) * solver.dx + 4.0
-				
-				cell_x = int(np.clip(world_cx / solver.dx, 0, solver.res[0]-1))
-				cell_y = int(np.clip(world_cy / solver.dx, 0, solver.res[1]-1))
-				
-				# Calculate dynamic lateral expansion profile based on horizontal compression velocities
-				v_height_ratio = (orig_coords[i, 2] + 1.8) / 3.6
-				target_z_idx = int(np.clip(min_z + v_height_ratio * (max_z - min_z), 0, solver.res[2] - 1))
-				
-				# Squish scalar updates only when impacting near the cube top threshold bounds (Z coordinate around 2.0)
-				is_colliding = current_z_floor <= 2.2
-				expansion = 1.8 + (abs(solver.vel_x[cell_x, cell_y, target_z_idx]) * 1.1) if is_colliding else 1.8
-				
-				# Generate absolute coordinates tracking the solid volume fraction footprint
-				vx = (x_idx[cell_x, cell_y, target_z_idx] - solver.res[0]/2.0) * solver.dx + (mesh_normals[i, 0] * expansion * solver.phases[cell_x, cell_y, target_z_idx, 2])
-				vy = (y_idx[cell_x, cell_y, target_z_idx] - solver.res[1]/2.0) * solver.dx + (mesh_normals[i, 1] * expansion * solver.phases[cell_x, cell_y, target_z_idx, 2])
-				vz = (target_z_idx - solver.res[2]/2.0) * solver.dx + 4.0
-				
-				deformed_vertices[i] = [vx, vy, vz]
-				
-			# Append baked frame layout states
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			baked_coords = np.copy(deformed_vertices)
-			baked_coords[:, 2] -= 7.5 # Maintain structural canvas tracking bounds
-			
-			skey.data.foreach_set("co", baked_coords.ravel())
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-
-			if frame > 1:
-				skey.value = 0.0
-				skey.keyframe_insert(data_path="value", frame=frame - 1)
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-				
-			depsgraph.update()
-
-		bpy.context.scene.frame_set(1)
-		print("Safe Voxel-Lattice Bake finished. The mesh now cleanly mirrors the blocky cell-by-cell advection.")
-
-	def multiphaseSolver_02(self):
-		# Spawn high-res visual sphere at its true starting location
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=32, ring_count=32)
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
-		ball_obj.shape_key_add(name="Basis", from_mix=False)
-		bpy.ops.object.shade_flat()
-
-		# Scaled size 4 static cube centered at 0,0,0
-		bpy.ops.mesh.primitive_cube_add(size=4.0, location=(0.0, 0.0, 0.0))
-		cube_obj = bpy.context.active_object
-		cube_obj.name = "Voxel_Collision_Cube"
-
-
-		# --- 3. RUN SIMULATION AND BAKE CLEAN SHAPE KEYS ---
-		solver = TrueStaggeredVoxelSolver()
-		solver.seed_spherical_rubber_ball()
-
-		mesh = ball_obj.data
-		num_verts = len(mesh.vertices)
-		orig_coords = np.zeros((num_verts, 3))
-		mesh.vertices.foreach_get("co", orig_coords.ravel())
-
-		mesh_normals = orig_coords / np.maximum(np.linalg.norm(orig_coords, axis=1, keepdims=True), 1e-5)
-
-		# Expanded frame budget matching your 200 frame simulation criteria
-		num_frames = 200
-		dt = 0.012
-		depsgraph = bpy.context.evaluated_depsgraph_get()
-
-		print("Beginning 200-frame high-fidelity Staggered Multiphase Lattice Bake...")
-
-		for frame in range(1, num_frames + 1):
-			bpy.context.scene.frame_set(frame)
-			
-			# Process physics engine loops
-			solver.update_physics(dt)
-			
-			# Find spatial boundaries of the active solid volume fractions
-			solid_voxels = np.argwhere(solver.phases[..., 2] > 0.05)
-			if len(solid_voxels) == 0:
-				continue
-				
-			min_z = np.min(solid_voxels[:, 2])
-			max_z = np.max(solid_voxels[:, 2])
-			
-			# Calculate global center tracking coordinates
-			total_solid_mass = np.sum(solver.phases[..., 2])
-			x_idx, y_idx, z_idx = np.indices(solver.res)
-			world_cx = (np.sum(x_idx * solver.phases[..., 2]) / total_solid_mass) * solver.dx
-			world_cy = (np.sum(y_idx * solver.phases[..., 2]) / total_solid_mass) * solver.dx
-			
-			deformed_vertices = np.zeros((num_verts, 3))
-			
-			for i in range(num_verts):
-				current_z_floor = (min_z - solver.res[2]/2.0) * solver.dx + 4.0
-				
-				cell_x = int(np.clip(world_cx / solver.dx, 0, solver.res[0]-1))
-				cell_y = int(np.clip(world_cy / solver.dx, 0, solver.res[1]-1))
-				
-				v_height_ratio = (orig_coords[i, 2] + 1.8) / 3.6
-				target_z_idx = int(np.clip(min_z + v_height_ratio * (max_z - min_z), 0, solver.res[2] - 1))
-				
-				# Shape Preservation Fix: Ball stays perfectly spherical until it meets the cube top (Z coordinate <= 2.2)
-				is_colliding = current_z_floor <= 2.2
-				expansion = 1.8 + (abs(solver.u[cell_x, cell_y, target_z_idx]) * 1.5) if is_colliding else 1.8
-				
-				# Map visual vertices tightly onto the active solid volume footprint boundaries
-				vx = (x_idx[cell_x, cell_y, target_z_idx] - solver.res[0]/2.0) * solver.dx + (mesh_normals[i, 0] * expansion * solver.phases[cell_x, cell_y, target_z_idx, 2])
-				vy = (y_idx[cell_x, cell_y, target_z_idx] - solver.res[1]/2.0) * solver.dx + (mesh_normals[i, 1] * expansion * solver.phases[cell_x, cell_y, target_z_idx, 2])
-				vz = (target_z_idx - solver.res[2]/2.0) * solver.dx + 4.0
-				
-				deformed_vertices[i] = [vx, vy, vz]
-				
-			# Bake directly into the flipbook shape key stack
-			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
-			baked_coords = np.copy(deformed_vertices)
-			baked_coords[:, 2] -= 7.5
-			
-			skey.data.foreach_set("co", baked_coords.ravel())
-			skey.value = 1.0
-			skey.keyframe_insert(data_path="value", frame=frame)
-
-			if frame > 1:
-				skey.value = 0.0
-				skey.keyframe_insert(data_path="value", frame=frame - 1)
-				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
-				prev_key.value = 0.0
-				prev_key.keyframe_insert(data_path="value", frame=frame)
-				
-			depsgraph.update()
-
-		bpy.context.scene.frame_set(1)
-		print("Safe Voxel-Lattice Bake finished. The mesh now cleanly mirrors the blocky cell-by-cell advection.")
-
-
-
-
-
+		bpy.context.scene.render.fps = 240
+		bpy.context.scene.frame_end = num_frames
 
 	def testVDB_06(self, abj_sd_b_instance):
 		startTime = datetime.now()
 
-		# self.embeddedVoxelFemAdvectionTest()
-		# self.embeddedVoxelFemAdvectionTest_02()
-		# self.kuhn5_01()
-		# self.tet10_solve_01()
-		# self.tet10_solve_02()
-		# self.conservativeLattice_01() # very good
-		# self.hybridLattice_01()
-		# self.hybridLattice_02()
-		# self.multiphaseSolver_01()
-		self.multiphaseSolver_02()
-
+		self.bounce_diff_03(abj_sd_b_instance)
 
 		totalTime = datetime.now() - startTime
 		print(' ')
