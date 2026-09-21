@@ -50,25 +50,130 @@ jax.config.update("jax_enable_x64", True)
 bpy.utils.expose_bundled_modules()
 import openvdb as vdb
 
-
 # ==============================================================================
 # 3. POSITION-INDEPENDENT HIGH-STIFFNESS FORCE ENGINE
 # ==============================================================================
-# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.0, floor_stiffness=35000.0):
-# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.0, floor_stiffness=35000.0):
+def analytical_gabor_sdf(self, p, radius=1.8):
+    # Calculate basic distance to sphere center
+    base_dist = jnp.linalg.norm(p) - radius
+    
+    # Calculate a simplified Gabor/Sine wave displacement purely via CPU math
+    # This acts as an explicit boundary without needing 258k real vertices
+    displacement = 0.5 * jnp.sin(p[0] * 5.0) * jnp.cos(p[1] * 5.0)
+    
+    return base_dist - displacement
+
+def analytical_gabor_displace0(pos_local, scale=2.5, frequency=5.0, anisotropy=0.0):
+	"""
+	Computes a vector-differentiable Gabor displacement profile natively in JAX.
+	Matches the structural behavior of Blender's cycles/eevee Gabor texture shader node.
+	"""
+	# Compute distances and normalized local orientation directions
+	r_sq = jnp.sum(pos_local**2, axis=-1, keepdims=True)
+	r = jnp.sqrt(r_sq + 1e-8)
+	dir_vec = pos_local / r
+
+	# Gaussian Envelope
+	gaussian_envelope = jnp.exp(-jnp.pi * r_sq * (scale * 0.1))
+
+	# Harmonic Wave Component (Defaulting to isotropic radial propagation)
+	# For explicit orientation vectors, replace dir_vec with a static tracking vector
+	wave_phase = 2.0 * jnp.pi * frequency * r
+	harmonic_signal = jnp.cos(wave_phase)
+
+	# Combine intensity profile with phase behavior
+	gabor_val = gaussian_envelope * harmonic_signal
+
+	# Return the directional displacement vector scaled by the Gabor intensity profile
+	return dir_vec * gabor_val * 0.5  # 0.5 acts as your global displacement strength
+
+def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0, anisotropy=1.0, orientation_deg=45.0, blender_displacement_scale=0.5):
+# def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0, anisotropy=1.0, orientation_deg=45.0, blender_displacement_scale=2):
+	"""
+	Refined Analytical Gabor Noise Engine running natively in JAX.
+	Matches Blender's procedural parameters precisely across 2D/3D coordinate sets.
+	"""
+	# 1. Coordinate Vector Space Formatting
+	# Scale adjusts the spatial tracking size uniformly
+	p = pos_local * scale 
+
+	if not mode_3d:
+		# Blender 2D Mode: Project strictly onto XY plane, drop Z tracking
+		# This causes the equator artifact, but matches Blender's 2D setting perfectly
+		p = p.at[:, 2].set(0.0)
+
+	# 2. Orientation Alignment (Rotation Processing)
+	theta = jnp.radians(orientation_deg)
+
+	# Calculate target direction wave vector omega based on rotation angle
+	# In 2D/Anisotropic modes, this isolates the alignment of the interleaved bands
+	cos_t, sin_t = jnp.cos(theta), jnp.sin(theta)
+	omega = jnp.array([cos_t, sin_t, 0.0]) 
+
+	# 3. Kernel Component Splat Evaluation (Gaussian Envelope * Harmonic Wave)
+	r_sq = jnp.sum(p**2, axis=-1, keepdims=True)
+	r = jnp.sqrt(r_sq + 1e-8)
+
+	# Gaussian Window Function
+	gaussian_envelope = jnp.exp(-jnp.pi * r_sq * 0.15)
+
+	# Harmonic Wave Component: Frequency scales perpendicular to noise direction
+	# Dot product projects the position vector onto the wave vector omega
+	wave_projection = jnp.sum(p * omega, axis=-1, keepdims=True)
+	wave_phase = 2.0 * jnp.pi * frequency * wave_projection
+	harmonic_signal = jnp.cos(wave_phase)
+
+	# Omnidirectional isotropic component (activated when anisotropy -> 0)
+	isotropic_signal = jnp.cos(2.0 * jnp.pi * frequency * r)
+
+	# 4. Anisotropy Blending Loop
+	# Blender blends from completely directional (1.0) to dot-like noise (0.0)
+	gabor_directional = gaussian_envelope * harmonic_signal
+	gabor_omnidirectional = gaussian_envelope * isotropic_signal
+
+	final_noise_val = (anisotropy * gabor_directional) + ((1.0 - anisotropy) * gabor_omnidirectional)
+
+	# 5. Output Direction Mapping
+	# Determine the surface normal for the true displacement direction
+	normals = pos_local / (jnp.sqrt(jnp.sum(pos_local**2, axis=-1, keepdims=True)) + 1e-8)
+
+	# 0.5 matches your global default vertex displacement strength
+	# displacement_strength = 0.5 
+	# displacement_strength = 2
+	# return normals * final_noise_val * displacement_strength
+	return normals * final_noise_val * blender_displacement_scale
+
 def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.05, floor_stiffness=35000.0):
+# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=1.68, collision_stiffness=1500.0, floor_z=2.05, floor_stiffness=35000.0):
+    
 	pos_2d = jnp.reshape(pos, (-1, 3))
-	num_p = pos_2d.shape
-
-	# FIXED: True Relative Transformation Framing completely removes translation drift.
-	# By isolating deformation purely relative to the ACTIVE center of mass, 
-	# uniform freefall acceleration generates EXACTLY zero strain forces.
 	active_center = jnp.mean(pos_2d, axis=0)
-	disp_local = (pos_2d - active_center) - (STATIC_INIT_POS - STATIC_CENTER)
 
-	#Smith stable 2018
-	# Vectorized batch outer product broadcasting handles local strain gradient mapping
+	# =========================================================================
+	# CRITICAL FIX: Evaluate tracking relative to the ANALYTICAL SURFACE
+	# =========================================================================
+	# Calculate the true resting surface layout before applying forces
+	local_static = STATIC_INIT_POS - STATIC_CENTER
+	displaced_static_mesh = STATIC_INIT_POS + analytical_gabor_displace(local_static)
+	displaced_static_center = jnp.mean(displaced_static_mesh, axis=0)
+
+	# Calculate the true active surface layout under current simulation forces
+	local_active = pos_2d - active_center
+	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
+	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
+
+	# Track deformation based on the true Gabor shape, not the smooth sphere
+	disp_local = (displaced_active_mesh - displaced_active_center) - (displaced_static_mesh - displaced_static_center)
+
+	# 1. CONTINUUM DEFORMATION FORCES (Smith Stable Neo-Hookean 2018)
+	# Use the true displaced local state to derive your strain gradient matrices
 	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * STATIC_NORMALS[:, None, :]) / 1.8
+
+	# ... [Rest of your Vmap, Matrix Determinant, and Strain calculations remain the same] ...
+	# Vmap matrix operations
+	vmap_det = jax.vmap(jnp.linalg.det)
+	vmap_trace = jax.vmap(lambda m: jnp.trace(m))
+	vmap_inv_t = jax.vmap(lambda m: jnp.linalg.inv(m).T)
 
 	J = vmap_det(F)
 	J_stable = jnp.maximum(J, 0.20)
@@ -82,86 +187,31 @@ def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORM
 
 	continuum_forces = -jnp.matmul(P, STATIC_NORMALS[..., None]).squeeze(-1)
 
-	# Pairwise self-collision avoidance bubbles
-	diff = pos_2d[:, None, :] - pos_2d[None, :, :]  
-	dists = jnp.sqrt(jnp.sum(diff**2, axis=-1) + 1e-8) 
-	overlap = jnp.maximum(collision_radius - dists, 0.0)
-	col_normals = diff / dists[..., None]
+	# 2. SDF SELF-COLLISION AVOIDANCE
+	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
+	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
 
-	repulsion_mag = (overlap ** 2) * collision_stiffness
-	# repulsion_mag = repulsion_mag * (jnp.eye(num_p) == 0)
-	repulsion_mag = repulsion_mag * (jnp.eye(num_p[0]) == 0)
-	
-	self_collision_forces = jnp.sum(col_normals * repulsion_mag[..., None], axis=1) * 0.02
+	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
+	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
 
-	# Smooth potential floor check against the dynamic lowest extreme bounding node
-	lowest_vertex_z = jnp.min(pos_2d[:, 2])
+	# 3. FLOOR PLANE COLLISION WITH GABOR PROFILES
+	# Read directly from the updated active surface coordinates
+	lowest_vertex_z = jnp.min(displaced_active_mesh[:, 2])
+
 	floor_penetration = jnp.maximum((floor_z + 0.02) - lowest_vertex_z, 0.0)
 	floor_push_z = (floor_penetration ** 2) * floor_stiffness
 
-	# Apply floor forces cleanly to the active bottom hemisphere layer vertices
 	floor_forces_mask = jnp.where(pos_2d[:, 2] < active_center[2], floor_push_z, 0.0)
 	floor_forces = jnp.zeros_like(pos_2d).at[:, 2].set(floor_forces_mask)
 
-	total_forces = continuum_forces + self_collision_forces + floor_forces
+	# Combine all optimized forces
+	total_forces = continuum_forces + (self_collision_forces * 0.02) + floor_forces
 	return jnp.reshape(total_forces, pos.shape)
-
-def jax_physics_step(state, step_idx, mu, lam, damping, dt, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS):
-	pos, vel = state
-	gravity = -9.81
-	gamma = 2.0 - jnp.sqrt(2.0)
-	dt1 = gamma * dt
-
-	# --- FIXED: VECTORIZED AERODYNAMIC DRAG ACCELERATION ---
-	# Velocity-dependent drag vector directly maps drag as deceleration: a_drag = - (b/m) * v * |v|
-	v_mags = jnp.linalg.norm(vel, axis=1, keepdims=True)
-	drag_forces = - (drag_coefficient / object_mass) * vel * v_mags
-
-	gravity_forces1 = jnp.zeros_like(vel).at[:, 2].set(gravity)
-	total_accel1 = gravity_forces1 + drag_forces
-	vel_est1 = vel + total_accel1 * dt1
-
-	f1 = compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
-	v_mid = vel_est1 + f1 * dt1
-
-	pos_est = pos + v_mid * dt1
-	f2 = compute_forces_jax(pos_est, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
-
-	c_mid = 1.0 / (gamma * (2.0 - gamma))
-	c_cur = ((1.0 - gamma) ** 2) / (gamma * (2.0 - gamma))
-
-	# Re-inject gravity and aerodynamic drag into Stage 2 TR-BDF2 recovery step
-	gravity_forces2 = jnp.zeros_like(vel).at[:, 2].set(gravity)
-	total_accel2 = gravity_forces2 + drag_forces
-
-	new_vel = (c_mid * v_mid) - (c_cur * vel) + (f2 * dt * (1.0 - gamma) / (2.0 - gamma)) + total_accel2 * dt
-	new_vel *= damping
-	next_pos = pos + new_vel * dt
-
-	min_allowed_z = 2.0 + STATIC_THICKNESS
-	below_floor = next_pos[:, 2] <= min_allowed_z
-	clamped_z = jnp.where(below_floor, min_allowed_z, next_pos[:, 2])
-	next_pos = next_pos.at[:, 2].set(clamped_z)
-
-	v_z_reflected = jnp.where(below_floor & (new_vel[:, 2] < 0), -new_vel[:, 2] * restitution, new_vel[:, 2])
-	lost_momentum_magnitude = jnp.where(below_floor & (new_vel[:, 2] < 0), jnp.abs(new_vel[:, 2]) * (1.0 - restitution), 0.0)
-
-	center_xy = jnp.mean(next_pos[:, :2], axis=0)
-	dir_xy = next_pos[:, :2] - center_xy
-	out_dir = dir_xy / jnp.maximum(jnp.linalg.norm(dir_xy, axis=1, keepdims=True), 1e-4)
-
-	new_vel_x = new_vel[:, 0] + out_dir[:, 0] * lost_momentum_magnitude * 0.85
-	new_vel_y = new_vel[:, 1] + out_dir[:, 1] * lost_momentum_magnitude * 0.85
-
-	next_vel = new_vel.at[:, 0].set(new_vel_x)
-	next_vel = next_vel.at[:, 1].set(new_vel_y)
-	next_vel = next_vel.at[:, 2].set(v_z_reflected)
-
-	return (next_pos, next_vel), next_pos
 
 def loss_function(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, target_frame_idx, target_height):
 	"""Loss function tracking separate individual scalars."""
-	trajectory = run_simulation_scan(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300)
+	# trajectory = run_simulation_scan(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300)
+	trajectory = run_simulation_scan_substepped(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300)
 	frame_positions = trajectory[target_frame_idx]
 	
 	max_z = jnp.max(frame_positions[:, 2])
@@ -171,21 +221,97 @@ def loss_function(mu, lam, damping, dt, initial_spike_vel, restitution, object_m
 	raw_loss = (bounding_box_center_z - target_height) ** 2
 	return jnp.log(1.0 + raw_loss)
 
+def run_simulation_scan_substepped(mu, lam, damping, dt_frame, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300):
+	"""
+	Upgraded simulation engine incorporating high-frequency JAX internal substepping.
+	Wraps the TR-BDF2 physics loops inside a frame-level checkpoint compiler.
+	"""
+	# SUBSTEPS = 1                  # Run 8 stable internal substeps per Blender frame
+	SUBSTEPS = 8                  # Run 8 stable internal substeps per Blender frame
+	# SUBSTEPS = 16                  # Run 8 stable internal substeps per Blender frame
+	# SUBSTEPS = 64
+	# SUBSTEPS = 128
+	dt_sub = dt_frame / SUBSTEPS  # Sliced time-delta for physical calculations
 
-
-def run_simulation_scan(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames=300):
-	"""FIXED: Parameters are passed as separate scalar arguments to completely prevent index bleeding."""
 	init_vel = jnp.zeros_like(STATIC_INIT_POS).at[:, 2].set(initial_spike_vel)
 
-	def step_fn(state, x):
-		return jax_physics_step(state, x, mu, lam, damping, dt, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
+	# CRITICAL BUG FIX: Compute a time-consistent substep damping value
+    # This prevents energy bleeding from compounding exponentially over high substep counts
+	substep_damping = jnp.exp(jnp.log(damping) * (dt_sub / dt_frame))
+
+	# 1. CORE PHYSICS ITERATOR LOOP (Your TR-BDF2 Step Engine)
+	def single_physics_substep(state, _):
+		# Unpack the current active simulation phase arrays
+		pos, vel = state
+		gravity = -9.81
+		gamma = 2.0 - jnp.sqrt(2.0)
+		dt1 = gamma * dt_sub  # Evaluated against the substepped time step
+
+		# Vectorized aerodynamic drag acceleration
+		v_mags = jnp.linalg.norm(vel, axis=1, keepdims=True)
+		drag_forces = - (drag_coefficient / object_mass) * vel * v_mags
+
+		gravity_forces1 = jnp.zeros_like(vel).at[:, 2].set(gravity)
+		total_accel1 = gravity_forces1 + drag_forces
+		vel_est1 = vel + total_accel1 * dt1
+
+		f1 = compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
+		v_mid = vel_est1 + f1 * dt1
+
+		pos_est = pos + v_mid * dt1
+		f2 = compute_forces_jax(pos_est, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS)
+
+		c_mid = 1.0 / (gamma * (2.0 - gamma))
+		c_cur = ((1.0 - gamma) ** 2) / (gamma * (2.0 - gamma))
+
+		# Re-inject gravity and aerodynamic drag into Stage 2 TR-BDF2 recovery step
+		gravity_forces2 = jnp.zeros_like(vel).at[:, 2].set(gravity)
+		total_accel2 = gravity_forces2 + drag_forces
+
+		new_vel = (c_mid * v_mid) - (c_cur * vel) + (f2 * dt_sub * (1.0 - gamma) / (2.0 - gamma)) + total_accel2 * dt_sub
+		# new_vel *= damping
+		new_vel *= substep_damping
+		next_pos = pos + new_vel * dt_sub
+
+		# Hard floor clamp mechanics
+		min_allowed_z = 2.0 + STATIC_THICKNESS
+		below_floor = next_pos[:, 2] <= min_allowed_z
+		clamped_z = jnp.where(below_floor, min_allowed_z, next_pos[:, 2])
+		next_pos = next_pos.at[:, 2].set(clamped_z)
+
+		# Reflect vertical velocity vectors
+		v_z_reflected = jnp.where(below_floor & (new_vel[:, 2] < 0), -new_vel[:, 2] * restitution, new_vel[:, 2])
+		lost_momentum_magnitude = jnp.where(below_floor & (new_vel[:, 2] < 0), jnp.abs(new_vel[:, 2]) * (1.0 - restitution), 0.0)
+
+		center_xy = jnp.mean(next_pos[:, :2], axis=0)
+		dir_xy = next_pos[:, :2] - center_xy
+		out_dir = dir_xy / jnp.maximum(jnp.linalg.norm(dir_xy, axis=1, keepdims=True), 1e-4)
+
+		new_vel_x = new_vel[:, 0] + out_dir[:, 0] * lost_momentum_magnitude * 0.85
+		new_vel_y = new_vel[:, 1] + out_dir[:, 1] * lost_momentum_magnitude * 0.85
+
+		next_vel = new_vel.at[:, 0].set(new_vel_x)
+		next_vel = next_vel.at[:, 1].set(new_vel_y)
+		next_vel = next_vel.at[:, 2].set(v_z_reflected)
+
+		# Keep returning tracking tuple carry state
+		return (next_pos, next_vel), None
+
+	# 2. MASTER ANIMATION FRAME BOUNDARY STEPPER
+	def advance_single_animation_frame(frame_state, _):
+		# Execute the inner physics solver loop multiple times for a single video frame block
+		# Passes the carried position/velocity tracking tuple cleanly forward
+		final_substep_state, _ = jax.lax.scan(single_physics_substep, frame_state, None, length=SUBSTEPS)
 		
-	_, trajectory = jax.lax.scan(step_fn, (STATIC_INIT_POS, init_vel), None, length=num_frames)
+		# Extract and unpack only the final position coordinates configuration matrix
+		frame_positions, _ = final_substep_state
+		return final_substep_state, frame_positions
+
+	# Run the compiled external tracking loop structure
+	_, trajectory = jax.lax.scan(advance_single_animation_frame, (STATIC_INIT_POS, init_vel), None, length=num_frames)
 	return trajectory
 
-
-# Compiled engine tracks separate inputs seamlessly
-jit_simulation_engine = jax.jit(run_simulation_scan, static_argnums=(12,))
+jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(12,))
 
 vmap_det = jax.vmap(jnp.linalg.det)
 vmap_trace = jax.vmap(lambda mat: jnp.trace(jnp.dot(mat.T, mat)))
@@ -1768,56 +1894,70 @@ class myEquation_dFEM:
 		return element_properties
 
 
-	def bounce_diff_03(self, abj_sd_b_instance):
-		bpy.context.scene.render.engine = 'CYCLES'
-		# bpy.context.scene.render.engine = 'BLENDER_EEVEE'
-		bpy.context.scene.cycles.device = 'GPU'
-
-		bpy.context.scene.cycles.samples = 64
-		bpy.context.scene.cycles.denoising_use_gpu = True
-
-		# ==============================================================================
-		# 1. SCENE CLEANUP & BLENDER ENVIRONMENT LAYOUT SETUP
-		# ==============================================================================
-		print("Initializing unified JAX Unified Bounce-and-Crush Continuum Engine...")
-
-		for name in ["Rubber_Ball", "Voxel_Collision_Cube"]:
-			if name in bpy.data.objects:
-				bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
-
-		SPHERE_RES = 32  # High resolution captures both fluid ripples and flat cushion folds
-		# SPHERE_RES = 40  # High resolution captures both fluid ripples and flat cushion folds
-		# SPHERE_RES = 48  # High resolution captures both fluid ripples and flat cushion folds
-		# SPHERE_RES = 64  # High resolution captures both fluid ripples and flat cushion folds
-		# SPHERE_RES = 100  # High resolution captures both fluid ripples and flat cushion folds
-
-		# Spawn target sphere at Z = 7.5
-		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=SPHERE_RES, ring_count=SPHERE_RES)
-		# bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 7.5), size=6)
-
-		ball_obj = bpy.context.active_object
-		ball_obj.name = "Rubber_Ball"
 
 
 
-		# # 3. Switch to Edit Mode to modify the geometry
-		# bpy.ops.object.mode_set(mode='EDIT')
 
-		# # 4. Select all geometry (vertices/edges/faces)
-		# bpy.ops.mesh.select_all(action='SELECT')
+	def bakeShaderToPts(self, obj):
+		# 1. Add the modifier slot and link a clean GeometryNodeTree
+		gn_mod = obj.modifiers.new(name="ProceduralDisplacement", type='NODES')
+		node_group = bpy.data.node_groups.new(name="GaborDisplaceTree", type='GeometryNodeTree')
+		gn_mod.node_group = node_group
 
-		# # 5. Subdivide the mesh 
-		# # Set number_cuts to your desired resolution. Keep smoothness at 0.0 to prevent rounding!
-		# # bpy.ops.mesh.subdivide(number_cuts=12, smoothness=0.0)
-		# # bpy.ops.mesh.subdivide(number_cuts=16, smoothness=0.0)
-		# bpy.ops.mesh.subdivide(number_cuts=32, smoothness=0.0)
+		# Create the required structural geometry sockets
+		node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+		node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
 
-		# # 6. Switch back to Object Mode
-		# bpy.ops.object.mode_set(mode='OBJECT')
+		# 2. Create the nodes
+		node_in = node_group.nodes.new(type="NodeGroupInput")
+		node_out = node_group.nodes.new(type="NodeGroupOutput")
+
+		# CRITICAL ADDITION: Subdivide Mesh node to capture high-frequency noise
+		node_subdivide = node_group.nodes.new(type="GeometryNodeSubdivideMesh")
+		# Level 4 or 5 gives the Gabor noise enough vertex density to actually resolve
+		# node_subdivide.inputs['Level'].default_value = 3
+		node_subdivide.inputs['Level'].default_value = 4
+		# node_subdivide.inputs['Level'].default_value = 5
+
+		# Set Position & Noise
+		node_set_pos = node_group.nodes.new(type="GeometryNodeSetPosition")
+		node_noise = node_group.nodes.new(type="ShaderNodeTexGabor") 
+		
+		# Ensure Gabor settings match your shader (Scale, Frequency, etc.)
+		# node_noise.inputs['Scale'].default_value = 5.0 
+
+		# Vector Math nodes for calculating displacement vector
+		node_normal = node_group.nodes.new(type="GeometryNodeInputNormal")
+		node_multiply = node_group.nodes.new(type="ShaderNodeVectorMath")
+		node_multiply.operation = 'MULTIPLY'
+
+		node_scale = node_group.nodes.new(type="ShaderNodeVectorMath")
+		node_scale.operation = 'SCALE'
+		node_scale.inputs[3].default_value = 0.5  # Displacement Strength
+
+		# 3. Connect the node architecture
+		links = node_group.links
+
+		# Link geometry THROUGH the subdivide node first
+		links.new(node_in.outputs['Geometry'], node_subdivide.inputs['Mesh'])
+		links.new(node_subdivide.outputs['Mesh'], node_set_pos.inputs['Geometry'])
+		links.new(node_set_pos.outputs['Geometry'], node_out.inputs['Geometry'])
+
+		# Calculate displacement vector using the newly subdivided geometry normals
+		links.new(node_normal.outputs['Normal'], node_multiply.inputs[0])
+		links.new(node_noise.outputs['Value'], node_multiply.inputs[1])
+
+		# Scale and apply to offset
+		links.new(node_multiply.outputs['Vector'], node_scale.inputs[0])
+		links.new(node_scale.outputs['Vector'], node_set_pos.inputs['Offset'])
+
+		# 4. Freeze the Modifier (Bakes the subdivided, high-res mesh to real vertices)
+		bpy.ops.object.modifier_apply(modifier=gn_mod.name)
+
+		print(f"Success! Mesh baked with subdivision. {len(obj.data.vertices)} points available.")
 
 
-
-		'''
+	def bakeShaderToPts0(self, obj):
 		############################
 		#######BAKE GABOR TO PTS
 		############################
@@ -1828,7 +1968,7 @@ class myEquation_dFEM:
 		# ball_obj = bpy.context.active_object
 
 		# 2. Add the modifier slot and link a clean GeometryNodeTree
-		gn_mod = ball_obj.modifiers.new(name="ProceduralDisplacement", type='NODES')
+		gn_mod = obj.modifiers.new(name="ProceduralDisplacement", type='NODES')
 		node_group = bpy.data.node_groups.new(name="GaborDisplaceTree", type='GeometryNodeTree')
 		gn_mod.node_group = node_group
 
@@ -1874,10 +2014,63 @@ class myEquation_dFEM:
 		# 5. Freeze the Modifier (Locks down procedural changes to real vertices)
 		bpy.ops.object.modifier_apply(modifier=gn_mod.name)
 
-		print(f"Success! Mesh baked. {len(ball_obj.data.vertices)} points available for your BPY loop.")
+		print(f"Success! Mesh baked. {len(obj.data.vertices)} points available for your BPY loop.")
+
+	def bounce_diff_03(self, abj_sd_b_instance):
+		bpy.context.scene.render.engine = 'CYCLES'
+		# bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+		bpy.context.scene.cycles.device = 'GPU'
+
+		bpy.context.scene.cycles.samples = 64
+		bpy.context.scene.cycles.denoising_use_gpu = True
+
+		# ==============================================================================
+		# 1. SCENE CLEANUP & BLENDER ENVIRONMENT LAYOUT SETUP
+		# ==============================================================================
+		print("Initializing unified JAX Unified Bounce-and-Crush Continuum Engine...")
+
+		for name in ["Rubber_Ball", "Voxel_Collision_Cube"]:
+			if name in bpy.data.objects:
+				bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+
+		SPHERE_RES = 32  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 40  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 48  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 64  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 100  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 128  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 256  # High resolution captures both fluid ripples and flat cushion folds
+
+		# Spawn target sphere at Z = 7.5
+		bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=SPHERE_RES, ring_count=SPHERE_RES)
+		# bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 7.5), size=6)
+
+		ball_obj = bpy.context.active_object
+		ball_obj.name = "Rubber_Ball"
+
+		gaborToPts = 0
+		# gaborToPts = 1
+
+		if gaborToPts == 1:
+			self.bakeShaderToPts(ball_obj) ######
+
+		# # 3. Switch to Edit Mode to modify the geometry
+		# bpy.ops.object.mode_set(mode='EDIT')
+
+		# # 4. Select all geometry (vertices/edges/faces)
+		# bpy.ops.mesh.select_all(action='SELECT')
+
+		# # 5. Subdivide the mesh 
+		# # Set number_cuts to your desired resolution. Keep smoothness at 0.0 to prevent rounding!
+		# # bpy.ops.mesh.subdivide(number_cuts=12, smoothness=0.0)
+		# # bpy.ops.mesh.subdivide(number_cuts=16, smoothness=0.0)
+		# bpy.ops.mesh.subdivide(number_cuts=32, smoothness=0.0)
+
+		# # 6. Switch back to Object Mode
+		# bpy.ops.object.mode_set(mode='OBJECT')
 
 
-		'''
+
 
 
 		# return
@@ -1917,15 +2110,22 @@ class myEquation_dFEM:
 		if not output_node:
 			output_node = nodes.new(type='ShaderNodeOutputMaterial')
 
-		gabor_node = nodes.new(type='ShaderNodeTexGabor')
-		displacement_node = nodes.new(type='ShaderNodeDisplacement')
+		if gaborToPts != 1:
+			gabor_node = nodes.new(type='ShaderNodeTexGabor')
+			displacement_node = nodes.new(type='ShaderNodeDisplacement')
 
-		mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
-		mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
-		# displacement_node.inputs[2].default_value = 0.3
-		displacement_node.inputs[2].default_value = 0.5
+			mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+			mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+			# displacement_node.inputs[2].default_value = 0.3
+			displacement_node.inputs[2].default_value = 0.5
+
+			# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+			gabor_node.gabor_type = '3D'
+
 
 		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
 
 		######################################
 		# Wide collision floor plane cube (Top face at world Z = 2.0)
@@ -2053,7 +2253,8 @@ class myEquation_dFEM:
 		# DRAG_COEFFICIENT_VAL = 0.25   
 
 
-		num_frames = 600
+		# num_frames = 600
+		num_frames = 300
 		# num_frames = 300
 
 		# ###########
@@ -2081,15 +2282,27 @@ class myEquation_dFEM:
 		MU_VAL = 550.0
 		LAM_VAL = 3000.0
 		# DAMPING_VAL = 0.995
+		# DAMPING_VAL = 0.98
+		# DAMPING_VAL = 0.98
 		DAMPING_VAL = 0.98
+		# DAMPING_VAL = 0.94
 		# DT_VAL = 0.01
 		# DT_VAL = 0.008
 		DT_VAL = 0.008
-		INITIAL_SPIKE_VELOCITY = -30
+
+
+		# DT_VAL = 0.002
+		# INITIAL_SPIKE_VELOCITY = -30 * 4
+		# INITIAL_SPIKE_VELOCITY = -30
+		INITIAL_SPIKE_VELOCITY = -60.0
+		# INITIAL_SPIKE_VELOCITY = -90
+
+
 		# INITIAL_SPIKE_VELOCITY = -50
 		# RESTITUTION_VAL = .87
 		RESTITUTION_VAL = .7
-		OBJECT_MASS_VAL = 300
+		# RESTITUTION_VAL = .5
+		OBJECT_MASS_VAL = 300.0
 		DRAG_COEFFICIENT_VAL = .05
 
 
@@ -2115,7 +2328,8 @@ class myEquation_dFEM:
 
 
 
-
+		TARGET_FRAME = 100
+		TARGET_HEIGHT = 12.5
 
 
 		loss_fn = jax.jit(lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT))
@@ -2139,7 +2353,8 @@ class myEquation_dFEM:
 		lr_mass = .5         # Gradient search rate for weight scale optimization
 		# num_steps = 20
 		# num_steps = 10
-		num_steps = 5
+		# num_steps = 5
+		num_steps = 2
 
 
 		for iteration in range(num_steps):
@@ -2211,8 +2426,13 @@ class myEquation_dFEM:
 		bpy.context.scene.frame_set(1)
 		print("\n[Bake Finished] Unified engine execution completed successfully! Press Spacebar.")
 
-		bpy.context.scene.render.fps = 240
+		# bpy.context.scene.render.fps = 240
+		bpy.context.scene.render.fps = 120
+		# bpy.context.scene.render.fps = 120 * 4
 		bpy.context.scene.frame_end = num_frames
+
+	def testSDF_01(self):
+		pass
 
 	def testVDB_06(self, abj_sd_b_instance):
 		startTime = datetime.now()
