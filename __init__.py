@@ -131,10 +131,10 @@ def register():
 	#### GUTTER
 	#### GUTTER
 	#### GUTTER
-	bpy.types.Scene.gutterW_prop = bpy.props.IntProperty(min=1, max=4096, default=1920, name='gutter W')
-	bpy.types.Scene.gutterH_prop = bpy.props.IntProperty(min=1, max=4096, default=1080, name='gutter H')
-	bpy.types.Scene.gutterCellSize_prop = bpy.props.IntProperty(min=1, max=64, default=8, name='gutter cell size')
-	bpy.types.Scene.gutterBorderWidth_prop = bpy.props.IntProperty(min=1, max=10, default=1, name='gutter border width')
+	bpy.types.Scene.gutterW_prop = bpy.props.IntProperty(min=1, max=40960, default=1920, name='gutter W')
+	bpy.types.Scene.gutterH_prop = bpy.props.IntProperty(min=1, max=40960, default=1080, name='gutter H')
+	bpy.types.Scene.gutterCellSize_prop = bpy.props.IntProperty(min=1, max=640, default=8, name='gutter cell size')
+	bpy.types.Scene.gutterBorderWidth_prop = bpy.props.IntProperty(min=1, max=100, default=1, name='gutter border width')
 
 	bpy.types.Scene.gradient_outer_circle_steps_prop = bpy.props.IntProperty(min=0, max=20, default=10, name='outer_circle_steps')
 
