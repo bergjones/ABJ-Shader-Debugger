@@ -2344,6 +2344,106 @@ class ABJ_Shader_Debugger():
 	def dFEM(self):
 		myEquation_dFEM_class.dFEM(myABJ_SD_B)
 
+	def gen_compositor_pixelate_quantize_guttermap_chain(self):
+		print('in gen_compositor_pixelate_quantize_guttermap_chain')
+
+		self.deselectAll()
+		self.deleteAllObjects()
+		self.mega_purge()
+
+		compGroupName = 'compositor_pixelate_quantize_guttermap'
+
+		nodetree = bpy.data.node_groups.new(compGroupName, "CompositorNodeTree")
+		bpy.context.scene.compositing_node_group = nodetree
+
+		for node in nodetree.nodes:
+			nodetree.nodes.remove(node)
+
+		node0 = nodetree.nodes.new("CompositorNodeRLayers")
+
+		nodetree.interface.new_socket(name="Output", in_out='OUTPUT', socket_type='NodeSocketColor')
+		self.nodeOut = nodetree.nodes.new("NodeGroupOutput")
+		self.nodeViewer = nodetree.nodes.new("CompositorNodeViewer")
+
+		#input image
+
+		node_pixelate = nodetree.nodes.new("CompositorNodePixelate")
+		node_pixelate.inputs[1].default_value = 4
+
+		node_quantizeAmount = nodetree.nodes.new("FunctionNodeInputInt")
+		node_quantizeAmount.integer = 64
+		node_quantizeAmount.label = 'quantize amount'
+
+		node_subtract = nodetree.nodes.new("ShaderNodeMath")
+		node_subtract.operation = 'SUBTRACT'
+		nodetree.links.new(node_quantizeAmount.outputs[0], node_subtract.inputs[0])
+
+		node_combineXYZ = nodetree.nodes.new("ShaderNodeCombineXYZ")
+		nodetree.links.new(node_subtract.outputs[0], node_combineXYZ.inputs[0])
+		nodetree.links.new(node_subtract.outputs[0], node_combineXYZ.inputs[1])
+		nodetree.links.new(node_subtract.outputs[0], node_combineXYZ.inputs[2])
+
+		node_MultiplyVec = nodetree.nodes.new("ShaderNodeVectorMath")
+		node_MultiplyVec.operation = 'MULTIPLY'
+		nodetree.links.new(node_combineXYZ.outputs[0], node_MultiplyVec.inputs[0])
+		nodetree.links.new(node_pixelate.outputs[0], node_MultiplyVec.inputs[1])
+
+		node_AddVec = nodetree.nodes.new("ShaderNodeVectorMath")
+		node_AddVec.operation = 'ADD'
+		node_AddVec.inputs[1].default_value[0] = 0.5
+		node_AddVec.inputs[1].default_value[1] = 0.5
+		node_AddVec.inputs[1].default_value[2] = 0.5
+		nodetree.links.new(node_MultiplyVec.outputs[0], node_AddVec.inputs[0])
+
+		node_divideVec = nodetree.nodes.new("ShaderNodeVectorMath")
+		node_divideVec.operation = 'DIVIDE'
+		nodetree.links.new(node_AddVec.outputs[0], node_divideVec.inputs[0])
+		nodetree.links.new(node_combineXYZ.outputs[0], node_divideVec.inputs[1])
+
+		node_alphaOver = nodetree.nodes.new("CompositorNodeAlphaOver")
+		nodetree.links.new(node_divideVec.outputs[0], node_alphaOver.inputs[0])
+
+		nodeToView = node_alphaOver
+		nodetree.links.new(nodeToView.outputs[0], self.nodeOut.inputs[0]) ###### !!!!!!!!!!!
+		nodetree.links.new(nodeToView.outputs[0], self.nodeViewer.inputs[0]) ###### !!!!!!!!!!!
+
+		self.autoArrangeNodes(nodetree)
+
+	def gen_compositor_pixelated_gutters(self):
+		val_gutterW_prop = bpy.context.scene.gutterW_prop
+		val_gutterH_prop = bpy.context.scene.gutterH_prop
+		val_gutterCellSize_prop = bpy.context.scene.gutterCellSize_prop
+		val_gutterBorderWidth_prop = bpy.context.scene.gutterBorderWidth_prop
+		# self.zFar = val_zFar_prop
+
+		# import bpy, numpy as np
+
+		# W, H = 1920, 1080      # must match render resolution (percentage 100%)
+		W, H = 1920, 1440      # must match render resolution (percentage 100%)
+
+
+		# cell, g = 30, 2        # cell size and gutter width in pixels
+		# cell, g = 8, 2        # cell size and gutter width in pixels
+		cell, g = 8, 1        # cell size and gutter width in pixels
+		grey = 0.18            # linear grey, adjust to taste
+
+		x = np.arange(val_gutterW_prop)
+		y = np.arange(val_gutterH_prop)
+		gx = ((x + val_gutterBorderWidth_prop // 2) % val_gutterCellSize_prop) < val_gutterBorderWidth_prop
+		gy = ((y + val_gutterBorderWidth_prop // 2) % val_gutterCellSize_prop) < val_gutterBorderWidth_prop
+		mask = (gx[None, :] | gy[:, None]).astype(np.float32)   # H x W
+
+		rgba = np.zeros((val_gutterH_prop, val_gutterW_prop, 4), dtype=np.float32)
+		rgba[..., :3] = grey
+		rgba[..., 3] = mask
+
+		img = bpy.data.images.new("gutters", val_gutterW_prop, val_gutterH_prop, alpha=True)
+		img.pixels.foreach_set(rgba.ravel())
+		img.filepath_raw = bpy.path.abspath("E:/projects_3d/ABJ_Shader_Debugger_for_Blender/scenes/compositing_files/gutters.png")
+
+		img.file_format = 'PNG'
+		img.save()
+
 	def atmospheric_rayleigh_mie_nishita_spectral_compositor(self):
 		myEquation_spectral_atmosphere_class.atmospheric_rayleigh_mie_nishita_spectral_compositor(myABJ_SD_B)
 
@@ -7384,6 +7484,30 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 		row.operator('shader.abj_shader_debugger_sub_spectral_comp_stock_operator')
 
 		######################################
+		###### GUTTER
+		######################################
+		layout.label(text='GUTTER')
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gutterW_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gutterH_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gutterCellSize_prop')
+
+		row = layout.row()
+		row.prop(bpy.context.scene, 'gutterBorderWidth_prop')
+
+		row = layout.row()
+		row.scale_y = 2.0 ###
+		row.operator('shader.abj_shader_debugger_guttermap_operator')
+
+		row = layout.row()
+		row.scale_y = 4.0 ###
+		row.operator('shader.abj_shader_debugger_pixelatequantize_operator')
+
+		######################################
 		###### STAGE 1
 		######################################
 		layout.label(text='PRE-PROCESS')
@@ -7754,6 +7878,26 @@ class SCENE_PT_ABJ_Shader_Debugger_Panel(bpy.types.Panel):
 
 ##########
 #####
+
+class SHADER_OT_GUTTERMAP(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'guttermap'
+	bl_idname = 'shader.abj_shader_debugger_guttermap_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.gen_compositor_pixelated_gutters()
+		return {'FINISHED'}
+
+class SHADER_OT_PIXELATEQUANTIZE(bpy.types.Operator):
+	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator
+
+	bl_label = 'pixelate_quantize_guttermap_chain'
+	bl_idname = 'shader.abj_shader_debugger_pixelatequantize_operator'
+
+	def execute(self, context):
+		myABJ_SD_B.gen_compositor_pixelate_quantize_guttermap_chain()
+		return {'FINISHED'}
 	
 class SHADER_OT_RANDOMLIGHT(bpy.types.Operator):
 	# if you create an operator class called MYSTUFF_OT_super_operator, the bl_idname should be mystuff.super_operator

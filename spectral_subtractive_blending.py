@@ -276,6 +276,7 @@ class myEquation_spectral_Kubelka_Munk:
 		spectral_xyz_to_srgb_end = self.spectral_compositor_xyz_to_srgb(nodetree, reflectanceEnd, myABJ_SD_B)
 
 		print('READPIXEL : spectral_xyz_to_srgb_end')
+		bpy.context.scene.render.compositor_precision = 'FULL'
 		self.spectral_compositor_debugging_exit_visualizer(nodetree, spectral_xyz_to_srgb_end, 932, 633, myABJ_SD_B)
 		return
 
