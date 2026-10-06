@@ -39,6 +39,7 @@ import importlib
 import sys
 import copy
 import os
+import struct
 import jax
 import jax.numpy as jnp
 from jax import jit
@@ -53,8 +54,6 @@ import openvdb as vdb
 # ==============================================================================
 # 3. POSITION-INDEPENDENT HIGH-STIFFNESS FORCE ENGINE
 # ==============================================================================
-# def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0, anisotropy=1.0, orientation_deg=45.0, blender_displacement_scale=0.5):
-# def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0, anisotropy=1.0, orientation_deg=45.0, blender_displacement_scale=2):
 def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0, anisotropy=1.0, orientation_deg=45.0, blender_displacement_scale=0.5):
 	"""
 	Refined Analytical Gabor Noise Engine running natively in JAX.
@@ -110,18 +109,6 @@ def analytical_gabor_displace(pos_local, mode_3d=True, scale=5.0, frequency=2.0,
 	# return normals * final_noise_val * displacement_strength
 	return normals * final_noise_val * blender_displacement_scale
 
-def analytical_box_sdf(p, center, size, rot_matrix):
-	"""Computes the mathematically perfect Signed Distance Field of an arbitrary Box."""
-	p_local = p - center
-	p_rotated = jnp.matmul(p_local, rot_matrix)
-	half_extents = size * 0.5
-	d = jnp.abs(p_rotated) - half_extents
-	outside_dist = jnp.linalg.norm(jnp.maximum(d, 0.0), axis=-1)
-	inside_dist = jnp.minimum(jnp.maximum(d[:, 0], jnp.maximum(d[:, 1], d[:, 2])), 0.0)
-
-	return outside_dist + inside_dist
-
-
 def analytical_box_sdf_and_normal(p, center, size, rot_matrix):
 	"""
 	Computes both the exact Signed Distance Field and the outward-pointing 
@@ -149,35 +136,71 @@ def analytical_box_sdf_and_normal(p, center, size, rot_matrix):
 	world_normal = jnp.matmul(local_normal, rot_matrix.T)
 	return sdf, world_normal	
 
+def stack_boxes(boxes):
+	"""boxes: list of (center, size, rot) -> stacked (B,3), (B,3), (B,3,3)"""
+	centers = jnp.stack([b[0] for b in boxes])
+	sizes   = jnp.stack([b[1] for b in boxes])
+	rots    = jnp.stack([b[2] for b in boxes])
+	return centers, sizes, rots
 
+def all_boxes_sdf_and_normal(p, centers, sizes, rots):
+	"""Per-particle nearest-box SDF + normal over any number of boxes."""
+	sdfs, normals = jax.vmap(analytical_box_sdf_and_normal,
+								in_axes=(None, 0, 0, 0))(p, centers, sizes, rots)  # (B,N), (B,N,3)
+	idx = jnp.argmin(sdfs, axis=0)
+	sdf = jnp.take_along_axis(sdfs, idx[None, :], axis=0)[0]
+	normal = jnp.take_along_axis(normals, idx[None, :, None], axis=0)[0]
+	return sdf, normal
 
+def mesh_volume_and_gradient(pos, faces):
+	"""Signed enclosed volume of a closed triangle mesh and dV/dpos (N,3)."""
+	p = pos - jnp.mean(pos, axis=0)
+	a, b, c = p[faces[:, 0]], p[faces[:, 1]], p[faces[:, 2]]
+	bc = jnp.cross(b, c)
+	V = jnp.sum(jnp.sum(a * bc, axis=-1)) / 6.0
+	grad = (jnp.zeros_like(pos)
+			.at[faces[:, 0]].add(bc / 6.0)
+			.at[faces[:, 1]].add(jnp.cross(c, a) / 6.0)
+			.at[faces[:, 2]].add(jnp.cross(a, b) / 6.0))
+	return V, grad
 
+def build_edges(faces_np, rest_pos):
+	"""Returns a tuple (edge_i, edge_j, rest_length) that can be passed straight through jit."""
+	e = np.concatenate([faces_np[:, [0, 1]], faces_np[:, [1, 2]], faces_np[:, [2, 0]]])
+	e = np.unique(np.sort(e, axis=1), axis=0)
+	L0 = np.linalg.norm(rest_pos[e[:, 0]] - rest_pos[e[:, 1]], axis=1)
+	return (jnp.array(e[:, 0], dtype=jnp.int32),
+			jnp.array(e[:, 1], dtype=jnp.int32),
+			jnp.array(L0, dtype=jnp.float32))
 
-# ---------------------------------------------------------------
-# compute_forces_jax1
-#   - Elastic rest-frame is now the SVD best-fit rotation of the ACTUAL
-#     pos passed in (self-consistent every call -> fixes the pancake/
-#     dragging-in-air artifact, which was caused by rest-frame drift).
-#   - Adds shape_match_forces: a loose spring pulling every particle
-#     toward its rigidly-rotated rest position. This is the missing
-#     tangential/shear coupling between neighbors -> stops dog-ear
-#     whipping and is what actually lets rotation propagate through the
-#     WHOLE body (not just contacting vertices) -> real rolling.
-#     It is near-zero whenever the body is genuinely rotating rigidly,
-#     so it does not fight squash/stretch/ripple.
-# ---------------------------------------------------------------
+def edge_spring_forces(pos, edges, k):
+	ei, ej, l0 = edges
+	d = pos[ei] - pos[ej]
+	L = jnp.sqrt(jnp.sum(d * d, axis=1) + 1e-12)
+	f = (-k * (L - l0) / L)[:, None] * d
+	return jnp.zeros_like(pos).at[ei].add(f).at[ej].add(-f)
+
+def edge_damping_dv(pos, vel, edges, a):
+	"""Damps relative velocity along each edge (a dashpot). Rigid motion is untouched because
+	rigid motion doesn't change edge lengths. a = per-substep fraction, clipped for stability."""
+	ei, ej, l0 = edges
+	d = pos[ei] - pos[ej]
+	L = jnp.sqrt(jnp.sum(d * d, axis=1) + 1e-12)
+	u = d / L[:, None]
+	vrel = jnp.sum((vel[ei] - vel[ej]) * u, axis=1)
+	imp = (0.5 * a * vrel)[:, None] * u
+	return jnp.zeros_like(vel).at[ei].add(-imp).at[ej].add(imp)
+
 def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,
-						 STATIC_THICKNESS, box1_center, box1_size, box1_rot,
-						 box2_center, box2_size, box2_rot, box3_center, box3_size, box3_rot, box4_center, box4_size, box4_rot,
-						 collision_radius=0.28, collision_stiffness=1500.0,
-						 obstacle_stiffness=35000.0,
-						 shape_coherence_stiffness=400.0):
+					   STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges,
+					   collision_radius=0.28, collision_stiffness=1500.0,
+					   obstacle_stiffness=35000.0,
+					   shape_coherence_stiffness=400.0):
 
 	pos_2d = jnp.reshape(pos, (-1, 3))
 
 	rest_centered = STATIC_INIT_POS - STATIC_CENTER
 	R, active_center = compute_best_fit_rotation(pos_2d, rest_centered)
-	# R = jax.lax.stop_gradient(R)  # <- uncomment if backprop through SVD misbehaves
 
 	rotated_local_static = rest_centered @ R.T
 	rotated_normals = STATIC_NORMALS @ R.T
@@ -190,10 +213,8 @@ def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORM
 	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
 	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
 
-	# True elastic strain: rigid rotation cancels out exactly, since both
-	# sides were built from the SAME R at the SAME instant.
 	disp_local = (displaced_active_mesh - displaced_active_center) - \
-				 (displaced_static_mesh - displaced_static_center)
+					(displaced_static_mesh - displaced_static_center)
 
 	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * rotated_normals[:, None, :]) / 1.8
 
@@ -206,316 +227,57 @@ def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORM
 	I_C = vmap_trace(F)
 	F_inv_t = vmap_inv_t(F)
 
-	alpha = 1.0 + (mu / lam)
+	# alpha = 1.0 + (mu / lam)
+	alpha = 1.0 + 0.75 * (mu / lam)    # P(F=I) = 0 -> no built-in outward pressure
 	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
 	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
 	P = term1 + term2
 
 	continuum_forces = -jnp.matmul(P, rotated_normals[..., None]).squeeze(-1)
 
-	# --- Shape-matching coherence: the missing shear/neighbor coupling ---
 	goal_pos = rotated_local_static + active_center
 	shape_match_forces = shape_coherence_stiffness * (goal_pos - pos_2d)
 
-	# Self-collision (radially symmetric for a sphere -> orientation independent)
-	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
-	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
-	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
-	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
 
-	sdf_box1, normal_box1 = analytical_box_sdf_and_normal(displaced_active_mesh, box1_center, box1_size, box1_rot)
-	sdf_box2, normal_box2 = analytical_box_sdf_and_normal(displaced_active_mesh, box2_center, box2_size, box2_rot)
-	sdf_box3, normal_box3 = analytical_box_sdf_and_normal(displaced_active_mesh, box3_center, box3_size, box3_rot)
-	sdf_box4, normal_box4 = analytical_box_sdf_and_normal(displaced_active_mesh, box4_center, box4_size, box4_rot)
 
-	penetration_b1 = jnp.maximum(0.05 - sdf_box1, 0.0)
-	box1_forces = normal_box1 * ((penetration_b1 ** 2) * obstacle_stiffness)[:, None]
 
-	penetration_b2 = jnp.maximum(0.05 - sdf_box2, 0.0)
-	box2_forces = normal_box2 * ((penetration_b2 ** 2) * obstacle_stiffness)[:, None]
+	# While touching a surface, stop the springs from holding the top up along the squash axis
+	c_sdf, c_nrm = all_boxes_sdf_and_normal(pos_2d, box_centers, box_sizes, box_rots)
+	c_w = smooth_contact_weight(c_sdf, band=0.25)
+	c_sum = jnp.sum(c_w[:, None] * c_nrm, axis=0)
+	c_len = jnp.linalg.norm(c_sum)
+	c_axis = jax.lax.stop_gradient(
+		jnp.where(c_len > 1e-3, c_sum / jnp.maximum(c_len, 1e-6), jnp.array([0.0, 0.0, 1.0])))
+	c_frac = jax.lax.stop_gradient(jnp.clip(jnp.sum(c_w) / (0.02 * pos_2d.shape[0]), 0.0, 1.0))
+	axial = (shape_match_forces @ c_axis)[:, None] * c_axis[None, :]
+	# AXIAL_RELAX = 0.85        # 0 = old behavior, 1 = no axial spring while touching
+	AXIAL_RELAX = 0.85       # 0 = old behavior, 1 = no axial spring while touching
+	shape_match_forces = shape_match_forces - AXIAL_RELAX * c_frac * axial
 
-	penetration_b3 = jnp.maximum(0.05 - sdf_box3, 0.0)
-	box3_forces = normal_box3 * ((penetration_b3 ** 2) * obstacle_stiffness)[:, None]
-
-	penetration_b4 = jnp.maximum(0.05 - sdf_box4, 0.0)
-	box4_forces = normal_box4 * ((penetration_b4 ** 2) * obstacle_stiffness)[:, None]
-
-	total_forces = continuum_forces + shape_match_forces + (self_collision_forces * 0.02) + \
-				   box1_forces + box2_forces + box3_forces + box4_forces
-	return jnp.reshape(total_forces, pos.shape)
-
-# ---------------------------------------------------------------
-# compute_forces_jax — co-rotational elastic term (rest frame rotated
-# by rigid orientation, as before) — unchanged from last fix, still correct.
-# ---------------------------------------------------------------
-def compute_forces_jax3(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,STATIC_THICKNESS, box1_center, box1_size, box1_rot, box2_center, box2_size, box2_rot, rot_matrix, collision_radius=0.28, collision_stiffness=1500.0, obstacle_stiffness=35000.0):
-
-	pos_2d = jnp.reshape(pos, (-1, 3))
-	active_center = jnp.mean(pos_2d, axis=0)
-
-	local_static = STATIC_INIT_POS - STATIC_CENTER
-	rotated_local_static = local_static @ rot_matrix.T
-	rotated_normals = STATIC_NORMALS @ rot_matrix.T
-
-	displaced_static_local = rotated_local_static + analytical_gabor_displace(rotated_local_static)
-	displaced_static_mesh = displaced_static_local + STATIC_CENTER
-	displaced_static_center = jnp.mean(displaced_static_mesh, axis=0)
-
-	local_active = pos_2d - active_center
-	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
-	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
-
-	disp_local = (displaced_active_mesh - displaced_active_center) - \
-					(displaced_static_mesh - displaced_static_center)
-
-	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * rotated_normals[:, None, :]) / 1.8
-
-	vmap_det   = jax.vmap(jnp.linalg.det)
-	vmap_trace = jax.vmap(jnp.trace)
-	vmap_inv_t = jax.vmap(lambda m: jnp.linalg.inv(m).T)
-
-	J = vmap_det(F)
-	J_stable = jnp.maximum(J, 0.20)
-	I_C = vmap_trace(F)
-	F_inv_t = vmap_inv_t(F)
-
-	alpha = 1.0 + (mu / lam)
-	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
-	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
-	P = term1 + term2
-
-	continuum_forces = -jnp.matmul(P, rotated_normals[..., None]).squeeze(-1)
 
 	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
 	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
 	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
 	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
 
-	sdf_box1, normal_box1 = analytical_box_sdf_and_normal(displaced_active_mesh, box1_center, box1_size, box1_rot)
-	sdf_box2, normal_box2 = analytical_box_sdf_and_normal(displaced_active_mesh, box2_center, box2_size, box2_rot)
+	# Obstacle penalty forces over ALL boxes
+	sdfs, normals = jax.vmap(analytical_box_sdf_and_normal, in_axes=(None, 0, 0, 0))(
+		displaced_active_mesh, box_centers, box_sizes, box_rots)       # (B,N), (B,N,3)
+	pen = jnp.maximum(0.05 - sdfs, 0.0)
+	box_forces = jnp.sum(normals * ((pen ** 2) * obstacle_stiffness)[..., None], axis=0)
 
-	penetration_b1 = jnp.maximum(0.05 - sdf_box1, 0.0)
-	box1_forces = normal_box1 * ((penetration_b1 ** 2) * obstacle_stiffness)[:, None]
+	# CONTINUUM_SCALE = 0.25
+	# CONTINUUM_SCALE = 2
+	CONTINUUM_SCALE = 1
 
-	penetration_b2 = jnp.maximum(0.05 - sdf_box2, 0.0)
-	box2_forces = normal_box2 * ((penetration_b2 ** 2) * obstacle_stiffness)[:, None]
+	# EDGE_K = 1500.0
+	EDGE_K = 300.0 ###
+	# EDGE_K = 100.0
+	edge_forces = edge_spring_forces(pos_2d, edges, EDGE_K)
+	total_forces = (continuum_forces * CONTINUUM_SCALE + shape_match_forces + edge_forces + (self_collision_forces * 0.02) + box_forces)
 
-	total_forces = continuum_forces + (self_collision_forces * 0.02) + box1_forces + box2_forces
-	return jnp.reshape(total_forces, pos.shape)
-
-# ---------------------------------------------------------------
-# compute_forces_jax — now takes rot_matrix and rotates the REST
-# frame into the body's current orientation before measuring strain.
-# This is the actual fix: rigid rotation no longer looks like strain.
-# ---------------------------------------------------------------
-def compute_forces_jax2(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,
-						 STATIC_THICKNESS, box1_center, box1_size, box1_rot,
-						 box2_center, box2_size, box2_rot, rot_matrix,
-						 collision_radius=0.28, collision_stiffness=1500.0,
-						 obstacle_stiffness=35000.0):
-
-	pos_2d = jnp.reshape(pos, (-1, 3))
-	active_center = jnp.mean(pos_2d, axis=0)
-
-	# --- Rotate the REST configuration into the current orientation ---
-	# local_static/normals live in the object's rest (body) frame.
-	# Rotating them by rot_matrix expresses "where the rest shape would be
-	# if it had simply rotated rigidly with the object" — NOT deformed.
-	local_static = STATIC_INIT_POS - STATIC_CENTER
-	rotated_local_static = local_static @ rot_matrix.T
-	rotated_normals = STATIC_NORMALS @ rot_matrix.T
-
-	displaced_static_local = rotated_local_static + analytical_gabor_displace(rotated_local_static)
-	displaced_static_mesh = displaced_static_local + STATIC_CENTER
-	displaced_static_center = jnp.mean(displaced_static_mesh, axis=0)
-
-	local_active = pos_2d - active_center
-	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
-	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
-
-	# Now this difference is TRUE elastic strain — rigid rotation cancels out.
-	disp_local = (displaced_active_mesh - displaced_active_center) - \
-					(displaced_static_mesh - displaced_static_center)
-
-	# Deformation gradient built against the ROTATED material normals,
-	# so the principal stretch direction rotates with the body too.
-	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * rotated_normals[:, None, :]) / 1.8
-
-	vmap_det   = jax.vmap(jnp.linalg.det)
-	vmap_trace = jax.vmap(jnp.trace)
-	vmap_inv_t = jax.vmap(lambda m: jnp.linalg.inv(m).T)
-
-	J = vmap_det(F)
-	J_stable = jnp.maximum(J, 0.20)
-	I_C = vmap_trace(F)
-	F_inv_t = vmap_inv_t(F)
-
-	alpha = 1.0 + (mu / lam)
-	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
-	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
-	P = term1 + term2
-
-	continuum_forces = -jnp.matmul(P, rotated_normals[..., None]).squeeze(-1)
-
-	# Self-collision is radially symmetric for a sphere -> orientation-independent, unchanged.
-	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
-	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
-	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
-	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
-
-	sdf_box1, normal_box1 = analytical_box_sdf_and_normal(displaced_active_mesh, box1_center, box1_size, box1_rot)
-	sdf_box2, normal_box2 = analytical_box_sdf_and_normal(displaced_active_mesh, box2_center, box2_size, box2_rot)
-
-	penetration_b1 = jnp.maximum(0.05 - sdf_box1, 0.0)
-	box1_forces = normal_box1 * ((penetration_b1 ** 2) * obstacle_stiffness)[:, None]
-
-	penetration_b2 = jnp.maximum(0.05 - sdf_box2, 0.0)
-	box2_forces = normal_box2 * ((penetration_b2 ** 2) * obstacle_stiffness)[:, None]
-
-	total_forces = continuum_forces + (self_collision_forces * 0.02) + box1_forces + box2_forces
-	return jnp.reshape(total_forces, pos.shape)
-
-
-def compute_forces_jax1(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, 
-					   box1_center, box1_size, box1_rot, box2_center, box2_size, box2_rot,
-					   collision_radius=0.28, collision_stiffness=1500.0, obstacle_stiffness=35000.0):
-	
-	pos_2d = jnp.reshape(pos, (-1, 3))
-	active_center = jnp.mean(pos_2d, axis=0)
-
-	# CRITICAL FIX: Evaluate tracking relative to the ANALYTICAL SURFACE
-	local_static = STATIC_INIT_POS - STATIC_CENTER
-	displaced_static_mesh = STATIC_INIT_POS + analytical_gabor_displace(local_static)
-	displaced_static_center = jnp.mean(displaced_static_mesh, axis=0)
-
-	local_active = pos_2d - active_center
-	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
-	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
-
-	disp_local = (displaced_active_mesh - displaced_active_center) - (displaced_static_mesh - displaced_static_center)
-
-	# Continuum Deformation Forces (Smith Stable Neo-Hookean 2018)
-	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * STATIC_NORMALS[:, None, :]) / 1.8
-
-	vmap_det = jax.vmap(jnp.linalg.det)
-	vmap_trace = jax.vmap(lambda m: jnp.trace(m))
-	vmap_inv_t = jax.vmap(lambda m: jnp.linalg.inv(m).T)
-
-	J = vmap_det(F)
-	J_stable = jnp.maximum(J, 0.20)
-	I_C = vmap_trace(F)
-	F_inv_t = vmap_inv_t(F)
-
-	alpha = 1.0 + (mu / lam)
-	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
-	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
-	P = term1 + term2
-
-	continuum_forces = -jnp.matmul(P, STATIC_NORMALS[..., None]).squeeze(-1)
-
-	# =========================================================================
-	#### OLD / SLOW
-	# =========================================================================
-	# # Pairwise self-collision avoidance bubbles
-	# diff = pos_2d[:, None, :] - pos_2d[None, :, :]  
-	# dists = jnp.sqrt(jnp.sum(diff**2, axis=-1) + 1e-8) 
-	# overlap = jnp.maximum(collision_radius - dists, 0.0)
-	# col_normals = diff / dists[..., None]
-
-	# repulsion_mag = (overlap ** 2) * collision_stiffness
-	# repulsion_mag = repulsion_mag * (jnp.eye(pos_2d.shape[0]) == 0)
-	# self_collision_forces = jnp.sum(col_normals * repulsion_mag[..., None], axis=1) * 0.02
-
-	# =========================================================================
-	# RESTORED FAST OPTIMIZED ANALYTICAL SDF SELF-COLLISION
-	# =========================================================================
-	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
-	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
-
-	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
-	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
-
-	# =========================================================================
-	# FIXED ARBITRARY COLLISION VECTOR ROUTINES (Prevents Object Penetration)
-	# =========================================================================
-	# Evaluate object fields against the true displaced Gabor skin boundaries
-	sdf_box1, normal_box1 = analytical_box_sdf_and_normal(displaced_active_mesh, box1_center, box1_size, box1_rot)
-	sdf_box2, normal_box2 = analytical_box_sdf_and_normal(displaced_active_mesh, box2_center, box2_size, box2_rot)
-
-	# Calculate box 1 penetrating interactions
-	penetration_b1 = jnp.maximum(0.05 - sdf_box1, 0.0)
-	box1_forces = normal_box1 * ((penetration_b1 ** 2) * obstacle_stiffness)[:, None]
-
-	# Calculate box 2 penetrating interactions
-	penetration_b2 = jnp.maximum(0.05 - sdf_box2, 0.0)
-	box2_forces = normal_box2 * ((penetration_b2 ** 2) * obstacle_stiffness)[:, None]
-
-	total_forces = continuum_forces + (self_collision_forces * 0.02) + box1_forces + box2_forces
-	return jnp.reshape(total_forces, pos.shape)
-
-def compute_forces_jax0(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=0.28, collision_stiffness=1500.0, floor_z=2.05, floor_stiffness=35000.0):
-# def compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, collision_radius=1.68, collision_stiffness=1500.0, floor_z=2.05, floor_stiffness=35000.0):
-	
-	pos_2d = jnp.reshape(pos, (-1, 3))
-	active_center = jnp.mean(pos_2d, axis=0)
-
-	# =========================================================================
-	# CRITICAL FIX: Evaluate tracking relative to the ANALYTICAL SURFACE
-	# =========================================================================
-	# Calculate the true resting surface layout before applying forces
-	local_static = STATIC_INIT_POS - STATIC_CENTER
-	displaced_static_mesh = STATIC_INIT_POS + analytical_gabor_displace(local_static)
-	displaced_static_center = jnp.mean(displaced_static_mesh, axis=0)
-
-	# Calculate the true active surface layout under current simulation forces
-	local_active = pos_2d - active_center
-	displaced_active_mesh = pos_2d + analytical_gabor_displace(local_active)
-	displaced_active_center = jnp.mean(displaced_active_mesh, axis=0)
-
-	# Track deformation based on the true Gabor shape, not the smooth sphere
-	disp_local = (displaced_active_mesh - displaced_active_center) - (displaced_static_mesh - displaced_static_center)
-
-	# 1. CONTINUUM DEFORMATION FORCES (Smith Stable Neo-Hookean 2018)
-	# Use the true displaced local state to derive your strain gradient matrices
-	F = jnp.eye(3)[None, :, :] + (disp_local[:, :, None] * STATIC_NORMALS[:, None, :]) / 1.8
-
-	# ... [Rest of your Vmap, Matrix Determinant, and Strain calculations remain the same] ...
-	# Vmap matrix operations
-	vmap_det = jax.vmap(jnp.linalg.det)
-	vmap_trace = jax.vmap(lambda m: jnp.trace(m))
-	vmap_inv_t = jax.vmap(lambda m: jnp.linalg.inv(m).T)
-
-	J = vmap_det(F)
-	J_stable = jnp.maximum(J, 0.20)
-	I_C = vmap_trace(F)
-	F_inv_t = vmap_inv_t(F)
-
-	alpha = 1.0 + (mu / lam)
-	term1 = (mu * (1.0 - 1.0 / (I_C + 1.0)))[:, None, None] * F
-	term2 = (lam * (J_stable - alpha))[:, None, None] * F_inv_t
-	P = term1 + term2
-
-	continuum_forces = -jnp.matmul(P, STATIC_NORMALS[..., None]).squeeze(-1)
-
-	# 2. SDF SELF-COLLISION AVOIDANCE
-	dist_to_center = jnp.sqrt(jnp.sum(local_active**2, axis=-1) + 1e-8)
-	surface_radius = 1.8 + jnp.squeeze(jnp.linalg.norm(analytical_gabor_displace(local_active), axis=-1))
-
-	self_penetration = jnp.maximum(collision_radius - (surface_radius - dist_to_center), 0.0)
-	self_collision_forces = STATIC_NORMALS * (self_penetration[:, None] ** 2) * collision_stiffness
-
-	# 3. FLOOR PLANE COLLISION WITH GABOR PROFILES
-	# Read directly from the updated active surface coordinates
-	lowest_vertex_z = jnp.min(displaced_active_mesh[:, 2])
-
-	floor_penetration = jnp.maximum((floor_z + 0.02) - lowest_vertex_z, 0.0)
-	floor_push_z = (floor_penetration ** 2) * floor_stiffness
-
-	floor_forces_mask = jnp.where(pos_2d[:, 2] < active_center[2], floor_push_z, 0.0)
-	floor_forces = jnp.zeros_like(pos_2d).at[:, 2].set(floor_forces_mask)
-
-	# Combine all optimized forces
-	total_forces = continuum_forces + (self_collision_forces * 0.02) + floor_forces
+	# total_forces = continuum_forces + shape_match_forces + (self_collision_forces * 0.02) + box_forces
+	# total_forces = (continuum_forces * CONTINUUM_SCALE) + shape_match_forces + (self_collision_forces * 0.02) + box_forces
 	return jnp.reshape(total_forces, pos.shape)
 
 def loss_function(mu, lam, damping, dt, initial_spike_vel, restitution, object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, target_frame_idx, target_height):
@@ -564,9 +326,6 @@ def integrate_quat(q, omega_world, dt):
 # 	t = jnp.clip((band - sdf) / band, 0.0, 1.0)
 # 	return t * t * (3.0 - 2.0 * t)  # smoothstep
 
-
-
-
 # ---------------------------------------------------------------
 # Kabsch / shape-matching best-fit rotation.
 # Computes the single rigid rotation R that best aligns the REST shape
@@ -603,14 +362,11 @@ def compute_best_fit_rotation(pos, rest_centered):
 	R = Vt.T @ correction @ U.T
 	return R, center
 
-
 def smooth_contact_weight(sdf, band=0.06):
 	"""Continuous 0->1 contact weight. No vertex ever jumps discretely
 	between 'in contact' and 'free' behavior between substeps."""
 	t = jnp.clip((band - sdf) / band, 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)  # smoothstep
-
-
 
 def compute_rigid_velocity_field(pos_2d, vel_2d, reg=1e-4):
 	"""
@@ -644,37 +400,107 @@ def compute_rigid_velocity_field(pos_2d, vel_2d, reg=1e-4):
 	v_rigid = v_center[None, :] + jnp.cross(omega[None, :], r)
 	return v_rigid
 
+def enforce_min_thickness(pos, vel, rest_centered, normals, min_half=0.08):
+	"""Keeps top/bottom layers from crossing or collapsing to zero thickness.
+	Works in any orientation (rolling, tumbling) because the squash axis is found from the data."""
+	pos_sg = jax.lax.stop_gradient(pos)
+	c = jnp.mean(pos_sg, axis=0)
+	Xs = pos_sg - c
+	cov = Xs.T @ Xs / pos.shape[0]
+	_, evecs = jnp.linalg.eigh(cov)
+	a = evecs[:, 0]                                   # smallest-variance axis = flatten axis
+	R, _ = compute_best_fit_rotation(pos_sg, rest_centered)
+
+	s = (normals @ R.T) @ a                           # how much each vertex faces the axis (-1..1)
+	sgn = jnp.sign(s)
+	required = min_half * s * s                       # rim vertices (s~0) are barely constrained
+	h = sgn * ((pos - c) @ a)                         # signed height above the center plane
+	viol = jnp.maximum(required - h, 0.0)
+
+	dirv = sgn[:, None] * a[None, :]
+	pos_new = pos + dirv * viol[:, None]
+	v_in = jnp.sum(vel * dirv, axis=-1)
+	vel_new = vel - dirv * jnp.where(viol > 0.0, jnp.minimum(v_in, 0.0), 0.0)[:, None]
+	return pos_new, vel_new
+
+def volume_flow_projection(pos, vel, axis, gain):
+	"""Velocity-level volume conservation: lateral strain rate is pushed toward -0.5 * axial strain rate.
+	Adds no net momentum (the correction is proportional to the centered lateral offset)."""
+	c = jnp.mean(pos, axis=0)
+	x = pos - c
+	za = x @ axis
+	rt = x - za[:, None] * axis[None, :]
+	va = vel @ axis
+	va_rel = va - jnp.mean(va)
+	vt = vel - va[:, None] * axis[None, :]
+	vt_rel = vt - jnp.mean(vt, axis=0)
+
+	e_ax = jnp.sum(va_rel * za) / (jnp.sum(za * za) + 1e-6)       # axial strain rate (1/s)
+	e_lat = jnp.sum(vt_rel * rt) / (jnp.sum(rt * rt) + 1e-6)      # lateral strain rate (1/s)
+	target = -0.5 * e_ax
+	return vel + gain * (target - e_lat) * rt
+
 def run_simulation_scan_substepped(mu, lam, damping, dt_frame, initial_spike_vel, restitution,
-									object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER,
-									STATIC_NORMALS, STATIC_THICKNESS, box1_center, box1_size, box1_rot,
-									box2_center, box2_size, box2_rot, b3_center, b3_size, b3_rot, b4_center, b4_size, b4_rot, num_frames=300):
+								   object_mass, drag_coefficient, STATIC_INIT_POS, STATIC_CENTER,
+								   STATIC_NORMALS, STATIC_THICKNESS,
+								   box_centers, box_sizes, box_rots, edges, num_frames=300):
 
 	SUBSTEPS = 24
+	# SUBSTEPS = 96
 	# SUBSTEPS = 48
 	dt_sub = dt_frame / SUBSTEPS
 	init_vel = jnp.zeros_like(STATIC_INIT_POS).at[:, 2].set(initial_spike_vel)
 	substep_damping = jnp.exp(jnp.log(damping) * (dt_sub / dt_frame))
 
-	# obstacle_stiffness = 3500
-	# obstacle_stiffness = 5000000
-	# obstacle_stiffness = 500000 ######
+	# obstacle_stiffness = 500000
 	obstacle_stiffness = 500000
-	# obstacle_stiffness = 20000
-	# CONTACT_BAND = 0.02
-	# CONTACT_BAND = 0.06 ####
-	CONTACT_BAND = 0.25
-	# CONTACT_BAND = 0.75
-	shape_coherence_stiffness = 100
-	# shape_coherence_stiffness = 400
-	# shape_coherence_stiffness = 800
+	# CONTACT_BAND = 0.5
+	# CONTACT_BAND = 0.8
+	# CONTACT_BAND = 0.25
+	CONTACT_BAND = 0.1
+	# shape_coherence_stiffness = 500
 	# shape_coherence_stiffness = 1000
-	# shape_coherence_stiffness = 1200
-	# shape_coherence_stiffness = 5000
+	# shape_coherence_stiffness = 100
+	# shape_coherence_stiffness = 15
+	# shape_coherence_stiffness = .01
+	# LOCAL_DAMPING_RATE = 2
 
-	# LOCAL_DAMPING_RATE = .5
-	# LOCAL_DAMPING_RATE = 5
-	# LOCAL_DAMPING_RATE = 1
-	LOCAL_DAMPING_RATE = 2
+	# EDGE_K_SIM = 300.0
+	EDGE_DAMP_RATE = 300.0     # 1/s. The ripple knob: 0 = ringing, higher = calmer, more "gel"
+	edge_a = jnp.minimum(1.0 - jnp.exp(-EDGE_DAMP_RATE * dt_sub), 0.3)   # 0.3 cap keeps it stable
+
+	# LOCAL_DAMPING_RATE = 2
+	# LOCAL_DAMPING_RATE = 20
+	# LOCAL_DAMPING_RATE = 40
+	LOCAL_DAMPING_RATE = 8
+	# LOCAL_DAMPING_RATE = 4000
+	# SPLAT_GAIN = 0.3                 # lateral speed gained, as a fraction of approach speed
+	# SPLAT_GAIN = 1                 # lateral speed gained, as a fraction of approach speed
+	TANGENTIAL_RESISTANCE_RATE = 30  # 1/s, rate-based so the patch can slide outward
+
+	# MIN_HALF_THICKNESS = 0.5
+	# MIN_HALF_THICKNESS = 0.2
+	MIN_HALF_THICKNESS = 0.02
+
+	SPLAT_GAIN = 0.5               # was 1.0 (the splat plus bounce was creating energy)
+	# RIPPLE_SPEED_CAP = 8.0        # max deformation speed (m/s) relative to the rigid motion
+	# RIPPLE_SPEED_CAP = 16.0        # max deformation speed (m/s) relative to the rigid motion
+	RIPPLE_SPEED_CAP = 1000.0        # max deformation speed (m/s) relative to the rigid motion
+	# RIPPLE_SPEED_CAP = 25.0        # max deformation speed (m/s) relative to the rigid motion
+	# RIPPLE_SPEED_CAP = 60.0        # max deformation speed (m/s) relative to the rigid motion
+	# RIPPLE_SPEED_CAP = 120.0        # max deformation speed (m/s) relative to the rigid motion
+
+	# shape_coherence_stiffness = 15 # 15 let the rim fly; raise if the body still tears
+	# shape_coherence_stiffness = 5 # 15 let the rim fly; raise if the body still tears
+	# shape_coherence_stiffness = 1 # 15 let the rim fly; raise if the body still tears
+	shape_coherence_stiffness = 10 # 15 let the rim fly; raise if the body still tears
+	# shape_coherence_stiffness = 40 # 15 let the rim fly; raise if the body still tears
+	# shape_coherence_stiffness = 100 # 15 let the rim fly; raise if the body still tears
+	# shape_coherence_stiffness = 500 # 15 let the rim fly; raise if the body still tears
+
+	VOLUME_FLOW_GAIN = .6    # 0 = off, 1 = fully incompressible flow; raise for a flatter steamroll
+	# VOLUME_FLOW_GAIN = 1    # 0 = off, 1 = fully incompressible flow; raise for a flatter steamroll
+
 
 	initial_state_carry = (STATIC_INIT_POS, init_vel)
 
@@ -693,37 +519,37 @@ def run_simulation_scan_substepped(mu, lam, damping, dt_frame, initial_spike_vel
 		gravity_forces = jnp.zeros_like(vel).at[:, 2].set(gravity)
 		environmental_accel = gravity_forces + drag_forces
 
-		f1 = compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,STATIC_THICKNESS, box1_center, box1_size, box1_rot, box2_center, box2_size, box2_rot, b3_center, b3_size, b3_rot, b4_center, b4_size, b4_rot, .28, 1500, obstacle_stiffness, shape_coherence_stiffness)
+		f1 = compute_forces_jax(pos, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,
+								STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges,
+								.28, 1500, obstacle_stiffness, shape_coherence_stiffness)
 
 		v_mid = vel + (environmental_accel + f1 * substep_damping) * dt1
 		pos_est = pos + v_mid * dt1
 
-		f2 = compute_forces_jax(pos_est, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,STATIC_THICKNESS, box1_center, box1_size, box1_rot, box2_center, box2_size, box2_rot, b3_center, b3_size, b3_rot, b4_center, b4_size, b4_rot, .28, 1500, obstacle_stiffness, shape_coherence_stiffness)
+		f2 = compute_forces_jax(pos_est, mu, lam, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS,
+								STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges,
+								.28, 1500, obstacle_stiffness, shape_coherence_stiffness)
 
 		new_vel = (c_mid * v_mid) - (c_cur * vel) + (f2 * substep_damping) * dt_sub * c_f2 + \
 					environmental_accel * (dt_sub * (1.0 - gamma))
 		next_pos = pos + new_vel * dt_sub
 
-		# --- LOCAL DEFORMATION DAMPING (the fix) ---
-		# Relax velocity toward the best-fit RIGID field only. This is an
-		# unconditionally-stable exponential relaxation (not an explicit spring
-		# force), so it stays stable even at high substep counts / high
-		# effective stiffness — unlike adding more force-based stiffness, which
-		# only raises oscillation frequency. Pure rotation/translation pass
-		# through completely undamped; only the "wave"/flapping component decays.
 		v_rigid_field = compute_rigid_velocity_field(next_pos, new_vel)
 		local_damping_decay = jnp.exp(-LOCAL_DAMPING_RATE * dt_sub)
-		new_vel = v_rigid_field + (new_vel - v_rigid_field) * local_damping_decay
+		# new_vel = v_rigid_field + (new_vel - v_rigid_field) * local_damping_decay
 
-		# --- Contact (unchanged from before) ---
-		sdf_b1, normal_b1 = analytical_box_sdf_and_normal(next_pos, box1_center, box1_size, box1_rot)
-		sdf_b2, normal_b2 = analytical_box_sdf_and_normal(next_pos, box2_center, box2_size, box2_rot)
+		new_vel = new_vel + edge_damping_dv(next_pos, new_vel, edges, edge_a)
 
-		use_box2 = sdf_b2 < sdf_b1
-		active_normal = jnp.where(use_box2[:, None], normal_b2, normal_b1)
-		active_sdf = jnp.where(use_box2, sdf_b2, sdf_b1)
+		next_pos, new_vel = enforce_min_thickness(next_pos, new_vel, STATIC_INIT_POS - STATIC_CENTER,
+												  STATIC_NORMALS, MIN_HALF_THICKNESS)
 
+
+		# --- Contact against ALL boxes ---
+		ROLL_DAMP_RATE = 0.0 # 1/s. Optional: try 2-5 if the wobble persists after the fixes below
+
+		active_sdf, active_normal = all_boxes_sdf_and_normal(next_pos, box_centers, box_sizes, box_rots)
 		w_contact = smooth_contact_weight(active_sdf, band=CONTACT_BAND)[:, None]
+		w = w_contact.squeeze(-1)
 
 		v_dot_n = jnp.sum(new_vel * active_normal, axis=-1, keepdims=True)
 		v_tangent = new_vel - (v_dot_n * active_normal)
@@ -734,68 +560,90 @@ def run_simulation_scan_substepped(mu, lam, damping, dt_frame, initial_spike_vel
 
 		v_tangent_mags = jnp.linalg.norm(v_tangent, axis=-1, keepdims=True)
 		per_particle_mass = object_mass / len(pos)
-
 		stopping_force_mag = (v_tangent_mags * per_particle_mass) / dt_sub
 		friction_mag = jnp.minimum(ft_magnitude_coulomb[:, None], stopping_force_mag)
-
 		safe_dir = v_tangent / jnp.maximum(v_tangent_mags, 1e-5)
-		friction_forces = -safe_dir * friction_mag
-		friction_accel = friction_forces / per_particle_mass
 
-		new_vel_corrected = new_vel + w_contact * friction_accel
+		friction_accel = friction_mag / per_particle_mass
+		dv_friction = jnp.minimum(friction_accel * dt_sub, v_tangent_mags)
+		new_vel_corrected = new_vel - w_contact * safe_dir * dv_friction
 
-		push_out = active_normal * jnp.abs(active_sdf)[:, None] * w_contact
+		# Push out of actual penetration only
+		push_out = active_normal * jnp.maximum(-active_sdf, 0.0)[:, None]
 		next_pos_final = next_pos + push_out
 
+		# Reflection for approaching vertices only
 		v_dot_n_corr = jnp.sum(new_vel_corrected * active_normal, axis=-1, keepdims=True)
-		v_reflected = new_vel_corrected - (1.0 + restitution) * v_dot_n_corr * active_normal
-		lost_momentum_magnitude = jnp.abs(v_dot_n_corr.squeeze(-1)) * (1.0 - restitution)
+		v_in = jnp.minimum(v_dot_n_corr, 0.0)
+		v_reflected = new_vel_corrected - (1.0 + restitution) * v_in * active_normal
+		vel_after = new_vel_corrected + w_contact * (v_reflected - new_vel_corrected)
 
-		center_xy = jnp.mean(next_pos_final[:, :2], axis=0)
-		dir_xy = next_pos_final[:, :2] - center_xy
-		out_dir = dir_xy / jnp.maximum(jnp.linalg.norm(dir_xy, axis=1, keepdims=True), 1e-4)
+		# Lateral splat: in the contact plane, away from the body center, independent of restitution
+		r = next_pos_final - jnp.mean(next_pos_final, axis=0)
+		r_t = r - jnp.sum(r * active_normal, axis=-1, keepdims=True) * active_normal
+		splat_dir = r_t / jnp.maximum(jnp.linalg.norm(r_t, axis=-1, keepdims=True), 1e-4)
+		vel_after = vel_after + w_contact * splat_dir * (-v_in) * SPLAT_GAIN
 
-		w = w_contact.squeeze(-1)
-		new_vel_x = new_vel_corrected[:, 0] + w * (v_reflected[:, 0] - new_vel_corrected[:, 0]) + \
-					w * out_dir[:, 0] * lost_momentum_magnitude * 0.85
-		new_vel_y = new_vel_corrected[:, 1] + w * (v_reflected[:, 1] - new_vel_corrected[:, 1]) + \
-					w * out_dir[:, 1] * lost_momentum_magnitude * 0.85
-		new_vel_z = new_vel_corrected[:, 2] + w * (v_reflected[:, 2] - new_vel_corrected[:, 2])
+		# Resistance: NORMAL component only (keeps the pancake squeeze); tangential decays gently
+		ROLLING_RESISTANCE = 0.3
+		SEPARATING_RESISTANCE_SCALE = 0.0   # normal brake on separating verts: fully off (kills the strings)
+		SEP_TANGENTIAL_SCALE = 0.3          # separating verts keep 30% of tangential damping (keeps splat stable)
 
-		next_vel_precheck = jnp.stack([new_vel_x, new_vel_y, new_vel_z], axis=-1)
+		vn_a = jnp.sum(vel_after * active_normal, axis=-1, keepdims=True)
+		v_n_comp = vn_a * active_normal
+		v_t_comp = vel_after - v_n_comp
 
-		# ROLLING_RESISTANCE = 0.9993
-		# ROLLING_RESISTANCE = 0.5
-		# ROLLING_RESISTANCE = 0.3
-		# ROLLING_RESISTANCE = -0.3
-		ROLLING_RESISTANCE = -1
-		# ROLLING_RESISTANCE = 0.1
-		# ROLLING_RESISTANCE = 0.01
-		resistance_factor = 1.0 - w * (1.0 - ROLLING_RESISTANCE)
-		next_vel = next_vel_precheck * resistance_factor[:, None]
+		sep = (vn_a.squeeze(-1) > 0.0).astype(jnp.float32)
+		w_res = w * (1.0 - sep * (1.0 - SEPARATING_RESISTANCE_SCALE))
+		w_tan = w * (1.0 - sep * (1.0 - SEP_TANGENTIAL_SCALE))
+
+		factor_n = 1.0 - w_res * (1.0 - ROLLING_RESISTANCE)
+		factor_t = jnp.exp(-TANGENTIAL_RESISTANCE_RATE * w_tan * dt_sub)
+
+		next_vel = v_n_comp * factor_n[:, None] + v_t_comp * factor_t[:, None]
+		# next_vel = next_vel * jnp.exp(-ROLL_DAMP_RATE * jnp.mean(w) * dt_sub)
+
+
+		next_vel = next_vel * jnp.exp(-ROLL_DAMP_RATE * jnp.mean(w) * dt_sub)
+
+		# Steamroller: incompressible lateral flow along the contact-plane axis, only while touching
+		n_sum = jnp.sum(w_contact * active_normal, axis=0)
+		n_len = jnp.linalg.norm(n_sum)
+		squash_axis = jax.lax.stop_gradient(
+			jnp.where(n_len > 1e-3, n_sum / jnp.maximum(n_len, 1e-6), jnp.array([0.0, 0.0, 1.0])))
+		contact_frac = jax.lax.stop_gradient(jnp.clip(jnp.sum(w) / (0.02 * pos.shape[0]), 0.0, 1.0))
+		next_vel = volume_flow_projection(next_pos_final, next_vel, squash_axis, VOLUME_FLOW_GAIN * contact_frac)
+
+		# Cap deformation speed (relative to best-fit rigid motion); rigid motion is untouched
+		v_rig = compute_rigid_velocity_field(next_pos_final, next_vel)
+		dv_def = next_vel - v_rig
+		dv_mag = jnp.linalg.norm(dv_def, axis=-1, keepdims=True)
+		next_vel = v_rig + dv_def * jnp.minimum(1.0, RIPPLE_SPEED_CAP / jnp.maximum(dv_mag, 1e-6))
+
+
+
+
+
+
+
+
 
 		return (next_pos_final, next_vel), next_pos_final
 
 	def advance_single_animation_frame(frame_state, _):
 		final_substep_state, _ = jax.lax.scan(single_physics_substep, frame_state, None, length=SUBSTEPS)
-		
+
 		frame_positions, _ = final_substep_state
 		return final_substep_state, frame_positions
 
-	# Run the compiled external tracking loop structure
 	_, trajectory = jax.lax.scan(advance_single_animation_frame, (STATIC_INIT_POS, init_vel), None, length=num_frames)
 	return trajectory
 
+jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(16,))
 
-# jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(12,))
-# jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(18,))
-# jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(21,))
-jit_simulation_engine = jax.jit(run_simulation_scan_substepped, static_argnums=(24,))
-
-vmap_det = jax.vmap(jnp.linalg.det)
-vmap_trace = jax.vmap(lambda mat: jnp.trace(jnp.dot(mat.T, mat)))
-vmap_inv_t = jax.vmap(lambda mat: jnp.linalg.inv(mat + 1e-5 * jnp.eye(3)).T)
-
+# vmap_det = jax.vmap(jnp.linalg.det)
+# vmap_trace = jax.vmap(lambda mat: jnp.trace(jnp.dot(mat.T, mat)))
+# vmap_inv_t = jax.vmap(lambda mat: jnp.linalg.inv(mat + 1e-5 * jnp.eye(3)).T)
 
 # 1. Define a custom callback class to track progress
 class PercentageCallback:
@@ -3541,6 +3389,1500 @@ class myEquation_dFEM:
 		bpy.context.scene.frame_end = num_frames
 
 
+	def bounce_diff_05(self, abj_sd_b_instance):
+		# bpy.context.scene.render.engine = 'CYCLES'
+		bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+		
+		bpy.context.scene.cycles.device = 'GPU'
+
+		bpy.context.scene.cycles.samples = 64
+		bpy.context.scene.cycles.denoising_use_gpu = True
+
+		# ==============================================================================
+		# 1. SCENE CLEANUP & BLENDER ENVIRONMENT LAYOUT SETUP
+		# ==============================================================================
+		print("Initializing unified JAX Unified Bounce-and-Crush Continuum Engine...")
+
+		for name in ["Rubber_Ball", "Voxel_Collision_Cube"]:
+			if name in bpy.data.objects:
+				bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+
+		# SPHERE_RES = 8  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 16  # High resolution captures both fluid ripples and flat cushion folds
+		SPHERE_RES = 32  # High resolution captures both fluid ripples and flat cushion folds ### !!!!!!!
+		# SPHERE_RES = 40  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 48  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 64  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 100  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 128  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 256  # High resolution captures both fluid ripples and flat cushion folds
+
+		# Spawn target sphere at Z = 7.5
+		# bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=SPHERE_RES, ring_count=SPHERE_RES)
+		bpy.ops.mesh.primitive_ico_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), subdivisions=4)
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=1.8, location=(0.0, 0.0, 0), subdivisions=4)
+		# bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 7.5), size=6)
+
+		ball_obj = bpy.context.active_object
+		ball_obj.name = "Rubber_Ball"
+
+		ball_obj.shape_key_add(name="Basis", from_mix=False)
+		bpy.ops.object.shade_smooth()
+
+		ball_obj = bpy.context.active_object
+
+		# return
+
+		gaborToPts = 0
+		# gaborToPts = 1
+
+		# if gaborToPts == 1:
+		# 	self.bakeShaderToPts(ball_obj) ######
+
+		mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		ball_obj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		if gaborToPts != 1:
+			gabor_node = nodes.new(type='ShaderNodeTexGabor')
+			displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+			mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+			mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+			# displacement_node.inputs[2].default_value = 0.3
+			displacement_node.inputs[2].default_value = 0.5
+
+			# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+			gabor_node.gabor_type = '3D'
+
+			# checkerNode = nodes.new(type='ShaderNodeTexChecker')
+			# principledNode = nodes.get("Principled BSDF")
+			# mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+			# checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		######## CUBE FLOOR ###########
+		######## CUBE FLOOR ###########
+		######## CUBE FLOOR ###########
+
+		# Spawn Cube Ground Floor Object
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, 1.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -20))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -15))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -30))
+
+
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=6, location=(0.0, 0.0, 7.5), subdivisions=4)
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=48, location=(0.0, 0.0, -75.5), subdivisions=4)
+
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -40))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(15.0, 0.0, -40))
+		cube_floor = bpy.context.active_object
+		cube_floor.name = "Voxel_Collision_Cube"
+		cube_floor.scale = (1200.0, 1200.0, 1.0)
+		cube_floor.rotation_euler = (0.0, 0.45, 0.0)
+
+		# cube_floor = bpy.context.active_object
+
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_grd", "principled", .2, 0, 0)
+		cube_floor.data.materials.clear()
+		cube_floor.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		cube_floor.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_grd")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+
+
+
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+
+
+
+
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		##########  MID OBSTACLE ##############
+		##########  MID OBSTACLE ##############
+		##########  MID OBSTACLE ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(10, 0.0, -60)) #####s
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle = bpy.context.active_object
+		mid_obstacle.name = "Mid_Air_Obstacle"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+		# mid_obstacle.rotation_euler = (0.65, -0.45, 0) #####
+		mid_obstacle.rotation_euler = (0.65, -0.45, -45)
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle.scale = (600, 600, 1)
+
+		#mid_obstacle
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid", "principled", 0, 0, 1)
+		mid_obstacle.data.materials.clear()
+		mid_obstacle.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+
+		##########  MID OBSTACLE 2 ##############
+		##########  MID OBSTACLE 2 ##############
+		##########  MID OBSTACLE 2 ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -10)) #####s
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle2 = bpy.context.active_object
+		mid_obstacle2.name = "Mid_Air_Obstacle_2"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+		mid_obstacle2.rotation_euler = (0.65, 0.45, -90)
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle2.scale = (10, 10, 1)
+
+		# return
+
+		#mid_obstacle 2
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid2", "principled", 0, 0, 1)
+		mid_obstacle.data.materials.clear()
+		mid_obstacle.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid2")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+		
+
+		##########  MID OBSTACLE 3 ##############
+		##########  MID OBSTACLE 3 ##############
+		##########  MID OBSTACLE 3 ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -20)) #####s
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle3 = bpy.context.active_object
+		mid_obstacle3.name = "Mid_Air_Obstacle_3"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+		# mid_obstacle3.rotation_euler = (0.65, 0.25, -0.28)
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle3.scale = (1000, 1000, 1)
+
+		#mid_obstacle
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid3", "principled", 0, 0, 1)
+		mid_obstacle3.data.materials.clear()
+		mid_obstacle3.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle3.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid3")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+
+		# return
+		
+		###########
+		# WORLD
+		###########
+
+		world = bpy.context.scene.world
+		worldtree = world.node_tree
+		worldtree.nodes.clear()
+
+		# output_node_world = next((n for n in worldtree.nodes if n.type == 'ShaderNodeOutputWorld'), None)
+		# if not output_node:
+		# 	output_node_world = worldtree.nodes.new(type='ShaderNodeOutputWorld')
+
+		# output_node = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		# bg_node = worldtree.nodes.new(type="ShaderNodeBackground")
+
+		# output_node_world = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		output_node_world = worldtree.nodes.new('ShaderNodeOutputWorld')
+
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		node_sky = worldtree.nodes.new('ShaderNodeTexSky')
+		worldtree.links.new(node_sky.outputs["Color"], output_node_world.inputs["Surface"])
+
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_size = 0.372541
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_intensity = 21.3
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_rotation = -1.57603
+		# node_sky.sun_size = 0.372541
+		# node_sky.sun_intensity = 21.3
+		node_sky.sun_rotation = 1.65806
+		node_sky.sun_elevation = .05
+
+		abj_sd_b_instance.autoArrangeNodes(worldtree)
+
+		bpy.context.view_layer.update()
+
+		abj_sd_b_instance.agxColorSettings_UI()
+
+		# return
+
+		bpy.context.evaluated_depsgraph_get().update()
+
+		def get_jax_transforms(obj):
+			mw = obj.matrix_world
+			center = jnp.array(mw.to_translation())
+			size = jnp.array(obj.dimensions)
+			r3 = mw.to_3x3().normalized()
+			rot_matrix = jnp.array([[r3[0][0], r3[0][1], r3[0][2]],
+									[r3[1][0], r3[1][1], r3[1][2]],
+									[r3[2][0], r3[2][1], r3[2][2]]])
+			return center, size, rot_matrix
+
+
+		box_centers, box_sizes, box_rots = stack_boxes([
+			get_jax_transforms(cube_floor),
+			get_jax_transforms(mid_obstacle),
+			get_jax_transforms(mid_obstacle2),
+			get_jax_transforms(mid_obstacle3)])
+
+		# ==============================================================================
+		# 2. EXTRACT SCENE GEOMETRY TO GLOBAL SCOPE ARRAYS
+		# ==============================================================================
+		mesh = ball_obj.data
+		num_verts = len(mesh.vertices)
+		orig_coords = np.zeros((num_verts, 3))
+		mesh.vertices.foreach_get("co", orig_coords.ravel())
+
+		# Triangle indices for the volume-preservation term (ico sphere = all triangles)
+		faces_numpy = np.array([list(p.vertices) for p in mesh.polygons], dtype=np.int32)
+		STATIC_FACES = jnp.array(faces_numpy)
+
+		sphere_tracker = np.copy(orig_coords)
+		sphere_tracker[:, 2] += 7.5
+
+		ref_normals_numpy = np.zeros((num_verts, 3))
+		for v in mesh.vertices:
+			ref_normals_numpy[v.index] = np.array(v.normal)
+
+		min_init_z = np.min(orig_coords[:, 2])
+		vertex_thickness_numpy = (orig_coords[:, 2] - min_init_z) * 0.14
+
+		STATIC_INIT_POS = jnp.array(sphere_tracker)
+		STATIC_CENTER = jnp.mean(STATIC_INIT_POS, axis=0)
+		STATIC_NORMALS = jnp.array(ref_normals_numpy)
+		STATIC_THICKNESS = jnp.array(vertex_thickness_numpy)
+
+		num_frames = 1600
+
+		MU_VAL = 550.0
+		LAM_VAL = 3000.0
+		DAMPING_VAL = 0.995
+		DT_VAL = 0.008
+		INITIAL_SPIKE_VELOCITY = -30
+		# RESTITUTION_VAL = .87
+		RESTITUTION_VAL = .5
+		OBJECT_MASS_VAL = 300.0
+		DRAG_COEFFICIENT_VAL = .05
+		TARGET_FRAME = 100
+		TARGET_HEIGHT = 12.5
+
+		final_trajectory_matrix = jit_simulation_engine(
+			MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL,
+			OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+			STATIC_NORMALS, STATIC_THICKNESS, STATIC_FACES,
+			box_centers, box_sizes, box_rots, num_frames)
+
+		'''
+
+		b1_center, b1_size, b1_rot = get_jax_transforms(cube_floor)
+		b2_center, b2_size, b2_rot = get_jax_transforms(mid_obstacle)
+		b3_center, b3_size, b3_rot = get_jax_transforms(mid_obstacle2)
+		b4_center, b4_size, b4_rot = get_jax_transforms(mid_obstacle3)
+
+		# ==============================================================================
+		# 2. EXTRACT SCENE GEOMETRY TO GLOBAL SCOPE ARRAYS
+		# ==============================================================================
+		mesh = ball_obj.data
+		num_verts = len(mesh.vertices)
+		orig_coords = np.zeros((num_verts, 3))
+		mesh.vertices.foreach_get("co", orig_coords.ravel())
+
+		# Baseline world coordinates tracking matrix
+		sphere_tracker = np.copy(orig_coords)
+		sphere_tracker[:, 2] += 7.5  
+
+		# Extract reference normal direction vectors
+		ref_normals_numpy = np.zeros((num_verts, 3))
+		for v in mesh.vertices:
+			ref_normals_numpy[v.index] = np.array(v.normal)
+
+		# Precompute thickness profile cushion (14% of initial relative height profile)
+		min_init_z = np.min(orig_coords[:, 2])
+		vertex_thickness_numpy = (orig_coords[:, 2] - min_init_z) * 0.14  
+
+		# --- GLOBAL SCOPE JAX ARRAYS ---
+		# By assigning these to the global module scope, the JAX functions can read them
+		# directly via closure. They are never passed through scan, so they CANNOT flatten or swap!
+
+		STATIC_INIT_POS = jnp.array(sphere_tracker)
+		STATIC_CENTER = jnp.mean(STATIC_INIT_POS, axis=0) # Pristine Frame 1 rest center
+		STATIC_NORMALS = jnp.array(ref_normals_numpy)
+		STATIC_THICKNESS = jnp.array(vertex_thickness_numpy)
+
+
+		# ==============================================================================
+		# 4. EXPLICIT AUTOMATED INDIVIDUAL-ARGUMENT BACKPROPAGATION GRADIENT DESCENT LOOP
+		# ==============================================================================
+
+		# --- FIXED: WEIGHT PROFILE EXPERIMENT SWITCHBOARD ---
+		# Test Case 1: Heavy Lead Brick -> Mass = 50.0, Drag = 0.15 (Slams down hard, bounces high)
+		# Test Case 2: Light Feather Cushion -> Mass = 0.8, Drag = 1.85 (Floats down slowly, stays soft)
+		# OBJECT_MASS_VAL = 45.0          
+		# DRAG_COEFFICIENT_VAL = 0.25   
+
+
+		# num_frames = 600
+		# num_frames = 1200
+		num_frames = 1600
+		# num_frames = 2000
+		# num_frames = 300
+		# num_frames = 300
+
+
+
+	
+
+		##########
+		### SPHERE GOOD
+		##########
+		MU_VAL = 550.0
+		LAM_VAL = 3000.0
+		DAMPING_VAL = 0.995
+		DT_VAL = 0.008
+		INITIAL_SPIKE_VELOCITY = -30
+		RESTITUTION_VAL = .87
+		OBJECT_MASS_VAL = 300.0
+		DRAG_COEFFICIENT_VAL = .05
+
+		TARGET_FRAME = 100
+		TARGET_HEIGHT = 12.5
+		'''
+
+		'''
+		loss_fn = jax.jit(lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT))
+
+		# Target index slots securely: 0=mu, 1=lam, 2=damping, 4=velocity, 6=mass
+		grad_fn = jax.jit(jax.grad(
+			lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT),
+			argnums=(0, 1, 2, 4, 6)
+		))
+
+
+		print(f"\n[JAX Optimizer] Launching local manual-argument gradient search trajectory tracking...")
+
+		lr_stiffness = 2.5    
+		# lr_damping = 4e-4 ##
+		# lr_damping = 2
+		lr_damping = .1
+		# lr_velocity = 4e-1    
+		lr_velocity = 10 
+		# lr_mass = 0.5         # Gradient search rate for weight scale optimization
+		lr_mass = .5         # Gradient search rate for weight scale optimization
+		# num_steps = 20
+		# num_steps = 10
+		# num_steps = 5
+		num_steps = 2
+
+
+		for iteration in range(num_steps):
+			continue
+
+			current_loss = loss_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			raw_grads = grad_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			
+			grad_mu, grad_lam, grad_damp, grad_vel, grad_mass = raw_grads
+			
+			# FIXED: True Sign Fallback. If gradients hit a zero plateau, we use a constant 
+			# directional sign push to dynamically kick the parameter out of the flat zone
+			step_mu   = jnp.sign(grad_mu) * lr_stiffness if jnp.abs(grad_mu) > 1e-5 else jnp.sign(MU_VAL - 450.0) * lr_stiffness
+			step_lam  = jnp.sign(grad_lam) * lr_stiffness if jnp.abs(grad_lam) > 1e-5 else jnp.sign(LAM_VAL - 3500.0) * lr_stiffness
+			step_damp = grad_damp * lr_damping if jnp.abs(grad_damp) > 1e-5 else (DAMPING_VAL - 0.94) * lr_damping
+			
+			# Track velocity derivatives out of dead zones smoothly
+			step_vel  = jnp.sign(grad_vel) * lr_velocity if jnp.abs(grad_vel) > 1e-5 else -1.5 * lr_velocity
+			step_mass = jnp.sign(grad_mass) * lr_mass      if jnp.abs(grad_mass) > 1e-5 else grad_mass * 2
+			
+			# Apply individual unrolled updates smoothly
+			MU_VAL                 = float(jnp.clip(MU_VAL + step_mu, 200.0, 5000.0))
+			LAM_VAL                = float(jnp.clip(LAM_VAL + step_lam, 1000.0, 15000.0))
+			DAMPING_VAL            = float(jnp.clip(DAMPING_VAL - step_damp, 0.98, 0.994))
+			OBJECT_MASS_VAL        = float(jnp.clip(OBJECT_MASS_VAL + step_mass, 0.1, 200.0)) # Clip weight to valid ranges
+			
+			# FIXED: Expanded the clipping boundary ceiling completely to support -120.0 m/s
+			# INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY - step_vel, -120.0, -10.0))
+			INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY + step_vel, -120.0, -10.0))
+			
+			print(f"  Step {iteration+1:02d} -> Loss: {current_loss:.4f} | Mass Weight: {OBJECT_MASS_VAL:.2f} kg | Spike Vel: {INITIAL_SPIKE_VELOCITY:.2f} m/s | Mu: {MU_VAL:.1f} | Lam: {LAM_VAL:.1f} | Damping: {DAMPING_VAL:.4f} Dt: {DT_VAL:.4f}")
+			
+		print("\n[JAX Engine] Optimization target achieved! Pulling verified trajectory memory buffer...")
+
+		'''
+
+		# num_frames = 600
+		
+		
+		# final_trajectory_matrix = jit_simulation_engine(
+		# 	MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames
+		# )
+
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL,OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, num_frames)
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, b3_center, b3_size, b3_rot, num_frames)
+		
+		
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, b3_center, b3_size, b3_rot, b4_center, b4_size, b4_rot, num_frames) #OLD 24 (0 base)
+
+		baked_frames_positions = np.array(final_trajectory_matrix)
+		depsgraph = bpy.context.evaluated_depsgraph_get()
+
+		print("[Blender Pipeline] Writing exact JAX position memory to timeline Shape Keys...")
+
+		for idx, frame in enumerate(range(1, num_frames + 1)):
+			print('frame_idx = ', idx)
+			bpy.context.scene.frame_set(frame)
+			
+			frame_coords = baked_frames_positions[frame - 1]
+			baked_local_coords = np.copy(frame_coords)
+			baked_local_coords[:, 2] -= 7.5
+			
+			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
+			skey.data.foreach_set("co", baked_local_coords.ravel())
+			
+			skey.value = 1.0
+			skey.keyframe_insert(data_path="value", frame=frame)
+			if frame > 1:
+				skey.value = 0.0
+				skey.keyframe_insert(data_path="value", frame=frame - 1)
+				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
+				prev_key.value = 0.0
+				prev_key.keyframe_insert(data_path="value", frame=frame)
+				
+			depsgraph.update()
+
+		bpy.context.scene.frame_set(1)
+		print("\n[Bake Finished] Unified engine execution completed successfully! Press Spacebar.")
+
+		# bpy.context.scene.render.fps = 240
+		bpy.context.scene.render.fps = 120
+		# bpy.context.scene.render.fps = 120 * 4
+		bpy.context.scene.frame_end = num_frames
+
+		
+
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						# space.shading.type = 'MATERIAL'
+						space.shading.type = 'RENDERED'
+
+						# bpy.context.space_data.shading.type = 'RENDERED'
+
+
+	def bounce_diff_06(self, abj_sd_b_instance):
+		# bpy.context.scene.render.engine = 'CYCLES'
+		bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+		
+		bpy.context.scene.cycles.device = 'GPU'
+
+		bpy.context.scene.cycles.samples = 64
+		bpy.context.scene.cycles.denoising_use_gpu = True
+
+		# ==============================================================================
+		# 1. SCENE CLEANUP & BLENDER ENVIRONMENT LAYOUT SETUP
+		# ==============================================================================
+		print("Initializing unified JAX Unified Bounce-and-Crush Continuum Engine...")
+
+		for name in ["Rubber_Ball", "Voxel_Collision_Cube"]:
+			if name in bpy.data.objects:
+				bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+
+		# SPHERE_RES = 8  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 16  # High resolution captures both fluid ripples and flat cushion folds
+		SPHERE_RES = 32  # High resolution captures both fluid ripples and flat cushion folds ### !!!!!!!
+		# SPHERE_RES = 40  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 48  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 64  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 100  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 128  # High resolution captures both fluid ripples and flat cushion folds
+		# SPHERE_RES = 256  # High resolution captures both fluid ripples and flat cushion folds
+
+		# Spawn target sphere at Z = 7.5
+		# bpy.ops.mesh.primitive_uv_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), segments=SPHERE_RES, ring_count=SPHERE_RES)
+		bpy.ops.mesh.primitive_ico_sphere_add(radius=1.8, location=(0.0, 0.0, 7.5), subdivisions=4)
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=1.8, location=(0.0, 0.0, 0), subdivisions=4)
+		# bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 7.5), size=6)
+
+		ball_obj = bpy.context.active_object
+		ball_obj.name = "Rubber_Ball"
+
+		ball_obj.shape_key_add(name="Basis", from_mix=False)
+		bpy.ops.object.shade_smooth()
+
+		ball_obj = bpy.context.active_object
+
+		# return
+
+		gaborToPts = 0
+		# gaborToPts = 1
+
+		# if gaborToPts == 1:
+		# 	self.bakeShaderToPts(ball_obj) ######
+
+		mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", 1, 0, 0)
+		bpy.context.active_object.data.materials.clear()
+		bpy.context.active_object.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		ball_obj.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		if gaborToPts != 1:
+			gabor_node = nodes.new(type='ShaderNodeTexGabor')
+			displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+			mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+			mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+			# displacement_node.inputs[2].default_value = 0.3
+			displacement_node.inputs[2].default_value = 0.5
+
+			# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+			gabor_node.gabor_type = '3D'
+
+			# checkerNode = nodes.new(type='ShaderNodeTexChecker')
+			# principledNode = nodes.get("Principled BSDF")
+			# mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+			# checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		######## CUBE FLOOR ###########
+		######## CUBE FLOOR ###########
+		######## CUBE FLOOR ###########
+
+		# Spawn Cube Ground Floor Object
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, 1.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -20))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -15))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -30))
+
+
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=6, location=(0.0, 0.0, 7.5), subdivisions=4)
+		# bpy.ops.mesh.primitive_ico_sphere_add(radius=48, location=(0.0, 0.0, -75.5), subdivisions=4)
+
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -40))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(15.0, 0.0, -40))
+		cube_floor = bpy.context.active_object
+		cube_floor.name = "Voxel_Collision_Cube"
+		cube_floor.scale = (1200.0, 1200.0, 1.0)
+		cube_floor.rotation_euler = (0.0, 0.45, 0.0)
+
+		# cube_floor = bpy.context.active_object
+
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_grd", "principled", .2, 0, 0)
+		cube_floor.data.materials.clear()
+		cube_floor.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_grd"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		cube_floor.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_grd")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+
+
+
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+
+
+
+
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		##########  MID OBSTACLE ##############
+		##########  MID OBSTACLE ##############
+		##########  MID OBSTACLE ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(10, 0.0, -60)) #####s
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle = bpy.context.active_object
+		mid_obstacle.name = "Mid_Air_Obstacle"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+		# mid_obstacle.rotation_euler = (0.65, -0.45, 0) #####
+		mid_obstacle.rotation_euler = (0.65, -0.45, -45)
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle.scale = (600, 600, 1)
+
+		#mid_obstacle
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid", "principled", 0, 0, 1)
+		mid_obstacle.data.materials.clear()
+		mid_obstacle.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+
+		##########  MID OBSTACLE 2 ##############
+		##########  MID OBSTACLE 2 - ACTUAL MID COLLIDER ##############
+		##########  MID OBSTACLE 2 ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -10)) #####
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -13.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle2 = bpy.context.active_object
+		mid_obstacle2.name = "Mid_Air_Obstacle_2"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+
+
+
+		mid_obstacle2.rotation_euler = (0.65, 0.45, -90) ### !!!!!!!! ####
+
+
+
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle2.scale = (10, 10, 1) #####################
+		# mid_obstacle2.scale = (20, 20, 1)
+		# mid_obstacle2.scale = (40, 40, 8) ### !!!!!
+		# mid_obstacle2.scale = (40, 40, 1)
+
+		# return
+
+		#mid_obstacle 2
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid2", "principled", 0, 0, 1)
+		mid_obstacle.data.materials.clear()
+		mid_obstacle.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid2"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid2")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+		
+
+		##########  MID OBSTACLE 3 ##############
+		##########  MID OBSTACLE 3 ##############
+		##########  MID OBSTACLE 3 ##############
+
+		# Spawn Second Mid-Air Intercepting Cube Obstacle
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 4.5))
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, 2.75))
+		bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -20)) #####s
+		# bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.5, 0.0, -100))  
+		mid_obstacle3 = bpy.context.active_object
+		mid_obstacle3.name = "Mid_Air_Obstacle_3"
+		# mid_obstacle.rotation_euler = (0.45, 0.25, 0.78)
+		# mid_obstacle3.rotation_euler = (0.65, 0.25, -0.28)
+		# mid_obstacle.scale = (2.0, 2.0, 1.5)
+		# mid_obstacle.scale = (.5, .5, .5)
+		# mid_obstacle.scale = (1, 1, 1)
+		# mid_obstacle.scale = (.5, 2, .5)
+		# mid_obstacle.scale = (2, .5, .5)
+		# mid_obstacle.scale = (30, 30, 1)
+		mid_obstacle3.scale = (1000, 1000, 1)
+
+		#mid_obstacle
+		
+		# mat1 = abj_sd_b_instance.newShader("principled_test_00", "principled", .5, .5, .5)
+		mat1 = abj_sd_b_instance.newShader("principled_test_00_mid3", "principled", 0, 0, 1)
+		mid_obstacle3.data.materials.clear()
+		mid_obstacle3.data.materials.append(mat1)
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[1].default_value = 1
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[2].default_value = 0.323263
+		bpy.data.materials["principled_test_00_mid3"].node_tree.nodes["Principled BSDF"].inputs[20].default_value = 1
+		mid_obstacle3.active_material.displacement_method = 'BOTH'
+
+		mat = bpy.data.materials.get("principled_test_00_mid3")
+		nodes = mat.node_tree.nodes
+
+		nodes = mat.node_tree.nodes
+
+		checkerNode = nodes.new(type='ShaderNodeTexChecker')
+		principledNode = nodes.get("Principled BSDF")
+		mat.node_tree.links.new(checkerNode.outputs['Color'], principledNode.inputs['Base Color'])
+		checkerNode.inputs[2].default_value = (0, 0, 0, 1)
+		# bpy.data.materials["principled_test_grd"].node_tree.nodes["Checker Texture"].inputs[3].default_value = 10
+		checkerNode.inputs[3].default_value = 100
+
+		output_node = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+		if not output_node:
+			output_node = nodes.new(type='ShaderNodeOutputMaterial')
+
+		# if gaborToPts != 1:
+		# 	gabor_node = nodes.new(type='ShaderNodeTexGabor')
+		# 	displacement_node = nodes.new(type='ShaderNodeDisplacement')
+
+		# 	mat.node_tree.links.new(gabor_node.outputs['Value'], displacement_node.inputs['Height'])
+		# 	mat.node_tree.links.new(displacement_node.outputs['Displacement'], output_node.inputs['Displacement'])
+		# 	# displacement_node.inputs[2].default_value = 0.3
+		# 	displacement_node.inputs[2].default_value = 0.5
+
+		# 	# bpy.data.materials["principled_test_00"].node_tree.nodes["Gabor Texture"].gabor_type = '3D'
+		# 	gabor_node.gabor_type = '3D'
+
+		abj_sd_b_instance.autoArrangeNodes(mat.node_tree)
+
+		# return
+
+		# return
+		
+		###########
+		# WORLD
+		###########
+
+		world = bpy.context.scene.world
+		worldtree = world.node_tree
+		worldtree.nodes.clear()
+
+		# output_node_world = next((n for n in worldtree.nodes if n.type == 'ShaderNodeOutputWorld'), None)
+		# if not output_node:
+		# 	output_node_world = worldtree.nodes.new(type='ShaderNodeOutputWorld')
+
+		# output_node = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		# bg_node = worldtree.nodes.new(type="ShaderNodeBackground")
+
+		# output_node_world = worldtree.nodes.new(type="ShaderNodeOutputWorld")
+		output_node_world = worldtree.nodes.new('ShaderNodeOutputWorld')
+
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		# node_sky = bpy.ops.node.add_node(use_transform=True, type="ShaderNodeTexSky")
+		node_sky = worldtree.nodes.new('ShaderNodeTexSky')
+		worldtree.links.new(node_sky.outputs["Color"], output_node_world.inputs["Surface"])
+
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_size = 0.372541
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_intensity = 21.3
+		# bpy.data.worlds["World"].node_tree.nodes["Sky Texture"].sun_rotation = -1.57603
+		# node_sky.sun_size = 0.372541
+		# node_sky.sun_intensity = 21.3
+		node_sky.sun_rotation = 1.65806
+		node_sky.sun_elevation = .05
+
+		abj_sd_b_instance.autoArrangeNodes(worldtree)
+
+		bpy.context.view_layer.update()
+
+		abj_sd_b_instance.agxColorSettings_UI()
+
+		# return
+
+		bpy.context.evaluated_depsgraph_get().update()
+
+		def get_jax_transforms(obj):
+			mw = obj.matrix_world
+			center = jnp.array(mw.to_translation())
+			size = jnp.array(obj.dimensions)
+			r3 = mw.to_3x3().normalized()
+			rot_matrix = jnp.array([[r3[0][0], r3[0][1], r3[0][2]],
+									[r3[1][0], r3[1][1], r3[1][2]],
+									[r3[2][0], r3[2][1], r3[2][2]]])
+			return center, size, rot_matrix
+
+
+		box_centers, box_sizes, box_rots = stack_boxes([
+			get_jax_transforms(cube_floor),
+			get_jax_transforms(mid_obstacle),
+			get_jax_transforms(mid_obstacle2),
+			get_jax_transforms(mid_obstacle3)])
+
+		# ==============================================================================
+		# 2. EXTRACT SCENE GEOMETRY TO GLOBAL SCOPE ARRAYS
+		# ==============================================================================
+		mesh = ball_obj.data
+		num_verts = len(mesh.vertices)
+		orig_coords = np.zeros((num_verts, 3))
+		mesh.vertices.foreach_get("co", orig_coords.ravel())
+
+		# Triangle indices for the volume-preservation term (ico sphere = all triangles)
+		faces_numpy = np.array([list(p.vertices) for p in mesh.polygons], dtype=np.int32)
+		STATIC_FACES = jnp.array(faces_numpy)
+
+		sphere_tracker = np.copy(orig_coords)
+		sphere_tracker[:, 2] += 7.5
+
+		ref_normals_numpy = np.zeros((num_verts, 3))
+		for v in mesh.vertices:
+			ref_normals_numpy[v.index] = np.array(v.normal)
+
+		min_init_z = np.min(orig_coords[:, 2])
+		vertex_thickness_numpy = (orig_coords[:, 2] - min_init_z) * 0.14
+
+		STATIC_INIT_POS = jnp.array(sphere_tracker)
+		STATIC_CENTER = jnp.mean(STATIC_INIT_POS, axis=0)
+		STATIC_NORMALS = jnp.array(ref_normals_numpy)
+		STATIC_THICKNESS = jnp.array(vertex_thickness_numpy)
+
+		# num_frames = 1600
+		# num_frames = 2200
+		num_frames = 300
+		# num_frames = 200
+		# num_frames = 4000
+
+		MU_VAL = 550.0
+		LAM_VAL = 3000.0
+		DAMPING_VAL = 0.995
+		# DAMPING_VAL = 0.99
+		# DAMPING_VAL = 0.97
+		# DAMPING_VAL = 0.95
+		DT_VAL = 0.008
+		INITIAL_SPIKE_VELOCITY = -30
+		# INITIAL_SPIKE_VELOCITY = -60
+		RESTITUTION_VAL = .9
+		# RESTITUTION_VAL = .87
+		# RESTITUTION_VAL = .7
+		# RESTITUTION_VAL = .5
+		# RESTITUTION_VAL = .1
+		# RESTITUTION_VAL = .95
+		OBJECT_MASS_VAL = 300.0
+		DRAG_COEFFICIENT_VAL = .05
+		TARGET_FRAME = 100
+		TARGET_HEIGHT = 12.5
+
+		# return
+		faces_np = np.array([list(p.vertices) for p in ball_obj.data.polygons])
+		edges = build_edges(faces_np, np.array(STATIC_INIT_POS))
+
+		final_trajectory_matrix = jit_simulation_engine(
+			MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL,
+			OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+			STATIC_NORMALS, STATIC_THICKNESS,
+			box_centers, box_sizes, box_rots, edges, num_frames)
+
+		
+
+
+		# return
+
+		##check inverted faces
+		# print('CHECK INVERTED FACES')
+		# mesh = ball_obj.data
+		# F = np.array([list(p.vertices) for p in mesh.polygons])
+		# traj = np.array(final_trajectory_matrix)
+		# bad = []
+
+		# for f in range(0, traj.shape[0], 10):
+		# 	P = traj[f]; a, b, c = P[F[:,0]], P[F[:,1]], P[F[:,2]]
+		# 	nrm = np.cross(b - a, c - a); ctr = (a + b + c) / 3 - P.mean(axis=0)
+		# 	bad.append(float((np.sum(nrm * ctr, axis=1) < 0).mean()))
+
+		# print("max fraction of inverted faces:", max(bad))
+
+		# ##check flatness ratio
+		# print('FLATNESS RATIO')
+		# fl = np.array(final_trajectory_matrix)
+		# # for f in range(2000, fl.shape[0], 100):
+		# # for f in range(0, fl.shape[0], 100):
+		# for f in range(0, 100, 4):
+		# 	s, _ = all_boxes_sdf_and_normal(jnp.array(fl[f]), box_centers, box_sizes, box_rots)
+		# 	print(f, "min_sdf=%.3f" % float(s.min()), "com=", np.round(fl[f].mean(axis=0), 2))
+
+
+		# print('FOOTPRINT')
+		# fl = np.array(final_trajectory_matrix)
+		# # for f in range(30, 70, 2):
+		# for f in range(25, 135, 2):
+		# 	P = fl[f]
+		# 	s, _ = all_boxes_sdf_and_normal(jnp.array(P), box_centers, box_sizes, box_rots)
+		# 	touch = np.array(s) < 0.1
+		# 	rad = np.linalg.norm(P[touch][:, :2] - P[:, :2].mean(0), axis=1).max() if touch.any() else 0.0
+		# 	print(f, "footprint_radius=%.2f" % rad, "height=%.2f" % (P[:, 2].max() - P[:, 2].min()))
+
+
+		# print('stuck verts')
+		# fl = np.array(final_trajectory_matrix)
+		# for f in range(44, 80, 2):
+		# 	P = fl[f]
+		# 	s, _ = all_boxes_sdf_and_normal(jnp.array(P), box_centers, box_sizes, box_rots)
+		# 	touching = int((np.array(s) < 0.1).sum())
+		# 	print(f, "touching=%d" % touching, "com_height=%.2f" % (P[:, 2].mean() - (-9.5)),
+		# 		"max_dist_from_com=%.2f" % np.linalg.norm(P - P.mean(0), axis=1).max())
+
+
+
+
+
+
+		# print('steamroll TOP ABOVE FLOOR check 0000000000')
+		# fl = np.array(final_trajectory_matrix)
+		# for f in range(28, 60, 2):
+		# 	P = fl[f]
+		# 	s, _ = all_boxes_sdf_and_normal(jnp.array(P), box_centers, box_sizes, box_rots)
+		# 	touch = np.array(s) < 0.1
+		# 	rad = np.linalg.norm(P[touch][:, :2] - P[:, :2].mean(0), axis=1).max() if touch.any() else 0.0
+		# 	print(f, "footprint=%.2f" % rad, "height=%.2f" % (P[:, 2].max() - P[:, 2].min()),
+		# 		"top_above_floor=%.2f" % (P[:, 2].max() + 9.5))
+
+
+		# print('variable velocity check 1111111111 !!!!')
+		# # num_frames = 100
+
+		# faces_np = np.array([list(p.vertices) for p in ball_obj.data.polygons])
+		# rest_c = STATIC_INIT_POS - STATIC_CENTER
+
+		# def shape_err(P):
+		# 	R, c = compute_best_fit_rotation(jnp.array(P), rest_c)
+		# 	return float(jnp.sqrt(jnp.mean(jnp.sum((jnp.array(P) - c - rest_c @ R.T) ** 2, axis=1))))
+
+		# def inv_frac(P):
+		# 	a, b, c = P[faces_np[:, 0]], P[faces_np[:, 1]], P[faces_np[:, 2]]
+		# 	nrm = np.cross(b - a, c - a)
+		# 	ctr = (a + b + c) / 3 - P.mean(axis=0)
+		# 	return float((np.sum(nrm * ctr, axis=1) < 0).mean())
+
+
+		# for v0 in [-20, -30, -45, -60]:
+		# 	tr = np.array(jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, v0, RESTITUTION_VAL,
+		# 			OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+		# 			STATIC_NORMALS, STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges, num_frames))
+		# 	errs = [shape_err(tr[f]) for f in range(0, num_frames, 5)]
+		# 	inv = max(inv_frac(tr[f]) for f in range(0, num_frames, 5))
+		# 	i_peak = int(np.argmax(errs))
+		# 	print("v0=%d peak_err=%.2f (frame %d) err_after_30f=%.2f err_after_60f=%.2f max_inverted=%.3f max_span=%.1f" % (
+		# 		v0, errs[i_peak], i_peak * 5,
+		# 		errs[min(i_peak + 6, len(errs) - 1)], errs[min(i_peak + 12, len(errs) - 1)],
+		# 		inv, max(np.linalg.norm(tr[f] - tr[f].mean(0), axis=1).max() for f in range(0, num_frames, 5))))
+
+		# far = box_centers + jnp.array([0.0, 0.0, -1000.0])
+		# f_rest = compute_forces_jax(STATIC_INIT_POS, MU_VAL, LAM_VAL, STATIC_INIT_POS, STATIC_CENTER,
+		# 							STATIC_NORMALS, STATIC_THICKNESS, far, box_sizes, box_rots, edges, num_frames)
+		# print("mean rest-pose force:", float(jnp.linalg.norm(f_rest, axis=1).mean()))
+
+
+		'''
+		def summarize(v0):
+			# tr = np.array(jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, v0, RESTITUTION_VAL,
+					# OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+					# STATIC_NORMALS, STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges, 200))
+		
+			tr = np.array(jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, -45, RESTITUTION_VAL,
+					OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+					STATIC_NORMALS, STATIC_THICKNESS, box_centers, box_sizes, box_rots, edges, 200))
+			print([round(float(tr[f][:, 2].max() - tr[f][:, 2].min()), 2) for f in range(30, 130, 3)])
+
+
+			hs, rs = [], []
+			for f in range(0, 200, 2):
+				P = tr[f]
+				s, _ = all_boxes_sdf_and_normal(jnp.array(P), box_centers, box_sizes, box_rots)
+				t = np.array(s) < 0.1
+				hs.append(P[:, 2].max() - P[:, 2].min())
+				rs.append(np.linalg.norm(P[t][:, :2] - P[:, :2].mean(0), axis=1).max() if t.any() else 0.0)
+			print("v0=%d min_height=%.2f max_footprint=%.2f" % (v0, min(hs), max(rs)))
+
+		for v0 in [-20, -30, -45, -60]:
+			summarize(v0)
+		'''
+
+
+
+
+		'''
+
+
+		'''
+
+
+
+
+		# print('free fall')
+		# far = box_centers + jnp.array([0.0, 0.0, -1000.0])
+		# fl = np.array(jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY,
+		# 		RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,
+		# 		STATIC_NORMALS, STATIC_THICKNESS, far, box_sizes, box_rots, 100))
+		# for f in range(0, 100, 5):
+		# 	P = fl[f]
+		# 	print(f, "height=%.2f width=%.2f" % (P[:, 2].max() - P[:, 2].min(), P[:, 0].max() - P[:, 0].min()))
+
+
+
+		# FLATNESS RATIO
+		# 2000 min_sdf=0.007 com= [ -7.58   2.76 -17.99]
+		# 2100 min_sdf=0.007 com= [ -7.59   2.78 -17.99]
+
+		# return
+
+		'''
+
+		b1_center, b1_size, b1_rot = get_jax_transforms(cube_floor)
+		b2_center, b2_size, b2_rot = get_jax_transforms(mid_obstacle)
+		b3_center, b3_size, b3_rot = get_jax_transforms(mid_obstacle2)
+		b4_center, b4_size, b4_rot = get_jax_transforms(mid_obstacle3)
+
+		# ==============================================================================
+		# 2. EXTRACT SCENE GEOMETRY TO GLOBAL SCOPE ARRAYS
+		# ==============================================================================
+		mesh = ball_obj.data
+		num_verts = len(mesh.vertices)
+		orig_coords = np.zeros((num_verts, 3))
+		mesh.vertices.foreach_get("co", orig_coords.ravel())
+
+		# Baseline world coordinates tracking matrix
+		sphere_tracker = np.copy(orig_coords)
+		sphere_tracker[:, 2] += 7.5  
+
+		# Extract reference normal direction vectors
+		ref_normals_numpy = np.zeros((num_verts, 3))
+		for v in mesh.vertices:
+			ref_normals_numpy[v.index] = np.array(v.normal)
+
+		# Precompute thickness profile cushion (14% of initial relative height profile)
+		min_init_z = np.min(orig_coords[:, 2])
+		vertex_thickness_numpy = (orig_coords[:, 2] - min_init_z) * 0.14  
+
+		# --- GLOBAL SCOPE JAX ARRAYS ---
+		# By assigning these to the global module scope, the JAX functions can read them
+		# directly via closure. They are never passed through scan, so they CANNOT flatten or swap!
+
+		STATIC_INIT_POS = jnp.array(sphere_tracker)
+		STATIC_CENTER = jnp.mean(STATIC_INIT_POS, axis=0) # Pristine Frame 1 rest center
+		STATIC_NORMALS = jnp.array(ref_normals_numpy)
+		STATIC_THICKNESS = jnp.array(vertex_thickness_numpy)
+
+
+		# ==============================================================================
+		# 4. EXPLICIT AUTOMATED INDIVIDUAL-ARGUMENT BACKPROPAGATION GRADIENT DESCENT LOOP
+		# ==============================================================================
+
+		# --- FIXED: WEIGHT PROFILE EXPERIMENT SWITCHBOARD ---
+		# Test Case 1: Heavy Lead Brick -> Mass = 50.0, Drag = 0.15 (Slams down hard, bounces high)
+		# Test Case 2: Light Feather Cushion -> Mass = 0.8, Drag = 1.85 (Floats down slowly, stays soft)
+		# OBJECT_MASS_VAL = 45.0          
+		# DRAG_COEFFICIENT_VAL = 0.25   
+
+
+		# num_frames = 600
+		# num_frames = 1200
+		num_frames = 1600
+		# num_frames = 2000
+		# num_frames = 300
+		# num_frames = 300
+
+
+
+	
+
+		##########
+		### SPHERE GOOD
+		##########
+		MU_VAL = 550.0
+		LAM_VAL = 3000.0
+		DAMPING_VAL = 0.995
+		DT_VAL = 0.008
+		INITIAL_SPIKE_VELOCITY = -30
+		RESTITUTION_VAL = .87
+		OBJECT_MASS_VAL = 300.0
+		DRAG_COEFFICIENT_VAL = .05
+
+		TARGET_FRAME = 100
+		TARGET_HEIGHT = 12.5
+		'''
+
+		'''
+		loss_fn = jax.jit(lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT))
+
+		# Target index slots securely: 0=mu, 1=lam, 2=damping, 4=velocity, 6=mass
+		grad_fn = jax.jit(jax.grad(
+			lambda m, l, d, t, v, r, ma, dr: loss_function(m, l, d, t, v, r, ma, dr, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, TARGET_FRAME, TARGET_HEIGHT),
+			argnums=(0, 1, 2, 4, 6)
+		))
+
+
+		print(f"\n[JAX Optimizer] Launching local manual-argument gradient search trajectory tracking...")
+
+		lr_stiffness = 2.5    
+		# lr_damping = 4e-4 ##
+		# lr_damping = 2
+		lr_damping = .1
+		# lr_velocity = 4e-1    
+		lr_velocity = 10 
+		# lr_mass = 0.5         # Gradient search rate for weight scale optimization
+		lr_mass = .5         # Gradient search rate for weight scale optimization
+		# num_steps = 20
+		# num_steps = 10
+		# num_steps = 5
+		num_steps = 2
+
+
+		for iteration in range(num_steps):
+			continue
+
+			current_loss = loss_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			raw_grads = grad_fn(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL)
+			
+			grad_mu, grad_lam, grad_damp, grad_vel, grad_mass = raw_grads
+			
+			# FIXED: True Sign Fallback. If gradients hit a zero plateau, we use a constant 
+			# directional sign push to dynamically kick the parameter out of the flat zone
+			step_mu   = jnp.sign(grad_mu) * lr_stiffness if jnp.abs(grad_mu) > 1e-5 else jnp.sign(MU_VAL - 450.0) * lr_stiffness
+			step_lam  = jnp.sign(grad_lam) * lr_stiffness if jnp.abs(grad_lam) > 1e-5 else jnp.sign(LAM_VAL - 3500.0) * lr_stiffness
+			step_damp = grad_damp * lr_damping if jnp.abs(grad_damp) > 1e-5 else (DAMPING_VAL - 0.94) * lr_damping
+			
+			# Track velocity derivatives out of dead zones smoothly
+			step_vel  = jnp.sign(grad_vel) * lr_velocity if jnp.abs(grad_vel) > 1e-5 else -1.5 * lr_velocity
+			step_mass = jnp.sign(grad_mass) * lr_mass      if jnp.abs(grad_mass) > 1e-5 else grad_mass * 2
+			
+			# Apply individual unrolled updates smoothly
+			MU_VAL                 = float(jnp.clip(MU_VAL + step_mu, 200.0, 5000.0))
+			LAM_VAL                = float(jnp.clip(LAM_VAL + step_lam, 1000.0, 15000.0))
+			DAMPING_VAL            = float(jnp.clip(DAMPING_VAL - step_damp, 0.98, 0.994))
+			OBJECT_MASS_VAL        = float(jnp.clip(OBJECT_MASS_VAL + step_mass, 0.1, 200.0)) # Clip weight to valid ranges
+			
+			# FIXED: Expanded the clipping boundary ceiling completely to support -120.0 m/s
+			# INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY - step_vel, -120.0, -10.0))
+			INITIAL_SPIKE_VELOCITY = float(jnp.clip(INITIAL_SPIKE_VELOCITY + step_vel, -120.0, -10.0))
+			
+			print(f"  Step {iteration+1:02d} -> Loss: {current_loss:.4f} | Mass Weight: {OBJECT_MASS_VAL:.2f} kg | Spike Vel: {INITIAL_SPIKE_VELOCITY:.2f} m/s | Mu: {MU_VAL:.1f} | Lam: {LAM_VAL:.1f} | Damping: {DAMPING_VAL:.4f} Dt: {DT_VAL:.4f}")
+			
+		print("\n[JAX Engine] Optimization target achieved! Pulling verified trajectory memory buffer...")
+
+		'''
+
+		# num_frames = 600
+		
+		
+		# final_trajectory_matrix = jit_simulation_engine(
+		# 	MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, num_frames
+		# )
+
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL,OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER,STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, num_frames)
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, b3_center, b3_size, b3_rot, num_frames)
+		
+		
+		# final_trajectory_matrix = jit_simulation_engine(MU_VAL, LAM_VAL, DAMPING_VAL, DT_VAL, INITIAL_SPIKE_VELOCITY, RESTITUTION_VAL, OBJECT_MASS_VAL, DRAG_COEFFICIENT_VAL, STATIC_INIT_POS, STATIC_CENTER, STATIC_NORMALS, STATIC_THICKNESS, b1_center, b1_size, b1_rot, b2_center, b2_size, b2_rot, b3_center, b3_size, b3_rot, b4_center, b4_size, b4_rot, num_frames) #OLD 24 (0 base)
+
+		baked_frames_positions = np.array(final_trajectory_matrix)
+		depsgraph = bpy.context.evaluated_depsgraph_get()
+
+		print("[Blender Pipeline] Writing exact JAX position memory to timeline Shape Keys...")
+
+
+
+
+
+
+
+
+		local_frames = baked_frames_positions.copy()
+		local_frames[:, :, 2] -= 7.5
+		# pc2_path = os.path.join(tempfile.gettempdir(), "rubber_ball.pc2")
+
+		pc2_path = bpy.path.abspath("E:/projects_3d/ABJ_Shader_Debugger_for_Blender/scenes/compositing_files/rubber_ball.pc2")
+
+		self.write_pc2(pc2_path, local_frames)
+
+		mod = ball_obj.modifiers.new("BallCache", 'MESH_CACHE')
+		mod.cache_format = 'PC2'
+		mod.filepath = pc2_path
+		mod.frame_start = 1
+
+
+
+
+
+		'''
+		for idx, frame in enumerate(range(1, num_frames + 1)):
+			print('frame_idx = ', idx)
+			bpy.context.scene.frame_set(frame)
+			
+			frame_coords = baked_frames_positions[frame - 1]
+			baked_local_coords = np.copy(frame_coords)
+			baked_local_coords[:, 2] -= 7.5
+			
+			skey = ball_obj.shape_key_add(name=f"Frame_{frame}", from_mix=False)
+			skey.data.foreach_set("co", baked_local_coords.ravel())
+			
+			skey.value = 1.0
+			skey.keyframe_insert(data_path="value", frame=frame)
+			if frame > 1:
+				skey.value = 0.0
+				skey.keyframe_insert(data_path="value", frame=frame - 1)
+				prev_key = ball_obj.data.shape_keys.key_blocks[f"Frame_{frame-1}"]
+				prev_key.value = 0.0
+				prev_key.keyframe_insert(data_path="value", frame=frame)
+				
+			depsgraph.update()
+		'''
+
+		bpy.context.scene.frame_set(1)
+		print("\n[Bake Finished] Unified engine execution completed successfully! Press Spacebar.")
+
+		# bpy.context.scene.render.fps = 240
+		bpy.context.scene.render.fps = 120
+		# bpy.context.scene.render.fps = 120 * 4
+		bpy.context.scene.frame_end = num_frames
+
+		for area in bpy.context.screen.areas: 
+			if area.type == 'VIEW_3D':
+				for space in area.spaces: 
+					if space.type == 'VIEW_3D':
+						space.shading.type = 'RENDERED'
+
+	def write_pc2(self, path, frames_local):
+		"""frames_local: (num_frames, num_verts, 3) float array in the object's LOCAL space."""
+		n_frames, n_verts, _ = frames_local.shape
+		with open(path, "wb") as f:
+			f.write(struct.pack("<12siiffi", b"POINTCACHE2\0", 1, n_verts, 1.0, 1.0, n_frames))
+			f.write(frames_local.astype(np.float32).tobytes())
+
 	def testSDF_01(self):
 		pass
 
@@ -3548,7 +4890,9 @@ class myEquation_dFEM:
 		startTime = datetime.now()
 
 		# self.bounce_diff_03(abj_sd_b_instance)
-		self.bounce_diff_04(abj_sd_b_instance) #arb collision
+		# self.bounce_diff_04(abj_sd_b_instance) #arb collision with pancake
+		# self.bounce_diff_05(abj_sd_b_instance) #new
+		self.bounce_diff_06(abj_sd_b_instance) #arb collision with pancake arbitrary obj
 
 		totalTime = datetime.now() - startTime
 		print(' ')
